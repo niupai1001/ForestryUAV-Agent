@@ -1,0 +1,116 @@
+{
+  "schema_version": "1.0",
+  "source_root": "E:\\Download\\0无人机数据分享",
+  "generated_at": "2026-09-03T16:22:32.127119+08:00",
+  "image_count": 200,
+  "read_error_count": 0,
+  "collections": [
+    {
+      "directory": "E:\\Download\\0无人机数据分享\\0无人机数据分享\\RGB影像",
+      "image_count": 120,
+      "total_gb": 0.601,
+      "extensions": {
+        ".jpg": 120
+      },
+      "camera_makes": [
+        "DJI"
+      ],
+      "camera_models": [
+        "FC300XW"
+      ],
+      "dimensions": [
+        "4000x3000"
+      ],
+      "capture_start": "2020-07-31T14:21:32",
+      "capture_end": "2020-07-31T14:26:19",
+      "gps_tagged": 120,
+      "relative_altitude_median": 69.9,
+      "gimbal_pitch_median": -90.0,
+      "estimated_gsd_cm_per_px": 2.99,
+      "extent": {
+        "min_latitude": 42.39851902777778,
+        "max_latitude": 42.39926138888889,
+        "min_longitude": 117.31300925,
+        "max_longitude": 117.31389877777778,
+        "approx_width_m": 73.1,
+        "approx_height_m": 82.1
+      },
+      "spacing": {
+        "median_consecutive_m": 3.95,
+        "max_consecutive_m": 13.6,
+        "median_nearest_neighbor_m": 3.85
+      },
+      "bands": {},
+      "multispectral_capture_groups": 0,
+      "incomplete_multispectral_groups": {},
+      "images_with_irradiance": 0,
+      "images_with_vignetting_metadata": 0,
+      "images_with_dewarp_metadata": 0,
+      "rtk_flags": {},
+      "sharpness_proxy": {
+        "minimum": 802.05,
+        "median": 1564.51,
+        "maximum": 2741.0
+      }
+    },
+    {
+      "directory": "E:\\Download\\0无人机数据分享\\0无人机数据分享\\多光谱影像",
+      "image_count": 80,
+      "total_gb": 0.752,
+      "extensions": {
+        ".tif": 80
+      },
+      "camera_makes": [
+        "DJI"
+      ],
+      "camera_models": [
+        "M3M"
+      ],
+      "dimensions": [
+        "2592x1944"
+      ],
+      "capture_start": "2024-07-18T08:47:45",
+      "capture_end": "2024-07-18T08:50:54",
+      "gps_tagged": 80,
+      "relative_altitude_median": 60.0,
+      "gimbal_pitch_median": -89.95,
+      "estimated_gsd_cm_per_px": 2.74,
+      "extent": {
+        "min_latitude": 42.323721418,
+        "max_latitude": 42.324084111,
+        "min_longitude": 117.201483137,
+        "max_longitude": 117.202541301,
+        "approx_width_m": 87.1,
+        "approx_height_m": 40.1
+      },
+      "spacing": {
+        "median_consecutive_m": 10.7,
+        "max_consecutive_m": 11.38,
+        "median_nearest_neighbor_m": 10.67
+      },
+      "bands": {
+        "Green": 20,
+        "NIR": 20,
+        "Red": 20,
+        "RedEdge": 20
+      },
+      "multispectral_capture_groups": 20,
+      "incomplete_multispectral_groups": {},
+      "images_with_irradiance": 80,
+      "images_with_vignetting_metadata": 80,
+      "images_with_dewarp_metadata": 80,
+      "rtk_flags": {
+        "16": 80
+      },
+      "sharpness_proxy": {
+        "minimum": 585.97,
+        "median": 585.97,
+        "maximum": 585.97
+      }
+    }
+  ],
+  "warnings": [
+    "Multiple camera/date acquisition groups detected; process them as separate photogrammetry projects unless surveyed co-registration is available."
+  ],
+  "errors": []
+}
