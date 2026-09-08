@@ -101,6 +101,81 @@ class RuntimeTests(unittest.TestCase):
         })
         self.assertFalse(swapped['ok'])
 
+        segmented = box.execute('segment_canopy', {
+            'asset_id': output['id'], 'threshold': 0.4,
+        })
+        self.assertTrue(segmented['ok'], segmented)
+        self.assertEqual(
+            segmented['data']['statistics']['candidate_pixel_count'], 2
+        )
+        mask_asset = segmented['data']['mask']
+        self.assertEqual(mask_asset['parent_id'], output['id'])
+        with rasterio.open(self.store.path(mask_asset['id'], 'alice')) as ds:
+            self.assertEqual(ds.dtypes[0], 'uint8')
+            self.assertEqual(ds.nodata, 255)
+            self.assertEqual(set(np.unique(ds.read(1))), {0, 1, 255})
+        automatic = box.execute('segment_canopy', {
+            'asset_id': output['id'],
+        })
+        self.assertTrue(automatic['ok'], automatic)
+        self.assertTrue(
+            automatic['data']['threshold_source'].startswith('otsu_')
+        )
+        self.assertEqual(
+            automatic['data']['statistics']['candidate_pixel_count'], 2
+        )
+
+    def test_inspect_raster_checks_alpha_and_red_nir_overlap(self):
+        path = Path(self.temp.name) / 'conditions.tif'
+        red = np.array(
+            [[0, 1, 1, 1], [0, -1, 1, np.nan]], dtype='float32'
+        )
+        nir = np.array(
+            [[0, 3, 1, -1], [0, 1, 9, 1]], dtype='float32'
+        )
+        alpha = np.array(
+            [[0, 1, 1, 1], [0, 1, 1, 0]], dtype='float32'
+        )
+        with rasterio.open(
+            path, 'w', driver='GTiff', width=4, height=2, count=3,
+            dtype='float32', crs='EPSG:32650',
+            transform=from_origin(500000, 3100000, .03, .03),
+        ) as ds:
+            ds.write(red, 1)
+            ds.write(nir, 2)
+            ds.write(alpha, 3)
+            ds.set_band_description(1, 'Red')
+            ds.set_band_description(2, 'NIR')
+            ds.set_band_description(3, 'Alpha')
+        with path.open('rb') as stream:
+            asset = self.store.put(stream, 'conditions.tif', 'alice')
+        result = Toolbox(
+            self.store, 'alice', [asset['id']]
+        ).execute('inspect_raster', {'asset_id': asset['id']})
+        self.assertTrue(result['ok'], result)
+        data = result['data']
+        self.assertEqual(
+            data['roles_from_metadata'], {'red': 1, 'nir': 2, 'alpha': 3}
+        )
+        red_stats = data['band_statistics'][0]
+        self.assertEqual(red_stats['nonfinite_pixel_count'], 1)
+        self.assertEqual(red_stats['negative_pixel_count'], 1)
+        self.assertEqual(red_stats['zero_pixel_count'], 2)
+        pair = data['red_nir_pair']
+        self.assertEqual(pair['common_valid_pixel_count'], 7)
+        self.assertEqual(pair['zero_denominator_pixel_count'], 4)
+        self.assertEqual(
+            pair['zero_denominator_and_alpha_nonpositive_pixel_count'], 2
+        )
+        self.assertEqual(
+            pair['zero_denominator_and_alpha_positive_pixel_count'], 2
+        )
+        self.assertEqual(data['alpha_analysis']['positive_pixel_count'], 5)
+        invalid_input = Toolbox(
+            self.store, 'alice', [asset['id']]
+        ).execute('segment_canopy', {'asset_id': asset['id']})
+        self.assertFalse(invalid_input['ok'])
+
     def test_zip_text_and_validation(self):
         for name, valid in [('folder/readme.txt', True), ('../escape.txt', False), ('C:\\escape.txt', False)]:
             data = io.BytesIO()

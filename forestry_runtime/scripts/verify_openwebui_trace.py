@@ -1,4 +1,4 @@
-"""Verify that Open WebUI receives Runtime thinking and trace markup."""
+"""Verify native reasoning and clean message content in Open WebUI."""
 import json
 from uuid import uuid4
 

@@ -35,7 +35,7 @@
 
 > 检查这个多光谱GeoTIFF的波段，然后计算NDVI并生成结果文件。
 
-界面使用Open WebUI原生推理面板折叠显示Qwen返回的思考，并用状态事件显示工具名称、完成状态和耗时；完整工具参数与结果保留在Runtime事件及Agent观察中，不再以转义JSON写入回答正文。最终文件使用真实的 Open WebUI 下载链接。不要把模型自行解释的内容当作额外测量结果。本版本已有NDVI工具，尚无林冠分割、林冠覆盖度或树高工具。
+界面使用Open WebUI原生推理面板折叠显示Qwen返回的思考，并用状态事件显示工具名称、完成状态和耗时；完整工具参数与结果保留在Runtime事件及Agent观察中，不再以转义JSON写入回答正文。最终文件使用真实的 Open WebUI 下载链接。不要把模型自行解释的内容当作额外测量结果。本版本已有NDVI和初步候选林冠分割工具，尚无经过验证的最终林冠覆盖度或树高工具。
 
 ## 文件与工具
 
@@ -43,11 +43,13 @@
 |---|---|
 | `list_files` | 只列出本次会话传入/生成的文件 |
 | `inspect_file` | TIFF真实CRS、CRS名称、波段描述、像元尺寸、网格面积；PNG/JPG尺寸；其他格式返回文件元数据 |
+| `inspect_raster` | 分块扫描真实像元，精确统计掩膜、零值、负值、NaN/Inf、范围和均值，抽样计算分位数，并检查Red/NIR零分母与Alpha背景的重合关系 |
 | `read_text` | UTF-8文本、CSV、JSON、GeoJSON等，默认最多12000字符 |
 | `inspect_zip` | ZIP清单及路径、文件数量、解压体积检查 |
 | `extract_zip` | 解压到独立资产，返回子文件ID和包内相对路径 |
 | `preview_image` | TIFF/PNG/JPG/WEBP缩略图；TIFF前3波段或单波段、2–98%拉伸，仅供展示 |
 | `calculate_ndvi` | 根据明确指定的Red/NIR波段，分块计算NDVI并输出保留空间参考的单波段float32 GeoTIFF，同时返回有效像元和统计值 |
+| `segment_canopy` | 对NDVI使用Otsu或明确阈值生成uint8候选Mask；1=候选、0=有效非候选、255=无效。当前不能区分树冠和草本植被 |
 | `save_text` | 新建txt/md/csv/json/geojson文件，不覆盖已有文件 |
 
 上传接受一般文件格式，但“已保存”不等于该格式已有解析器。例如PDF、LAS可以保存，目前没有全文提取或点云处理工具。TIFF工具仅打开真实GTiff，不加载用户上传的VRT。整个像元网格的投影面积不等于森林面积、有效像元面积或样地面积。

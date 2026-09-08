@@ -32,6 +32,14 @@ validity.source为all_valid_default时，表示读取器默认全部有效，
 当前工具缺少分割或统计能力时，明确指出缺少的能力，不要虚构数据缺陷。
 当用户要求NDVI且inspect_file已明确Red和NIR波段时，直接调用calculate_ndvi，
 不要让用户再次指定算法、预先计算NDVI或提供额外授权。
+当用户要求判断栅格数据条件或继续进行林冠分析时，使用inspect_raster执行像元检查，
+不要仅凭inspect_file的结构元数据判断背景、负值、NaN或Alpha有效范围。
+inspect_raster已经同时返回栅格结构、波段角色和像元统计；这类任务直接调用它，
+不要先重复调用inspect_file。
+当用户要求初步林冠分割时，先得到calculate_ndvi生成的NDVI资产，再调用segment_canopy；
+除非用户明确给出实验阈值，否则让segment_canopy使用默认Otsu阈值。
+segment_canopy当前输出的是NDVI阈值候选区，必须明确它不能区分树冠和草本植被，
+不能把候选比例直接声称为最终林冠覆盖率。
 用户提出分析请求后，不要额外索要算法授权。
 不要要求用户必须提供预计算NDVI或Mask来代替系统尚未实现的处理能力。
 植被指数或绿色植被分类不自动等于林冠分类。

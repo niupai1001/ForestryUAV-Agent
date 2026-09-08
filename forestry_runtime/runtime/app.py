@@ -40,7 +40,7 @@ async def lifespan(app):
             await task
 
 
-app = FastAPI(title='Forestry Runtime', version='0.3.0', lifespan=lifespan)
+app = FastAPI(title='Forestry Runtime', version='0.4.0', lifespan=lifespan)
 
 
 def identity(authorization: str = Header(default=''), x_user_id: str = Header(default='local')):
@@ -128,7 +128,7 @@ def acknowledge_session(chat_id: str, body: Sources, owner=Depends(identity)):
 
 @app.get('/health')
 def health():
-    return {'status': 'ok', 'version': '0.3.0', 'model': os.getenv('OLLAMA_MODEL', 'qwen3.5:4b')}
+    return {'status': 'ok', 'version': '0.4.0', 'model': os.getenv('OLLAMA_MODEL', 'qwen3.5:4b')}
 
 
 @app.post('/assets')

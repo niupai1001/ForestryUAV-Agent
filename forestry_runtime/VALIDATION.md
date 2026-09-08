@@ -1,5 +1,15 @@
 # 验证记录
 
+## 2026-09-08：像元检查与候选林冠分割 0.4
+
+- 建立Git基线提交`ffe2550`，并在`codex/raster-inspection-canopy-baseline`分支开发。
+- 新增`inspect_raster`：分块精确统计掩膜、非有限值、零值、负值、范围和均值，使用确定性抽样分位数，并检查Red/NIR/Alpha空间重合关系。
+- 当前真实286 MB正射影像检查表明：Band 5由color interpretation识别为Alpha；1,967,921个Alpha=0像元与Red、NIR同时为零及NDVI零分母像元完全重合，Alpha>0区域无零分母。
+- 新增`segment_canopy`初始基线：仅接受`calculate_ndvi`产物，默认从512-bin NDVI直方图计算Otsu阈值，输出0/1/255 uint8候选Mask及像元、比例和投影面积统计。
+- 13项自动测试全部通过，包括Alpha/零分母重合统计、显式阈值、自动Otsu、Mask类别与空间参考、非NDVI输入拒绝。
+- 在真实NDVI临时副本上得到Otsu阈值0.525390625；有效像元14,445,751，候选像元13,167,320，占有效区91.1501%，候选面积11,848.63平方米。该结果仅为高NDVI植被候选区，不作为最终林冠覆盖率。
+- 本地qwen3.5:4b完成`inspect_file → inspect_raster → calculate_ndvi → segment_canopy`。额外的快速`inspect_file`记录为工具效率问题，不影响数据和产物正确性，后续在Benchmark中评估。
+
 ## 2026-09-07：Open WebUI原生推理呈现 0.3.1
 
 - Pipe将Runtime的thinking事件映射为OpenAI兼容的`reasoning_content`增量，由Open WebUI生成原生推理面板。
