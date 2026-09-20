@@ -142,3 +142,20 @@ CSV verifier 按 `plot_id` 逐键核对全量记录、字段类型、空值与�
 产物 verifier 要求下载文件关联创建它的 Action；回答检查只接受提示词要求的结构化
 事实块，无法机器解析时为 `unknown`，不会凭关键词猜测通过。只有真实模型经部署 API
 产生的 Agent 记录才能标记 `execution=real_model`。
+
+浏览器轨道使用真实 Chromium 和受控 API，以便把渲染/重连缺陷与模型波动分开：
+
+```powershell
+npx playwright install chromium
+python -m evaluation.collect.browser `
+  --output evaluation/work/baseline/ui-repeat-1 --project-root .
+python -m evaluation.verify.ui_trial `
+  --trial evaluation/work/baseline/ui-repeat-1 `
+  --configuration evaluation/work/baseline/configuration-ui.json `
+  --repeat 1 --output evaluation/work/baseline/ui-repeat-1/records.json
+```
+
+`ui.send` 在 POST 被评价端延迟时检查用户气泡已绘制，失败后输入可恢复；
+`ui.reconnect` 分页读取 10,005 个事件、按 `seq` 去重并在刷新后恢复真实终态。
+Playwright 原始 JSON 报告和测试附件是证据；只运行一次仍只占 repeat 1，不能补齐每题
+预注册的三个重复槽位。

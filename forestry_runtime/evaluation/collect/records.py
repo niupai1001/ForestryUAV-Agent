@@ -28,17 +28,21 @@ def _rebase(items: list[str], source_root: Path, records_root: Path) -> list[str
 def assemble(record_files: list[Path], output: Path) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for record_file in record_files:
-        record = json.loads(record_file.read_text(encoding="utf-8"))
+        payload = json.loads(record_file.read_text(encoding="utf-8"))
+        trial_records = payload if isinstance(payload, list) else [payload]
         source_root = record_file.resolve().parent
-        status = record.get("status_evidence", {})
-        status["evidence"] = _rebase(
-            status.get("evidence", []), source_root, output.resolve().parent
-        )
-        for check in record.get("checks", {}).values():
-            check["evidence"] = _rebase(
-                check.get("evidence", []), source_root, output.resolve().parent
+        for record in trial_records:
+            if not isinstance(record, dict):
+                raise ValueError("Each trial record must be a JSON object")
+            status = record.get("status_evidence", {})
+            status["evidence"] = _rebase(
+                status.get("evidence", []), source_root, output.resolve().parent
             )
-        records.append(record)
+            for check in record.get("checks", {}).values():
+                check["evidence"] = _rebase(
+                    check.get("evidence", []), source_root, output.resolve().parent
+                )
+            records.append(record)
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
     return records

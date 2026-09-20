@@ -18,6 +18,7 @@ from evaluation.collect.trace import failure_category, normalize_trace
 from evaluation.verify.csv import compare_by_business_key
 from evaluation.verify.gates import exactly_once
 from evaluation.verify.text import claims_match_table
+from evaluation.verify.ui_trial import CASES as UI_CASES, verify_trial as verify_ui_trial
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -131,10 +132,39 @@ class EvaluationPipelineTests(unittest.TestCase):
         output = self.root / "records.json"
         assembled = assemble([path], output)
         self.assertEqual(assembled[0]["checks"]["x"]["evidence"], ["trial-1/proof.json"])
+        path.write_text(json.dumps([record, record]), encoding="utf-8")
+        self.assertEqual(len(assemble([path], output)), 2)
         record["checks"]["x"]["evidence"] = ["../outside.json"]
         path.write_text(json.dumps(record), encoding="utf-8")
         with self.assertRaises(ValueError):
             assemble([path], output)
+
+    def test_ui_verifier_requires_real_passing_playwright_results(self):
+        trial = self.root / "ui"
+        trial.mkdir()
+        specs = []
+        for contract in UI_CASES.values():
+            specs.append({
+                "title": contract["title"], "ok": True, "id": contract["title"],
+                "tests": [{"results": [{"status": "passed"}]}],
+            })
+        (trial / "playwright-report.json").write_text(json.dumps({
+            "suites": [{"specs": specs}],
+        }), encoding="utf-8")
+        records = verify_ui_trial(trial, {"snapshot": "test"}, 1)
+        self.assertEqual(len(records), 2)
+        self.assertTrue(all(
+            check["verdict"] == "pass"
+            for record in records for check in record["checks"].values()
+        ))
+        specs[0]["tests"] = []
+        (trial / "playwright-report.json").write_text(json.dumps({
+            "suites": [{"specs": specs}],
+        }), encoding="utf-8")
+        failed = verify_ui_trial(trial, {"snapshot": "test"}, 1)
+        self.assertTrue(all(
+            check["verdict"] == "fail" for check in failed[0]["checks"].values()
+        ))
 
 
 if __name__ == "__main__":

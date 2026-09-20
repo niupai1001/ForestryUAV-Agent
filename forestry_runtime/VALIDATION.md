@@ -9,6 +9,7 @@
 - 首个真实 engineering 证据包位于忽略提交的 `evaluation/work/architecture-20260920/`。`gate.idempotency` 故障注入 2/2 通过；持久化探针中 Input、Turn、Action、Attempt、Job 各 1 条，重复、孤儿关联、多 Attempt 和失败预留残留均为 0，verifier 判定 `pass`。因为其他 45 个预注册槽位未测，正式 scorecard 仍为 `incomplete`，没有发布 Agent 总分。
 - `core.csv` fixture、gold、collector 和三个 verifier 已就绪，但本机 `127.0.0.1:8010` 未监听且当前进程没有 Runtime API 凭据，因此没有执行或伪造 `core.csv × 3` 的 `real_model` 记录。恢复部署后按 `evaluation/README.md` 运行。
 - React 已拆出 API client、`useRunStream`、事件投影、对话和行动流组件。界面不再固定声称模型为 Qwen，不再把缺少状态的 `done` 事件推断成 completed，工具结果优先使用服务端 `outcome_ok`。
+- Playwright 1.55.0 + Chromium 140 已真实执行受控 UI repeat 1：`ui.send` 在延迟确认前绘制待提交气泡并在 503 后恢复输入；`ui.reconnect` 分页合并 10,005 个事件，刷新前后均恢复 completed。两项测试通过，四个 check 均由 verifier 判定 `pass`；其余 repeat 2/3 未运行，UI 轨道仍不完整。
 - `Attempt` 层保留：生产 Action 路径会真实写入、开始和结算 Attempt，且 `gate.idempotency` 已直接核对。旧 `agent_messages_json` 新建列、未调用 transcript、旧输入消费方法、Open WebUI 遗留脚本及 TypeScript 生成物已移除。PROSAIL 工作流已按现行三个工具和证据必填契约重写。
 
 ## 当前门禁结果
@@ -16,8 +17,9 @@
 执行环境：Windows，Python 3.14；前端使用仓库锁定的 Node 依赖。
 
 - `python -m compileall -q runtime host_bridge tests evaluation`：通过。
-- `python -m pytest -q`：`131 passed, 9 warnings, 64 subtests passed`，耗时 63.71 秒。
+- `python -m pytest -q`：`132 passed, 9 warnings, 64 subtests passed`，耗时 56.70 秒。
 - `python evaluation/scorecard.py`：`qualification=incomplete`，预期退出码 2。
-- `npm run build`：TypeScript 两配置 `noEmit` 检查及 Vite 生产构建通过。
+- `npm run build`：TypeScript 应用、Vite 与 E2E 三配置 `noEmit` 检查及 Vite 生产构建通过。
+- `npm run test:ui`：真实 Chromium `2 passed`；评价证据包保存在忽略提交的 `evaluation/work/architecture-20260920/ui-browser-repeat1/`。
 
 历史版本、旧部署和已淘汰架构的验证记录见 `VALIDATION_ARCHIVE.md`；它们不回填当前评价基线。
