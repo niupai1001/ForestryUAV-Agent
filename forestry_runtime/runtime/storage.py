@@ -10,6 +10,8 @@ import shutil
 import time
 import uuid
 
+from .exec.paths import is_within
+
 
 class AssetError(ValueError):
     pass
@@ -75,7 +77,7 @@ class Store:
         managed_path = asset.get('managed_path')
         if managed_path:
             path = (self.root / managed_path).resolve()
-            if path != self.root and self.root not in path.parents:
+            if not is_within(path, self.root):
                 raise AssetError('Registered artifact path leaves the session')
         else:
             path = self.root / asset_id / 'content'
@@ -131,7 +133,7 @@ class Store:
         target = Path(path).resolve()
         if not target.is_file():
             raise AssetError('Artifact file does not exist')
-        if target != self.root and self.root not in target.parents:
+        if not is_within(target, self.root):
             raise AssetError('Only files owned by this session can be registered by path')
         name = str(filename or target.name).replace('\\', '/').rsplit('/', 1)[-1]
         if name in ('', '.', '..') or len(name) > 240 or any(ord(ch) < 32 for ch in name):

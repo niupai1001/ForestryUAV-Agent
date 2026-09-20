@@ -13,11 +13,13 @@ COPY requirements-remote-sensing.txt .
 RUN pip install --no-cache-dir -r requirements-remote-sensing.txt
 
 FROM base AS core
+COPY shared ./shared
 COPY runtime ./runtime
 COPY frontend/dist ./frontend_dist
 USER runtime
 
 FROM remote-dependencies AS remote-sensing
+COPY shared ./shared
 COPY runtime ./runtime
 COPY frontend/dist ./frontend_dist
 USER runtime

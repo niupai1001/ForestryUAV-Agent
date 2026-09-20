@@ -14,6 +14,7 @@ import uuid
 
 import httpx
 
+from .exec.paths import is_within
 from .storage import AssetError
 
 
@@ -202,7 +203,7 @@ class WorkspaceRegistry:
             suggested = PurePosixPath(*parts[1:]).as_posix() if len(parts) > 1 else "."
             raise WorkspacePathError(str(relative), suggested)
         target = (root / _relative(relative)).resolve()
-        if target != root and root not in target.parents:
+        if not is_within(target, root):
             raise AssetError("Path leaves the managed workspace")
         if require_exists and not target.exists():
             raise AssetError("Workspace path does not exist")
@@ -299,10 +300,8 @@ class WorkspaceRegistry:
                 )
             raise AssetError("UAV source must be a directory")
         canonical = _host_path_object(resolved["path"])
-        try:
-            canonical.relative_to(root)
-        except ValueError as exc:
-            raise AssetError("Source path leaves the authorized directory") from exc
+        if not is_within(canonical, root):
+            raise AssetError("Source path leaves the authorized directory")
         return resolved["path"]
 
     def suggest_grant_directory(self, grant: dict, requested_path: str) -> str | None:

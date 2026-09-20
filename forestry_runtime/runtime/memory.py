@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 import uuid
 
+from .exec.paths import is_within
 from .storage import AssetError
 
 
@@ -303,7 +304,7 @@ class MemoryManager:
     def _allowed_local(self, locator: str) -> Path:
         target = Path(locator).resolve()
         configured = [Path(item).resolve() for item in os.getenv("KNOWLEDGE_ROOTS", "").split(os.pathsep) if item.strip()]
-        if not configured or not any(target == root or root in target.parents for root in configured):
+        if not configured or not any(is_within(target, root) for root in configured):
             raise AssetError("Local knowledge path is outside maintainer-configured KNOWLEDGE_ROOTS")
         return target
 

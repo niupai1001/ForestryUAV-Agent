@@ -16,9 +16,17 @@ from pathlib import Path, PurePosixPath
 import re
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 from urllib.parse import urlparse
+
+# Works both when started as a script (`python host_bridge/server.py`, which puts
+# this directory on sys.path) and when imported as `host_bridge.server`.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from shared.paths import is_within
 
 
 ID = re.compile(r"^[a-z][a-z0-9_-]{7,95}$")
@@ -54,7 +62,7 @@ def safe_relative(root: Path, relative: str, *, exists: bool = False) -> Path:
     if pure.is_absolute() or ".." in pure.parts:
         raise ValueError("relative path leaves authorized root")
     target = (root / Path(*[p for p in pure.parts if p not in ("", ".")])).resolve()
-    if target != root and root not in target.parents:
+    if not is_within(target, root):
         raise ValueError("resolved path leaves authorized root")
     if exists and not target.exists():
         raise ValueError("path does not exist")
@@ -240,7 +248,7 @@ class Service:
 
     def _workspace(self, raw: str) -> Path:
         path = Path(raw).resolve(strict=True)
-        if path != self.data_root and self.data_root not in path.parents:
+        if not is_within(path, self.data_root):
             raise PermissionError("workspace is outside runtime-owned data root")
         return path
 
