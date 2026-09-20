@@ -38,6 +38,28 @@ configuration JSON 必须是**无 BOM 的 UTF-8**，编排器会对 BOM 给出�
 在缺少 configuration 时会冻结并写入一份本机配置；Agent/UI 轨必须由评价者事先提供
 完整冻结配置。
 
+## 浏览器界面
+
+不想用命令行时，用本地可视化界面读分并触发运行：
+
+```powershell
+python -m evaluation.dashboard                       # 默认 127.0.0.1:8012，读 evaluation/work/baseline
+python -m evaluation.dashboard --root evaluation/work/score-now --port 8012
+python -m evaluation.dashboard --run-tracks engineering   # 起服务的同时立即开跑
+```
+
+打开 `http://127.0.0.1:8012/` 可以看到：
+
+- **总体判定**：`qualification`、`gates`、`agent_macro_score`、最弱能力组，以及缺证据上下界；
+- **能力组**：每组分数、证据覆盖率、通过/计划、未知数；
+- **逐题结果**：每个 case 每次重复的 verdict 与原因、得分、覆盖率、是否门禁；
+- **缺证据原因**：按原因归并的未测槽位——未测不代表失败，分母不缩减；
+- **运行基线**：选轨道后点「运行」，页面轮询进度并自动刷新结果。
+
+界面只用 Python 标准库，不 import `runtime`，也不依赖 Runtime 镜像：Runtime 停着也能
+启动它看历史分数。它只读 `--root` 目录内的 `scorecard.json` 与 `records.json`，同一
+时刻只允许一次运行（第二次触发会立刻被拒，不会挂起）。
+
 `records.json` 是由评价端采集器生成的数组。每条记录对应一个预先登记的重复
 槽位；示例结构如下（下面是格式说明，不是实际验收结果）：
 
