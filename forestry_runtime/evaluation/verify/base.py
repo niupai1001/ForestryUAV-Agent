@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Literal
 
@@ -28,4 +28,22 @@ class Verdict:
         return asdict(self)
 
 
-__all__ = ["Verdict"]
+def save_verdict(verdict: Verdict, root: Path) -> Verdict:
+    """Downgrade a verdict whose declared evidence does not resolve inside *root*.
+
+    ``scorecard._proof`` already refuses to pass a check whose evidence is missing;
+    this is the verifier-side half of the same rule, so a verifier never hands back
+    a verdict it cannot substantiate. Four trial modules previously carried their
+    own copy of this loop.
+    """
+    for item in verdict.evidence:
+        candidate = (root / item).resolve()
+        if root.resolve() not in candidate.parents or not candidate.is_file():
+            return replace(
+                verdict, verdict="unknown", evidence=[],
+                detail=f"Verifier evidence is missing or outside the trial package: {item}",
+            )
+    return verdict
+
+
+__all__ = ["Verdict", "save_verdict"]

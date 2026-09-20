@@ -3,26 +3,15 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
 import json
 from pathlib import Path
 from typing import Any
 
-from .base import Verdict
+from .base import Verdict, save_verdict
 from .ndvi import (
     compare_ndvi_grid_mask, compare_ndvi_pixels, reported_facts_match_artifact,
 )
 
-
-def _save_verdict(verdict: Verdict, root: Path) -> Verdict:
-    for item in verdict.evidence:
-        candidate = (root / item).resolve()
-        if root.resolve() not in candidate.parents or not candidate.is_file():
-            return replace(
-                verdict, verdict="unknown", evidence=[],
-                detail=f"Verifier evidence is missing or outside the trial package: {item}",
-            )
-    return verdict
 
 
 def verify_trial(
@@ -59,9 +48,9 @@ def verify_trial(
         json.dumps(terminal, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     checks = {
-        "pixels": _save_verdict(pixels, trial).as_check(),
-        "grid_mask": _save_verdict(grid, trial).as_check(),
-        "answer": _save_verdict(answer, trial).as_check(),
+        "pixels": save_verdict(pixels, trial).as_check(),
+        "grid_mask": save_verdict(grid, trial).as_check(),
+        "answer": save_verdict(answer, trial).as_check(),
     }
     return {
         "suite_version": "forestry-eval-0.1",

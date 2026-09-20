@@ -3,27 +3,15 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
 import json
 from pathlib import Path
 from typing import Any
 
-from .base import Verdict
+from .base import Verdict, save_verdict
 from .csv import compare_by_business_key
 from .provenance import artifact_links_to_action
 from .text import claims_match_table
 
-
-def _save_verdict(verdict: Verdict, root: Path) -> Verdict:
-    """Ensure every declared evidence path resolves inside the trial package."""
-    for item in verdict.evidence:
-        candidate = (root / item).resolve()
-        if root.resolve() not in candidate.parents or not candidate.is_file():
-            return replace(
-                verdict, verdict="unknown", evidence=[],
-                detail=f"Verifier evidence is missing or outside the trial package: {item}",
-            )
-    return verdict
 
 
 def verify_trial(
@@ -67,9 +55,9 @@ def verify_trial(
         json.dumps(terminal, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     checks = {
-        "table": _save_verdict(table, trial).as_check(),
-        "artifact": _save_verdict(artifact, trial).as_check(),
-        "answer": _save_verdict(answer, trial).as_check(),
+        "table": save_verdict(table, trial).as_check(),
+        "artifact": save_verdict(artifact, trial).as_check(),
+        "answer": save_verdict(answer, trial).as_check(),
     }
     completed = terminal["actual"] == terminal["expected"]
     run_id = str(trace.get("run_id") or "")

@@ -1,12 +1,15 @@
-"""Verify one collected forestry.chm evidence package and emit a scorecard record.
+"""Verify one collected forestry.product_qa evidence package and emit a record.
 
-The contract has two halves and one verifier serves both. The positive half
-delivers a raster, so ``pixels`` and ``mask_units`` are decidable. The negative
-half must *not* deliver one, which makes those two checks undecidable for that
-trial -- they report ``unknown`` and stay in the denominator rather than being
-silently dropped or falsely passed. ``claims`` decides which half applies by
-reading the answer's ``built`` flag, so a trial that fabricates a CHM while the
-inputs cannot support one is judged on the raster it should not have produced.
+Unlike forestry.ndvi and forestry.chm this case has no output raster to compare:
+the delivered "artifact" under test is the agent's own metadata claim, and the
+evaluator's job is to check that claim against an independent read of the same
+product. The three checks stay separate so a wrong number, an overreaching
+boundary claim and an unsupported conclusion are distinguishable in the report.
+
+The prompt does not mandate a tool. ``inspect_file``/``inspect_raster`` can answer
+from an attachment while ``inspect_uav_products`` answers from an authorized host
+directory, so this case runs through the shared attachment collection path rather
+than requiring a host grant.
 """
 
 from __future__ import annotations
@@ -17,27 +20,17 @@ from pathlib import Path
 from typing import Any
 
 from .base import Verdict, save_verdict
-from .chm import (
-    chm_claims_match_artifact, claims_block, compare_chm_grid_mask,
-    compare_chm_pixels, raster_candidates,
+from .product_qa import (
+    boundaries_respected, evidence_is_traceable, metadata_matches_artifact,
 )
-
-
-
-def _deferred(check: str, reason: str) -> dict[str, Any]:
-    return {
-        "verdict": "unknown",
-        "verifier": f"chm-{check}-not-applicable-v1",
-        "evidence": [],
-        "detail": reason,
-    }
 
 
 def verify_trial(
     trial: Path, configuration: dict, repeat: int, *, gold: Path | None = None,
 ) -> dict[str, Any]:
     gold = gold or (
-        Path(__file__).resolve().parents[1] / "fixtures" / "gold" / "forestry_chm.json"
+        Path(__file__).resolve().parents[1] / "fixtures" / "gold"
+        / "forestry_product_qa.json"
     )
     trace = json.loads((trial / "trace.json").read_text(encoding="utf-8"))
     if trace.get("configuration") != configuration or trace.get("repeat") != repeat:
@@ -49,29 +42,18 @@ def verify_trial(
         for event in events if event.get("type") == "message"
     )
 
-    claims_block = claims_block(answer_text)
-    delivered = raster_candidates(artifacts)
-    # The fixture decides the expected branch: a raster means the inputs were
-    # meant to support a CHM, so "built" must be true.
-    require_built = bool(delivered)
-    if claims_block is not None and isinstance(claims_block.get("built"), bool):
-        require_built = claims_block["built"] or bool(delivered)
-
-    claims = chm_claims_match_artifact(
+    metadata = metadata_matches_artifact(
         answer=answer_text, artifacts=artifacts, gold=gold,
-        require_built=require_built, report=trial / "claims-verifier.json",
+        report=trial / "metadata-verifier.json",
     )
-    if delivered:
-        pixels = compare_chm_pixels(
-            artifacts=artifacts, gold=gold, report=trial / "pixels-verifier.json"
-        )
-        grid = compare_chm_grid_mask(
-            artifacts=artifacts, gold=gold, report=trial / "mask-units-verifier.json"
-        )
-    else:
-        pixels = None
-        grid = None
-
+    boundaries = boundaries_respected(
+        answer=answer_text, artifacts=artifacts, gold=gold,
+        report=trial / "boundaries-verifier.json",
+    )
+    evidence = evidence_is_traceable(
+        answer=answer_text, artifacts=artifacts, gold=gold,
+        report=trial / "evidence-verifier.json",
+    )
     terminal = {
         "expected": "completed", "actual": trace.get("terminal_state"),
         "checkpoint": trace.get("checkpoint_state"),
@@ -79,24 +61,14 @@ def verify_trial(
     (trial / "termination-verifier.json").write_text(
         json.dumps(terminal, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    not_applicable = (
-        "The inputs cannot support a CHM, so no surface was expected; "
-        "FRAMEWORK.md §5 allows correct abstention to satisfy the contract."
-    )
     checks = {
-        "positive": (
-            save_verdict(pixels, trial).as_check() if pixels is not None
-            else _deferred("positive", not_applicable)
-        ),
-        "negative": save_verdict(claims, trial).as_check(),
-        "claim": (
-            save_verdict(grid, trial).as_check() if grid is not None
-            else _deferred("claim", not_applicable)
-        ),
+        "metadata": save_verdict(metadata, trial).as_check(),
+        "boundaries": save_verdict(boundaries, trial).as_check(),
+        "evidence": save_verdict(evidence, trial).as_check(),
     }
     return {
         "suite_version": "forestry-eval-0.1",
-        "case_id": "forestry.chm",
+        "case_id": "forestry.product_qa",
         "track": "agent",
         "execution": "real_model",
         "repeat": trace["repeat"],

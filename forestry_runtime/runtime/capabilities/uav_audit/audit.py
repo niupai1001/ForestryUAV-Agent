@@ -14,6 +14,7 @@ from typing import Any
 
 from PIL import Image
 
+from ...exec.paths import is_within
 from ...storage import AssetError
 
 
@@ -270,11 +271,7 @@ class InputPathMapper:
 
     @staticmethod
     def _within(path: Path, root: Path) -> bool:
-        try:
-            path.relative_to(root)
-            return True
-        except ValueError:
-            return False
+        return is_within(path, root)
 
     def input_path(self, supplied: str) -> Path:
         value = str(supplied or '').strip()
