@@ -8,8 +8,9 @@ import numpy as np
 import rasterio
 from rasterio.transform import from_origin
 
-from runtime.agent import run_agent
-from runtime.storage import Store
+from runtime.agent import stream_agent
+from runtime.lifecycle import Sessions
+from runtime.workspace import WorkspaceRegistry
 
 
 async def main():
@@ -36,10 +37,14 @@ async def main():
             ):
                 dataset.set_band_description(index, name)
 
-        store = Store(Path(directory) / 'assets')
+        sessions = Sessions(Path(directory) / 'data')
+        chat_id = '00000000-0000-0000-0000-000000000001'
+        sessions.create('acceptance', chat_id)
+        store = sessions.acquire('acceptance', chat_id)
+        registry = WorkspaceRegistry(Path(directory) / 'data')
         with source.open('rb') as stream:
             asset = store.put(stream, 'known_multispectral.tif', 'acceptance')
-        events = [event async for event in run_agent(
+        events = [event async for event in stream_agent(
             store,
             'acceptance',
             [asset['id']],
@@ -47,7 +52,8 @@ async def main():
                 '请检查附件的真实像元数据条件，计算NDVI，然后执行初步林冠'
                 '候选分割并生成Mask。请实际调用工具完成，不要只给公式。'
             )}],
-            max_rounds=6,
+            max_requests=6,
+            workspace_registry=registry,
         )]
 
         tool_names = [
@@ -63,8 +69,8 @@ async def main():
                 f'Expected inspect_raster -> calculate_ndvi -> segment_canopy, '
                 f'got {tool_names}'
             )
-        if 'save_text' in tool_names:
-            raise AssertionError(f'Unexpected save_text call: {tool_names}')
+        if 'fs_write' in tool_names:
+            raise AssertionError(f'Unexpected fs_write call: {tool_names}')
         if not any(event['type'] == 'thinking' for event in events):
             raise AssertionError('Ollama did not return a thinking field')
         if any(event['type'] == 'error' for event in events):

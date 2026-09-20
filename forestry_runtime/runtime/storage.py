@@ -1,11 +1,13 @@
-"""Persistent file assets only; no task state or execution log database."""
+"""Session-owned file and path-reference artifact registry."""
 import hashlib
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 import json
 import os
 from pathlib import Path
 import re
 import sqlite3
+import shutil
+import time
 import uuid
 
 
@@ -26,12 +28,28 @@ class Store:
                 id TEXT PRIMARY KEY, owner TEXT NOT NULL, name TEXT NOT NULL,
                 size INTEGER NOT NULL, sha256 TEXT NOT NULL, media_type TEXT,
                 parent_id TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP)''')
+            columns = {row['name'] for row in c.execute('PRAGMA table_info(assets)').fetchall()}
+            if 'managed_path' not in columns:
+                c.execute('ALTER TABLE assets ADD COLUMN managed_path TEXT')
+            if 'artifact_kind' not in columns:
+                c.execute("ALTER TABLE assets ADD COLUMN artifact_kind TEXT NOT NULL DEFAULT 'file'")
+            if 'metadata_json' not in columns:
+                c.execute("ALTER TABLE assets ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'")
+            if 'sealed_at' not in columns:
+                c.execute('ALTER TABLE assets ADD COLUMN sealed_at REAL')
+            if 'verification_json' not in columns:
+                c.execute("ALTER TABLE assets ADD COLUMN verification_json TEXT NOT NULL DEFAULT '{}'")
             c.execute('CREATE INDEX IF NOT EXISTS asset_owner ON assets(owner)')
 
+    @contextmanager
     def connect(self):
         c = sqlite3.connect(self.db, timeout=30)
         c.row_factory = sqlite3.Row
-        return c
+        try:
+            with c:
+                yield c
+        finally:
+            c.close()
 
     def get(self, asset_id, owner):
         if not re.fullmatch(r'asset_[0-9a-f]{32}', asset_id):
@@ -42,11 +60,25 @@ class Store:
             raise AssetError('Asset not found or not accessible')
         result = dict(row)
         result.pop('owner')
+        try:
+            result['metadata'] = json.loads(result.pop('metadata_json') or '{}')
+        except (TypeError, json.JSONDecodeError):
+            result['metadata'] = {}
+        try:
+            result['verification'] = json.loads(result.pop('verification_json') or '{}')
+        except (TypeError, json.JSONDecodeError):
+            result['verification'] = {}
         return result
 
     def path(self, asset_id, owner):
-        self.get(asset_id, owner)
-        path = self.root / asset_id / 'content'
+        asset = self.get(asset_id, owner)
+        managed_path = asset.get('managed_path')
+        if managed_path:
+            path = (self.root / managed_path).resolve()
+            if path != self.root and self.root not in path.parents:
+                raise AssetError('Registered artifact path leaves the session')
+        else:
+            path = self.root / asset_id / 'content'
         if not path.is_file():
             raise AssetError('Stored file is missing')
         return path
@@ -56,7 +88,8 @@ class Store:
             rows = c.execute('SELECT id FROM assets WHERE owner=? ORDER BY created_at DESC LIMIT 200', (owner,)).fetchall()
         return [self.get(r['id'], owner) for r in rows]
 
-    def put(self, stream, filename, owner, media_type=None, parent_id=None, limit=None):
+    def put(self, stream, filename, owner, media_type=None, parent_id=None, limit=None,
+            metadata=None):
         name = str(filename or 'unnamed').replace('\\', '/').rsplit('/', 1)[-1]
         if name in ('', '.', '..') or len(name) > 240 or any(ord(ch) < 32 for ch in name):
             raise AssetError('Invalid filename')
@@ -83,10 +116,81 @@ class Store:
                     path.unlink()
                     directory.rmdir()
                     return self.get(existing['id'], owner)
-                c.execute('INSERT INTO assets(id,owner,name,size,sha256,media_type,parent_id) VALUES(?,?,?,?,?,?,?)',
-                          (asset_id, owner, name, size, checksum, media_type, parent_id))
+                c.execute('INSERT INTO assets(id,owner,name,size,sha256,media_type,parent_id,metadata_json) VALUES(?,?,?,?,?,?,?,?)',
+                          (asset_id, owner, name, size, checksum, media_type, parent_id,
+                           json.dumps(metadata or {}, ensure_ascii=False)))
             return self.get(asset_id, owner)
         except BaseException:
             path.unlink(missing_ok=True)
             directory.rmdir()
+            raise
+
+    def register_path(self, path, filename, owner, media_type=None, parent_id=None,
+                      artifact_kind='file', metadata=None):
+        """Register a runtime-owned file without copying it into another asset tree."""
+        target = Path(path).resolve()
+        if not target.is_file():
+            raise AssetError('Artifact file does not exist')
+        if target != self.root and self.root not in target.parents:
+            raise AssetError('Only files owned by this session can be registered by path')
+        name = str(filename or target.name).replace('\\', '/').rsplit('/', 1)[-1]
+        if name in ('', '.', '..') or len(name) > 240 or any(ord(ch) < 32 for ch in name):
+            raise AssetError('Invalid filename')
+        relative = target.relative_to(self.root).as_posix()
+        asset_id = 'asset_' + uuid.uuid4().hex
+        size = target.stat().st_size
+        with self.connect() as c:
+            existing = c.execute(
+                'SELECT id FROM assets WHERE owner=? AND managed_path=?',
+                (owner, relative),
+            ).fetchone()
+            if existing:
+                c.execute(
+                    'UPDATE assets SET size=?, name=?, media_type=?, artifact_kind=?, metadata_json=? WHERE id=?',
+                    (size, name, media_type, artifact_kind, json.dumps(metadata or {}, ensure_ascii=False), existing['id']),
+                )
+                result_id = existing['id']
+            else:
+                c.execute(
+                    '''INSERT INTO assets(id,owner,name,size,sha256,media_type,parent_id,
+                       managed_path,artifact_kind,metadata_json) VALUES(?,?,?,?,?,?,?,?,?,?)''',
+                    (asset_id, owner, name, size, '', media_type, parent_id, relative,
+                     artifact_kind, json.dumps(metadata or {}, ensure_ascii=False)),
+                )
+                result_id = asset_id
+        return self.get(result_id, owner)
+
+    def seal(self, asset_id, owner, verification=None):
+        """Copy a selected working artifact to an immutable session-owned path."""
+        asset = self.get(asset_id, owner)
+        if asset.get('sealed_at'):
+            return asset
+        source = self.path(asset_id, owner)
+        directory = self.root / 'sealed' / asset_id
+        directory.mkdir(parents=True, exist_ok=True)
+        temporary = directory / 'content.partial'
+        target = directory / 'content'
+        digest = hashlib.sha256()
+        size = 0
+        try:
+            with source.open('rb') as input_file, temporary.open('xb') as output:
+                while chunk := input_file.read(1024 * 1024):
+                    digest.update(chunk)
+                    size += len(chunk)
+                    output.write(chunk)
+            temporary.replace(target)
+            relative = target.relative_to(self.root).as_posix()
+            with self.connect() as c:
+                c.execute(
+                    """UPDATE assets SET managed_path=?,size=?,sha256=?,artifact_kind='sealed-output',
+                    sealed_at=?,verification_json=? WHERE id=? AND owner=?""",
+                    (relative, size, digest.hexdigest(), time.time(),
+                     json.dumps(verification or {'status': 'unverified'}, ensure_ascii=False),
+                     asset_id, owner),
+                )
+            return self.get(asset_id, owner)
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            if directory.is_dir() and not any(directory.iterdir()):
+                directory.rmdir()
             raise

@@ -34,6 +34,7 @@ class Sessions:
         self.lock = threading.RLock()
         self.active = {}
         self.stores = {}
+        self.cleanup = None
         with self.db() as conn:
             conn.execute('''CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY, owner TEXT NOT NULL,
@@ -67,6 +68,14 @@ class Sessions:
                 raise SessionClosed('Chat was deleted')
         return {'chat_id': chat_id, 'state': 'open'}
 
+    def list_open(self, owner):
+        with self.lock, self.db() as conn:
+            rows = conn.execute(
+                "SELECT id FROM sessions WHERE owner=? AND state='open' ORDER BY rowid DESC",
+                (owner,),
+            ).fetchall()
+        return [row['id'] for row in rows]
+
     def acquire(self, owner, chat_id):
         chat_id = chat_uuid(chat_id)
         with self.lock, self.db() as conn:
@@ -86,6 +95,19 @@ class Sessions:
             else:
                 self.active[chat_id] = count - 1
 
+    @contextmanager
+    def hold(self, chat_id):
+        """Keep owned resources until a recovered external job reaches terminal state."""
+        chat_id = chat_uuid(chat_id)
+        with self.lock, self.db() as conn:
+            if conn.execute('SELECT 1 FROM sessions WHERE id=?', (chat_id,)).fetchone() is None:
+                raise AssetError('Session does not exist')
+            self.active[chat_id] = self.active.get(chat_id, 0) + 1
+        try:
+            yield
+        finally:
+            self.release(chat_id)
+
     def source(self, owner, chat_id, file_id):
         chat_id, file_id = chat_uuid(chat_id), chat_uuid(file_id)
         with self.lock, self.db() as conn:
@@ -100,6 +122,12 @@ class Sessions:
             self._row(conn, owner, chat_id)
             conn.execute("UPDATE sessions SET state='deleting' WHERE id=? AND state='open'", (chat_id,))
         return {'chat_id': chat_id, 'accepted': True}
+
+    def is_deleting(self, chat_id):
+        chat_id = chat_uuid(chat_id)
+        with self.lock, self.db() as conn:
+            row = conn.execute('SELECT state FROM sessions WHERE id=?', (chat_id,)).fetchone()
+        return row is None or row['state'] != 'open'
 
     def pending(self):
         with self.lock, self.db() as conn:
@@ -135,6 +163,8 @@ class Sessions:
                     log.error('Refusing invalid session directory: %s', chat_id)
                     continue
                 try:
+                    if self.cleanup:
+                        self.cleanup(chat_id)
                     if directory.exists():
                         shutil.rmtree(directory)
                     self.stores.pop(chat_id, None)

@@ -1,6 +1,8 @@
 services:
   runtime:
-    build: .
+    build:
+      context: .
+      target: core
     container_name: forestry-runtime
     ports:
       - "127.0.0.1:8010:8010"
@@ -8,11 +10,21 @@ services:
     environment:
       OLLAMA_URL: http://host.docker.internal:11434
       OLLAMA_MODEL: qwen3.5:4b
+      HOST_BRIDGE_URL: ${HOST_BRIDGE_URL:-http://host.docker.internal:8011}
+      HOST_BRIDGE_KEY: ${HOST_BRIDGE_KEY}
+      RUNTIME_DATA_HOST_ROOT: ${RUNTIME_DATA_HOST_ROOT}
+      KNOWLEDGE_ROOTS: /knowledge
+      REMOTE_SENSING_PLUGINS_ENABLED: ${REMOTE_SENSING_PLUGINS_ENABLED:-false}
+      PYDANTIC_AI_NO_BANNER: "1"
       MAX_UPLOAD_BYTES: "536870912"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/data
+      - type: bind
+        source: ${KNOWLEDGE_HOST_ROOT:-./knowledge}
+        target: /knowledge
+        read_only: true
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health',timeout=3)"]

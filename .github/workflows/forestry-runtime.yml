@@ -1,0 +1,57 @@
+name: forestry-runtime
+
+on:
+  push:
+    paths:
+      - "forestry_runtime/**"
+      - ".github/workflows/forestry-runtime.yml"
+  pull_request:
+    paths:
+      - "forestry_runtime/**"
+      - ".github/workflows/forestry-runtime.yml"
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forestry_runtime
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            forestry_runtime/requirements-core.txt
+            forestry_runtime/requirements-remote-sensing.txt
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -r requirements.txt pytest
+      - name: Compile Python
+        run: python -m compileall -q runtime host_bridge tests evaluation
+      - name: Test Runtime and evaluator boundaries
+        run: python -m pytest -q
+      - name: Verify an empty scorecard remains incomplete
+        shell: bash
+        run: |
+          set +e
+          python evaluation/scorecard.py > scorecard-empty.json
+          status=$?
+          test "$status" -eq 2
+          python -c "import json; assert json.load(open('scorecard-empty.json'))['qualification'] == 'incomplete'"
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: forestry_runtime/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: forestry_runtime/frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
