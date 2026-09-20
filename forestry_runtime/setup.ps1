@@ -212,10 +212,27 @@ $composeArgs = @('-f', 'compose.yaml')
 if ($envValues['REMOTE_SENSING_PLUGINS_ENABLED'] -eq 'true') {
     $composeArgs += @('-f', 'compose.remote-sensing.yaml')
 }
+# `docker compose up` writes ordinary progress lines ("Container X Recreate") to
+# stderr. With $ErrorActionPreference = 'Stop' PowerShell turns a native command's
+# stderr into a terminating error, so the script aborted *after* a successful
+# deployment and exited 1. Neither `2>&1` nor `2>$null` avoids that; relaxing the
+# preference only for this call does, and the explicit exit-code check below still
+# catches real failures.
+function Invoke-Compose {
+    param([string[]]$Arguments)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & docker compose @Arguments
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
 if ($SkipBuild) {
-    docker compose @composeArgs up -d --no-build --force-recreate --remove-orphans runtime
+    Invoke-Compose ($composeArgs + @('up', '-d', '--no-build', '--force-recreate', '--remove-orphans', 'runtime'))
 } else {
-    docker compose @composeArgs up -d --build --remove-orphans
+    Invoke-Compose ($composeArgs + @('up', '-d', '--build', '--remove-orphans'))
 }
 if ($LASTEXITCODE -ne 0) { throw 'Runtime deployment failed' }
 
