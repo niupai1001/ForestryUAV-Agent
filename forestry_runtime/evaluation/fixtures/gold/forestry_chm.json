@@ -1,0 +1,117 @@
+{
+  "version": "forestry.chm-v1",
+  "source": {
+    "dsm": "dsm.tif",
+    "dtm": "dtm.tif"
+  },
+  "crs": "EPSG:32650",
+  "transform": [
+    500000.0,
+    1.0,
+    0.0,
+    4700000.0,
+    0.0,
+    -1.0
+  ],
+  "shape": [
+    4,
+    4
+  ],
+  "vertical_reference": "synthetic_ellipsoid_datum",
+  "vertical_units": "m",
+  "dsm": [
+    [
+      null,
+      103.0,
+      104.0,
+      102.0
+    ],
+    [
+      103.5,
+      105.0,
+      106.0,
+      103.0
+    ],
+    [
+      102.0,
+      104.0,
+      97.0,
+      102.5
+    ],
+    [
+      101.0,
+      102.0,
+      102.5,
+      101.5
+    ]
+  ],
+  "dtm": [
+    [
+      100.0,
+      100.0,
+      100.0,
+      100.0
+    ],
+    [
+      100.0,
+      100.0,
+      100.0,
+      100.0
+    ],
+    [
+      100.0,
+      100.0,
+      100.0,
+      100.0
+    ],
+    [
+      100.0,
+      100.0,
+      100.0,
+      100.0
+    ]
+  ],
+  "expected_chm": [
+    [
+      null,
+      3.0,
+      4.0,
+      2.0
+    ],
+    [
+      3.5,
+      5.0,
+      6.0,
+      3.0
+    ],
+    [
+      2.0,
+      4.0,
+      -3.0,
+      2.5
+    ],
+    [
+      1.0,
+      2.0,
+      2.5,
+      1.5
+    ]
+  ],
+  "numeric_tolerance": {
+    "abs": 1e-05,
+    "rel": 1e-06
+  },
+  "expected_facts": {
+    "built": true,
+    "valid_pixel_count": 15,
+    "negative_height_pixel_count": 1,
+    "maximum_height_m": 6.0,
+    "crs": "EPSG:32650",
+    "vertical_reference": "synthetic_ellipsoid_datum"
+  },
+  "gap_case": {
+    "fixture": "forestry_chm_gap",
+    "must_not_build": true,
+    "reason": "The DTM declares no vertical reference, so DSM-DTM is not verifiable."
+  }
+}
