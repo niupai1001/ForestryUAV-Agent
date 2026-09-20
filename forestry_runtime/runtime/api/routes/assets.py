@@ -10,6 +10,21 @@ from .. import app as api
 
 router = APIRouter()
 
+
+class HeldFileResponse(FileResponse):
+    """Release a lifecycle hold after the ASGI send succeeds or aborts."""
+
+    def __init__(self, *args, release, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._release = release
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._release()
+
+
 @router.post('/assets', response_model=api.AssetResponse)
 async def upload(file: UploadFile = File(...), owner: str = Depends(api.identity), store=Depends(api.request_store)):
     try:
@@ -37,10 +52,17 @@ def content(asset_id: str, owner: str = Depends(api.identity), store=Depends(api
 
 @router.get('/files/{chat_id}/{asset_id}')
 def local_file(chat_id: str, asset_id: str, owner: str = Depends(api.identity)):
-    store = api.sessions.acquire(owner, chat_id)
+    sessions = api.sessions
+    store = sessions.acquire(owner, chat_id)
     try:
         asset = store.get(asset_id, owner)
         path = store.path(asset_id, owner)
-    finally:
-        api.sessions.release(chat_id)
-    return FileResponse(path, filename=asset['name'], media_type='application/octet-stream')
+        # FileResponse opens and streams the path after this route returns. Keep
+        # the session active until Starlette completes (or aborts) that send.
+        return HeldFileResponse(
+            path, filename=asset['name'], media_type='application/octet-stream',
+            release=lambda: sessions.release(chat_id),
+        )
+    except Exception:
+        sessions.release(chat_id)
+        raise

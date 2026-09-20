@@ -18,6 +18,12 @@ IDEMPOTENCY_TESTS = [
     "tests/test_generic_runtime.py::GenericRuntimeTests::test_uncertain_submission_is_reconciled_by_action_id",
 ]
 
+PERMISSIONS_TESTS = [
+    "tests/test_permissions_gate.py::PermissionsGateTests::test_permission_boundaries_probe",
+    "tests/test_host_bridge.py::HostBridgeTests::test_revoked_grant_is_rejected_even_with_a_valid_old_token",
+    "tests/test_generic_runtime.py::GenericRuntimeTests::test_source_directory_is_read_only_and_write_grant_is_one_file",
+]
+
 
 def _scalar(conn: sqlite3.Connection, query: str) -> int:
     return int(conn.execute(query).fetchone()[0])
@@ -139,17 +145,60 @@ def collect_idempotency(output: Path, *, project_root: Path) -> dict[str, Any]:
     return {"pytest": pytest_evidence, "snapshot": snapshot}
 
 
+def collect_permissions(output: Path, *, project_root: Path) -> dict[str, Any]:
+    """Run confinement probes and preserve their independently inspectable observations."""
+    output.mkdir(parents=True, exist_ok=False)
+    raw = output / "raw"
+    raw.mkdir()
+    report = raw / "permissions.json"
+    environment = dict(os.environ)
+    environment["EVALUATION_PERMISSIONS_REPORT"] = str(report.resolve())
+    command = [sys.executable, "-m", "pytest", "-q", *PERMISSIONS_TESTS]
+    completed = subprocess.run(
+        command, cwd=project_root, env=environment,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=300, check=False,
+    )
+    pytest_evidence = {
+        "command": command,
+        "tests": PERMISSIONS_TESTS,
+        "returncode": completed.returncode,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+    }
+    (raw / "pytest.json").write_text(
+        json.dumps(pytest_evidence, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    if not report.exists():
+        report.write_text(
+            json.dumps({"error": "The permission probe did not produce a report."}, indent=2),
+            encoding="utf-8",
+        )
+    return {
+        "pytest": pytest_evidence,
+        "report": json.loads(report.read_text(encoding="utf-8")),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
+    parser.add_argument(
+        "--gate", choices=("idempotency", "permissions"), default="idempotency"
+    )
     args = parser.parse_args()
-    result = collect_idempotency(args.output, project_root=args.project_root.resolve())
+    collector = {
+        "idempotency": collect_idempotency,
+        "permissions": collect_permissions,
+    }[args.gate]
+    result = collector(args.output, project_root=args.project_root.resolve())
     print(json.dumps({
         "pytest_returncode": result["pytest"]["returncode"],
-        "snapshot_error": result["snapshot"].get("error"),
+        "evidence_error": result.get("snapshot", result.get("report", {})).get("error"),
     }, ensure_ascii=False))
-    return 0 if result["pytest"]["returncode"] == 0 and "error" not in result["snapshot"] else 2
+    evidence = result.get("snapshot", result.get("report", {}))
+    return 0 if result["pytest"]["returncode"] == 0 and "error" not in evidence else 2
 
 
 if __name__ == "__main__":

@@ -20,6 +20,8 @@ class Case:
     expected_terminal: str
     fixture: str
     gold: str
+    harness: str = "agent"
+    repeats: int | None = None
 
 
 __all__ = ["Case", "Verifier"]

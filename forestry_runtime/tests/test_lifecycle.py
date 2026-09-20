@@ -1,8 +1,10 @@
 import io
+import asyncio
 from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 from runtime.lifecycle import Sessions, SessionClosed
@@ -85,6 +87,40 @@ class LifecycleTests(unittest.TestCase):
         self.manager.mark_deleted('alice', self.chat)
         self.manager.reap()
         self.assertTrue((legacy / 'content').exists())
+
+    def test_file_response_holds_session_until_stream_completion(self):
+        from runtime.api import app as api
+        from runtime.api.routes import assets
+
+        store = self.manager.acquire('alice', self.chat)
+        asset = store.put(io.BytesIO(b'x' * 1024), 'large.bin', 'alice')
+        self.manager.release(self.chat)
+        with patch.object(api, 'sessions', self.manager):
+            response = assets.local_file(self.chat, asset['id'], 'alice')
+        self.manager.mark_deleted('alice', self.chat)
+        self.manager.reap()
+        self.assertTrue(store.root.exists())
+        self.assertEqual(self.manager.active[self.chat], 1)
+
+        async def stream_response():
+            sent = []
+
+            async def receive():
+                return {'type': 'http.request', 'body': b'', 'more_body': False}
+
+            async def send(message):
+                sent.append(message)
+
+            await response(
+                {'type': 'http', 'method': 'GET', 'path': '/file', 'headers': []},
+                receive, send,
+            )
+            return sent
+
+        messages = asyncio.run(stream_response())
+        self.assertEqual(messages[-1]['body'], b'x' * 1024)
+        self.manager.reap()
+        self.assertFalse(store.root.exists())
 
 
 if __name__ == '__main__':

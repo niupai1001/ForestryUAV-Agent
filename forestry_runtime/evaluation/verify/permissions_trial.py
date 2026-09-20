@@ -1,4 +1,4 @@
-"""Turn collected gate.idempotency evidence into one engineering record."""
+"""Turn gate.permissions evidence into one engineering record."""
 
 from __future__ import annotations
 
@@ -7,29 +7,28 @@ import json
 from pathlib import Path
 import uuid
 
-from .gates import exactly_once
+from .gates import permissions_enforced
 
 
 def verify_trial(trial: Path, configuration: dict, repeat: int) -> dict:
-    verdict = exactly_once(
-        evidence_root=trial, report=trial / "idempotency-verifier.json"
+    verdict = permissions_enforced(
+        evidence_root=trial, report=trial / "permissions-verifier.json"
     )
     pytest_result = json.loads((trial / "raw" / "pytest.json").read_text(encoding="utf-8"))
-    status = "evaluated" if pytest_result.get("returncode") == 0 else "crash"
     return {
         "suite_version": "forestry-eval-0.1",
-        "case_id": "gate.idempotency",
+        "case_id": "gate.permissions",
         "track": "engineering",
         "execution": "engineering",
         "repeat": repeat,
-        "trial_id": "gate-idempotency-" + uuid.uuid4().hex,
+        "trial_id": "gate-permissions-" + uuid.uuid4().hex,
         "configuration": configuration,
-        "status": status,
+        "status": "evaluated" if pytest_result.get("returncode") == 0 else "crash",
         "status_evidence": {
             "verifier": "pytest-subprocess-v1",
-            "evidence": ["raw/pytest.json", "raw/sqlite.json"],
+            "evidence": ["raw/pytest.json", "raw/permissions.json"],
         },
-        "checks": {"exactly_once": verdict.as_check()},
+        "checks": {"enforced": verdict.as_check()},
     }
 
 
@@ -46,11 +45,8 @@ def main() -> int:
         args.repeat,
     )
     args.record.write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(json.dumps({
-        "status": record["status"],
-        "verdict": record["checks"]["exactly_once"]["verdict"],
-    }))
-    return 0 if record["checks"]["exactly_once"]["verdict"] == "pass" else 2
+    print(json.dumps({"status": record["status"], "verdict": record["checks"]["enforced"]["verdict"]}))
+    return 0 if record["checks"]["enforced"]["verdict"] == "pass" else 2
 
 
 if __name__ == "__main__":

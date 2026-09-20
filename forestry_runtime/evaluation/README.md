@@ -19,6 +19,25 @@ python -m pytest -q tests/test_evaluation.py
 退出码 2。`scorecard.py` 负责确定性聚合，**不替代领域 verifier、浏览器测试或
 真实模型执行器**。suite.json 是待接入独立验证的任务契约，不是已完成验收。
 
+已接入 case 可由一个普通 Python 函数或其 CLI 外壳统一运行，并自动复用已有
+`record.json`/`records.json` 断点：
+
+```powershell
+python -m evaluation.run_baseline --tracks engineering
+```
+
+```python
+from pathlib import Path
+from evaluation.run_baseline import run_baseline
+
+report = run_baseline(root=Path("evaluation/work/baseline"), tracks=["engineering"])
+```
+
+验证器必须以模块形式运行（`python -m evaluation.verify.xxx`），不能直接执行文件；
+configuration JSON 必须是**无 BOM 的 UTF-8**，编排器会对 BOM 给出明确错误。工程轨
+在缺少 configuration 时会冻结并写入一份本机配置；Agent/UI 轨必须由评价者事先提供
+完整冻结配置。
+
 `records.json` 是由评价端采集器生成的数组。每条记录对应一个预先登记的重复
 槽位；示例结构如下（下面是格式说明，不是实际验收结果）：
 

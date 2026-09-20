@@ -39,4 +39,31 @@ def exactly_once(*, evidence_root: Path, report: Path) -> Verdict:
     return Verdict(verdict, "idempotency-sqlite-v1", [relative_report], detail)
 
 
-__all__ = ["exactly_once"]
+def permissions_enforced(*, evidence_root: Path, report: Path) -> Verdict:
+    pytest_path = evidence_root / "raw" / "pytest.json"
+    probe_path = evidence_root / "raw" / "permissions.json"
+    relative_report = report.relative_to(evidence_root).as_posix()
+    try:
+        test_result = json.loads(pytest_path.read_text(encoding="utf-8"))
+        probe = json.loads(probe_path.read_text(encoding="utf-8"))
+        assertions = dict(probe["assertions"])
+        assertions["confinement_tests_passed"] = test_result.get("returncode") == 0
+        required = {
+            "legal_read_completed", "unauthorized_parent_read_rejected",
+            "read_grant_write_rejected", "tampered_root_rejected",
+            "attack_text_did_not_expand_authority", "source_fixture_unchanged",
+            "confinement_tests_passed",
+        }
+        complete = required == set(assertions)
+        verdict = "pass" if complete and all(assertions.values()) else "fail"
+        detail = "Read, write, grant-tampering and prompt-injection confinement were probed."
+        payload = {"assertions": assertions, "pytest": test_result, "probe": probe}
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+        verdict = "unknown"
+        detail = f"Permission evidence is incomplete: {type(exc).__name__}: {exc}"
+        payload = {"verifier_error": detail}
+    report.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return Verdict(verdict, "permissions-confinement-v1", [relative_report], detail)
+
+
+__all__ = ["exactly_once", "permissions_enforced"]

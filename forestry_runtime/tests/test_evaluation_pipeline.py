@@ -19,6 +19,7 @@ from evaluation.verify.csv import compare_by_business_key
 from evaluation.verify.gates import exactly_once
 from evaluation.verify.text import claims_match_table
 from evaluation.verify.ui_trial import CASES as UI_CASES, verify_trial as verify_ui_trial
+from evaluation.run_baseline import run_baseline
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -165,6 +166,68 @@ class EvaluationPipelineTests(unittest.TestCase):
         self.assertTrue(all(
             check["verdict"] == "fail" for check in failed[0]["checks"].values()
         ))
+
+    def test_run_baseline_is_callable_and_resumes_canonical_trial_path(self):
+        baseline = self.root / "baseline"
+        trial = baseline / "gate-idempotency-1"
+        trial.mkdir(parents=True)
+        configuration = {
+            "code_snapshot": "test", "model_digest": "n/a",
+            "prompt_snapshot": "n/a", "tools_snapshot": "test",
+            "dataset_version": "test", "environment_snapshot": "test",
+            "evaluator_version": "test", "sampling": {"fixed": True},
+            "budgets": {"seconds": 1},
+        }
+        (baseline / "configuration-engineering.json").write_text(
+            json.dumps(configuration), encoding="utf-8"
+        )
+        (trial / "proof.json").write_text("{}", encoding="utf-8")
+        record = {
+            "suite_version": "forestry-eval-0.1",
+            "case_id": "gate.idempotency", "track": "engineering",
+            "execution": "engineering", "repeat": 1,
+            "trial_id": "resume-test", "configuration": configuration,
+            "status": "evaluated",
+            "status_evidence": {"verifier": "test", "evidence": ["proof.json"]},
+            "checks": {"exactly_once": {
+                "verdict": "pass", "verifier": "test", "evidence": ["proof.json"],
+            }},
+        }
+        record_file = trial / "record.json"
+        record_file.write_text(json.dumps(record), encoding="utf-8")
+        original = record_file.read_bytes()
+
+        report = run_baseline(
+            root=baseline, tracks=["engineering"],
+            cases=["gate.idempotency"], repeats={1},
+        )
+
+        self.assertEqual(report["qualification"], "incomplete")
+        self.assertEqual(record_file.read_bytes(), original)
+        assembled = json.loads((baseline / "records.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            assembled[0]["checks"]["exactly_once"]["evidence"],
+            ["gate-idempotency-1/proof.json"],
+        )
+        self.assertTrue((baseline / "scorecard.json").is_file())
+
+    def test_run_baseline_rejects_ambiguous_incomplete_trial_directory(self):
+        baseline = self.root / "baseline"
+        (baseline / "gate-permissions-1").mkdir(parents=True)
+        with self.assertRaisesRegex(RuntimeError, "Incomplete trial directory"):
+            run_baseline(
+                root=baseline, tracks=["engineering"],
+                cases=["gate.permissions"], repeats={1},
+            )
+
+    def test_run_baseline_rejects_bom_configuration_before_collection(self):
+        baseline = self.root / "baseline"
+        baseline.mkdir()
+        (baseline / "configuration-agent.json").write_bytes(b"\xef\xbb\xbf{}")
+        with self.assertRaisesRegex(ValueError, "without BOM"):
+            run_baseline(
+                root=baseline, tracks=["agent"], cases=["core.csv"], repeats={1},
+            )
 
 
 if __name__ == "__main__":

@@ -26,8 +26,13 @@ def _save_verdict(verdict: Verdict, root: Path) -> Verdict:
     return verdict
 
 
-def verify_trial(trial: Path, gold: Path) -> dict[str, Any]:
+def verify_trial(
+    trial: Path, configuration: dict, repeat: int, *, gold: Path | None = None,
+) -> dict[str, Any]:
+    gold = gold or Path(__file__).resolve().parents[1] / "fixtures" / "gold" / "core_csv.json"
     trace = json.loads((trial / "trace.json").read_text(encoding="utf-8"))
+    if trace.get("configuration") != configuration or trace.get("repeat") != repeat:
+        raise ValueError("Trial configuration or repeat does not match the requested slot")
     events = json.loads((trial / "raw" / "events.json").read_text(encoding="utf-8"))
     outputs = list((trial / "artifacts").glob("asset_*-plot_summary.csv"))
     if len(outputs) == 1:
@@ -91,7 +96,11 @@ def main() -> int:
     parser.add_argument("--gold", type=Path, required=True)
     parser.add_argument("--record", type=Path, required=True)
     args = parser.parse_args()
-    record = verify_trial(args.trial.resolve(), args.gold.resolve())
+    trace = json.loads((args.trial / "trace.json").read_text(encoding="utf-8"))
+    record = verify_trial(
+        args.trial.resolve(), trace["configuration"], int(trace["repeat"]),
+        gold=args.gold.resolve(),
+    )
     args.record.write_text(
         json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8"
     )
