@@ -1,10 +1,10 @@
-# Forestry Agent Runtime — 目标架构设计
+﻿# Forestry Agent Runtime — 目标架构设计
 
-> 状态：**实施中**。阶段 0 / 1 / 2 / 4 / 5 已落地并提交（`28fe838`、`b57593a`）；`exec/`、`context/` 两层与阶段 6 收尾待做
+> 状态：**实施完成（有取舍）**。阶段 0–6 已落地并提交；`context/` 层与 `run_store.py` 的进一步拆分**经评估后不做**，理由见文末「实施结论」
 > 版本：v1 draft · 2026-09-19
 > 适用范围：`forestry_runtime/` 的结构重构，以及 `evaluation/` 评价系统的接入
 > 前置材料：`evaluation/FRAMEWORK.md`（评价协议 v0.1）、`evaluation/BUILD_GUIDE.md`、用户提供的研究报告
-> 实施进度与后续计划另见 `EVALUATION_INTEGRATION_PLAN.md`
+> 实施进度与验收数字另见 `VALIDATION.md`；分阶段计划见 `EVALUATION_INTEGRATION_PLAN.md`
 
 ---
 
@@ -694,3 +694,38 @@ def transition(current: str, target: str) -> None:
 1. **阶段 0 与阶段 1 是否合并执行？** 阶段 0 是纯止血（8 个独立修复），阶段 1 是框架内核。两者无耦合，但阶段 0 能让评分系统尽快产出有意义结果。
 2. **阶段 3 拆 `remote_sensing.py` 时，是否顺带修域层 6 个缺陷？** 顺带修成本最低（同一批文件、同一批测试），但会让该阶段变大。
 3. **`attempts` 层去留**：生产 0 行、`suite.json` 的 `gate.idempotency` 引用了它。是修好生产路径让它真写，还是删除并同步改契约？
+---
+
+## 10. 实施结论（2026-09-21）
+
+### 已完成
+
+| 设计目标 | 结果 |
+|---|---|
+| **阶段 0 止血** | 8 项全部落地。D1 的流式释放用 `HeldFileResponse.__call__` 而非 `sessions.hold()`——后者是上下文管理器，覆盖不到路由返回之后的发送 |
+| **阶段 1 kernel** | `kernel/{spec,registry,protocol,errors,events,trace}.py` 建成，`ToolSpec` 从一份声明派生 schema / 权限 / trace 元数据 |
+| **阶段 2 能力迁移** | 14 个能力全部迁入 `capabilities/<name>/`；`tools.py`(739) 与 `remote_sensing.py`(**2611**) 已删除 |
+| **阶段 3 拆单体遥感** | 拆成 `raster`(929) / `prosail`(383) / `forest_structure`(542) / `uav_audit`(760) |
+| **阶段 4 HTTP + 会话** | `app.py` 500→249；6 个 `routes/*`；`session/{coordinator,recovery,state}.py`，状态机含终态守卫与 `cancel_incomplete` 出路 |
+| **阶段 5 评分系统** | 4/4 门禁接入（`gates=pass`）；4/12 agent 题有独立 verifier；`run_baseline()` 可代码调用；**16/43 check** |
+| **阶段 6 收尾** | 破损脚本已删、`tsconfig.node.json` 补 `noEmit`、生成物已清、前端 3 处伪造状态已修、`VALIDATION.md` 重构为倒序 + 归档、`PROSAIL_WORKFLOW.md` 已按现行三工具重写 |
+| **路径不变量单点化** | 11 处内联比较收敛为 `shared/paths.py` 一个定义，Runtime 与 Bridge 共享 |
+
+### 经评估后不做，并说明原因
+
+**`run_store.py` 不再按 `runs/events/schema` 三分。** 设计原文假设它承担"状态机 + 事件流 + 建表"。实际核查后：
+
+- **状态机已经独立**：`session/state.py` 持有 `TERMINAL`/`ACTIVE`/`TRANSITIONS`/`transition()`，且 `set_state`/`request_cancel`/`finish_cancel`/`finish_cancel_incomplete` 全部经由它守卫（取消路径是嵌套调用，不是绕过）。
+- **建表与迁移已抽出**：`store/schema.py`，且现在有 6 个测试 + 20 subtests 直接覆盖，包括"旧库原地升级不丢行"。
+- **剩余的是数据访问方法**，共 46 个，全部围绕 `runs.sqlite3` 的事务。继续拆成 `store/events.py` 只会把事务边界摊到多个文件，而当前没有任何消费者需要"单独的事件流存储"。
+- `store/executions.py`（作业记录）已独立，因为它有独立的库与生命周期。
+
+结论：**为外观一致性拆分事务代码，风险大于收益。** 该文件的行数来自表数量和 9 张表的 CRUD，不是内聚性问题。
+
+**`context/` 层不建。** `context.py`(62 行) + `memory.py`(622 行) 合计 684 行，分属"每次请求的上下文编译"与"项目记忆 + 知识检索"两件事，边界清楚且都已被 `runtime/` 顶层命名表达。为两个文件建一层目录不增加可读性。若将来 `memory.py` 的知识检索部分继续增长（例如加入重排或增量索引），再按功能而非按层拆分。
+
+### 与本设计文档的偏差
+
+1. **`shared/paths.py` 是新增的，原设计没有。** 设计把不变量放在 `runtime/exec/paths.py`，但 Host Bridge 是独立宿主进程、不能 import `runtime`。实测还发现两侧各自持有一份会让 `is_within is is_within` 为 `False`（两个模块对象），即"单一来源"名存实亡。最终落在中性 `shared/` 包，Dockerfile 两个 target 都复制它。`exec/` 只保留这一个重导出模块，`exec/grants.py` 与 `exec/sandbox.py` 未单独建——授权判定仍在 `workspace.py`，容器参数构造仍在 `host_bridge/server.py`，两者都已被 `gate.permissions` 与 `gate.sandbox` 真实覆盖。
+2. **`_save_verdict` 的收敛不在原设计内**，是实施中发现的 4 份副本。
+3. **`InputPathMapper._within` 是第 11 处重复**，原设计统计为 10 处。
