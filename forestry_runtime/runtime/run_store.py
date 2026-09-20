@@ -12,6 +12,7 @@ import time
 import uuid
 
 from .kernel.trace import enrich_event
+from .store.schema import initialize as initialize_schema
 from .session.state import ACTIVE, PAUSABLE, TERMINAL, transition
 from .storage import AssetError
 
@@ -42,106 +43,7 @@ class RunStore:
         self.database = self.root / "runs.sqlite3"
         self.lock = threading.RLock()
         with self.db() as conn:
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS runs (
-                id TEXT PRIMARY KEY, owner TEXT NOT NULL, chat_id TEXT NOT NULL,
-                state TEXT NOT NULL, messages_json TEXT NOT NULL, asset_ids_json TEXT NOT NULL,
-                use_tools INTEGER NOT NULL, cancel_requested INTEGER NOT NULL DEFAULT 0,
-                pause_requested INTEGER NOT NULL DEFAULT 0,
-                model_calls INTEGER NOT NULL DEFAULT 0, final_json TEXT,
-                agent_input_count INTEGER NOT NULL DEFAULT 0,
-                state_version INTEGER NOT NULL DEFAULT 0, recovery_reason TEXT,
-                created_at REAL NOT NULL, updated_at REAL NOT NULL)"""
-            )
-            columns = {row["name"] for row in conn.execute("PRAGMA table_info(runs)").fetchall()}
-            if "agent_input_count" not in columns:
-                conn.execute("ALTER TABLE runs ADD COLUMN agent_input_count INTEGER NOT NULL DEFAULT 0")
-            if "pause_requested" not in columns:
-                conn.execute("ALTER TABLE runs ADD COLUMN pause_requested INTEGER NOT NULL DEFAULT 0")
-            if "state_version" not in columns:
-                conn.execute("ALTER TABLE runs ADD COLUMN state_version INTEGER NOT NULL DEFAULT 0")
-            if "recovery_reason" not in columns:
-                conn.execute("ALTER TABLE runs ADD COLUMN recovery_reason TEXT")
-            conn.execute("CREATE INDEX IF NOT EXISTS run_chat ON runs(owner, chat_id, created_at)")
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS events (
-                run_id TEXT NOT NULL, seq INTEGER NOT NULL, event_json TEXT NOT NULL,
-                created_at REAL NOT NULL, turn_id TEXT, PRIMARY KEY(run_id, seq))"""
-            )
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS actions (
-                id TEXT PRIMARY KEY, run_id TEXT NOT NULL, tool_name TEXT NOT NULL,
-                arguments_json TEXT NOT NULL, result_json TEXT, state TEXT NOT NULL,
-                started_at REAL NOT NULL, finished_at REAL, turn_id TEXT)"""
-            )
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS job_refs (
-                run_id TEXT NOT NULL, job_id TEXT NOT NULL, job_type TEXT,
-                state TEXT, turn_id TEXT, action_id TEXT,
-                PRIMARY KEY(run_id, job_id))"""
-            )
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS turns (
-                id TEXT PRIMARY KEY, run_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
-                agent_run_id TEXT NOT NULL UNIQUE, input_start INTEGER NOT NULL,
-                input_end INTEGER NOT NULL, state TEXT NOT NULL,
-                checkpoint_state TEXT NOT NULL DEFAULT 'unknown',
-                resume_agent_run_id TEXT, input_ids_json TEXT NOT NULL DEFAULT '[]',
-                created_at REAL NOT NULL, updated_at REAL NOT NULL,
-                UNIQUE(run_id, ordinal))"""
-            )
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS inputs (
-                id TEXT NOT NULL, owner TEXT NOT NULL, chat_id TEXT NOT NULL,
-                run_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL,
-                asset_ids_json TEXT NOT NULL DEFAULT '[]', state TEXT NOT NULL,
-                turn_id TEXT, ordinal INTEGER NOT NULL, created_at REAL NOT NULL,
-                reserved_at REAL, consumed_at REAL,
-                PRIMARY KEY(owner,chat_id,id))"""
-            )
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS steps (
-                id TEXT PRIMARY KEY, run_id TEXT NOT NULL, turn_id TEXT NOT NULL,
-                number INTEGER NOT NULL, context_json TEXT NOT NULL,
-                estimated_tokens INTEGER, provider_usage_json TEXT,
-                created_at REAL NOT NULL, finished_at REAL,
-                UNIQUE(turn_id,number))"""
-            )
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS attempts (
-                id TEXT PRIMARY KEY, action_id TEXT NOT NULL, run_id TEXT NOT NULL,
-                turn_id TEXT, ordinal INTEGER NOT NULL, state TEXT NOT NULL,
-                operation_started INTEGER NOT NULL DEFAULT 0,
-                result_json TEXT, error_json TEXT,
-                created_at REAL NOT NULL, updated_at REAL NOT NULL,
-                UNIQUE(action_id,ordinal))"""
-            )
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS artifact_refs (
-                run_id TEXT NOT NULL, turn_id TEXT NOT NULL, asset_id TEXT NOT NULL,
-                job_id TEXT, action_id TEXT, created_at REAL NOT NULL,
-                PRIMARY KEY(run_id, turn_id, asset_id))"""
-            )
-            for table, column, declaration in (
-                ("events", "turn_id", "TEXT"),
-                ("actions", "turn_id", "TEXT"),
-                ("job_refs", "turn_id", "TEXT"),
-                ("job_refs", "action_id", "TEXT"),
-                ("turns", "resume_agent_run_id", "TEXT"),
-                ("turns", "input_ids_json", "TEXT NOT NULL DEFAULT '[]'"),
-            ):
-                existing = {
-                    row["name"] for row in conn.execute(
-                        f"PRAGMA table_info({table})"
-                    ).fetchall()
-                }
-                if column not in existing:
-                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {declaration}")
-            conn.execute("CREATE INDEX IF NOT EXISTS event_turn ON events(run_id, turn_id, seq)")
-            conn.execute("CREATE INDEX IF NOT EXISTS action_turn ON actions(run_id, turn_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS turn_run ON turns(run_id, ordinal)")
-            conn.execute("CREATE INDEX IF NOT EXISTS input_run ON inputs(run_id, ordinal)")
-            conn.execute("CREATE INDEX IF NOT EXISTS attempt_action ON attempts(action_id, ordinal)")
+            initialize_schema(conn)
 
     @contextmanager
     def db(self):
