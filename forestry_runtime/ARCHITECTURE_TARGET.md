@@ -1,9 +1,10 @@
 # Forestry Agent Runtime — 目标架构设计
 
-> 状态：**设计冻结待评审**，尚未修改任何代码
+> 状态：**实施中**。阶段 0 / 1 / 2 / 4 / 5 已落地并提交（`28fe838`、`b57593a`）；`exec/`、`context/` 两层与阶段 6 收尾待做
 > 版本：v1 draft · 2026-09-19
 > 适用范围：`forestry_runtime/` 的结构重构，以及 `evaluation/` 评价系统的接入
 > 前置材料：`evaluation/FRAMEWORK.md`（评价协议 v0.1）、`evaluation/BUILD_GUIDE.md`、用户提供的研究报告
+> 实施进度与后续计划另见 `EVALUATION_INTEGRATION_PLAN.md`
 
 ---
 
@@ -484,7 +485,7 @@ python evaluation/scorecard.py               # qualification=incomplete, 退出�
 
 | # | 修复 | 位置 |
 |---|---|---|
-| 1 | `/files/{chat_id}/{asset_id}` 加鉴权，owner 用真实身份 | `api/routes/assets.py` |
+| 1 | `/files/{chat_id}/{asset_id}` 加鉴权，owner 用真实身份；**且**用保持会话引用的响应类包住流式发送 | `api/routes/assets.py` |
 | 2 | bridge `verify_grant` 改为校验服务端 grant 记录 | `host_bridge/server.py:110-119` |
 | 3 | 会话凭证与 `RUNTIME_API_KEY` 分离；去掉 `x-user-id` 默认 `'local'` | `app.py:87,192-214` |
 | 4 | `_read_xmp` 改流式读（XMP 在 APP1 段，读前若干 KB） | `uav_audit.py:41-46` |
@@ -494,6 +495,11 @@ python evaluation/scorecard.py               # qualification=incomplete, 退出�
 | 8 | `await runs.reconcile()` 加错误边界 | `api/app.py:50-52` |
 
 **为什么先做**：这 8 条里有 3 条是 `gate.permissions` 和 `gate.sandbox` 的直接判据。不修，评分系统跑出来的门禁永远是 `blocked`，采集再多也没有意义。
+
+> 实施记录（2026-09-19）：第 1 条的流式释放无法用 `sessions.hold()` 上下文管理器实现——
+> `FileResponse` 的发送发生在路由返回之后，没有可用的 `async with` 钩子。实际采用
+> `runtime/api/routes/assets.py` 里的 `HeldFileResponse.__call__`，在 Starlette 完成
+> （或中止）发送后的 `finally` 中释放引用。效果等价，且不引入额外抽象。
 
 **验证**：85 个 runtime 测试绿灯（84 基线 + 阶段 0 新增状态/安全测试）；手工验证 `/files` 无凭证返回 401；`gate.permissions` 的 fixture 能跑出 `pass`。
 

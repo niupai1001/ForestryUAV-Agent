@@ -13,10 +13,12 @@ import subprocess
 from typing import Iterable
 import uuid
 
-from .cases.registry import BROWSER_CASES, CASES, GATE_VERIFIERS
+from .cases.registry import AGENT_TRIALS, BROWSER_CASES, CASES, GATE_VERIFIERS
 from .collect.api import RuntimeApiClient, collect_trial
 from .collect.browser import collect_browser
-from .collect.engineering import collect_idempotency, collect_permissions
+from .collect.engineering import (
+    collect_idempotency, collect_permissions, collect_recovery, collect_sandbox,
+)
 from .collect.records import assemble
 from .scorecard import CONFIG_FIELDS, scorecard
 from .verify.ui_trial import verify_trial as verify_ui_trial
@@ -27,6 +29,8 @@ SUITE_PATH = Path(__file__).with_name("suite.json")
 ENGINEERING_COLLECTORS = {
     "gate.idempotency": collect_idempotency,
     "gate.permissions": collect_permissions,
+    "gate.recovery": collect_recovery,
+    "gate.sandbox": collect_sandbox,
 }
 
 
@@ -188,7 +192,9 @@ def run_baseline(
                 ),
                 output=trial, configuration=configs["agent"],
             )
-            module = importlib.import_module("evaluation.verify.core_csv_trial")
+            module = importlib.import_module(
+                AGENT_TRIALS.get(case["id"], "evaluation.verify.core_csv_trial")
+            )
             record = module.verify_trial(
                 trial, configs["agent"], repeat, gold=PROJECT_ROOT / binding.gold
             )

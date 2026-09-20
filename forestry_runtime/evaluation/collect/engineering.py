@@ -24,6 +24,15 @@ PERMISSIONS_TESTS = [
     "tests/test_generic_runtime.py::GenericRuntimeTests::test_source_directory_is_read_only_and_write_grant_is_one_file",
 ]
 
+RECOVERY_TESTS = [
+    "tests/test_recovery_gate.py::RecoveryGateTests::test_recovery_state_reflects_execution_probe",
+    "tests/test_session_state.py::RunStateTests::test_illegal_transition_and_terminal_exit_are_rejected",
+]
+
+SANDBOX_TESTS = [
+    "tests/test_sandbox_gate.py::SandboxGateTests::test_declared_isolation_holds_probe",
+]
+
 
 def _scalar(conn: sqlite3.Connection, query: str) -> int:
     return int(conn.execute(query).fetchone()[0])
@@ -180,17 +189,91 @@ def collect_permissions(output: Path, *, project_root: Path) -> dict[str, Any]:
     }
 
 
+def collect_recovery(output: Path, *, project_root: Path) -> dict[str, Any]:
+    """Drive the real recovery paths and preserve their observable state facts."""
+    output.mkdir(parents=True, exist_ok=False)
+    raw = output / "raw"
+    raw.mkdir()
+    report = raw / "recovery.json"
+    environment = dict(os.environ)
+    environment["EVALUATION_RECOVERY_REPORT"] = str(report.resolve())
+    command = [sys.executable, "-m", "pytest", "-q", *RECOVERY_TESTS]
+    completed = subprocess.run(
+        command, cwd=project_root, env=environment,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=300, check=False,
+    )
+    pytest_evidence = {
+        "command": command,
+        "tests": RECOVERY_TESTS,
+        "returncode": completed.returncode,
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+    }
+    (raw / "pytest.json").write_text(
+        json.dumps(pytest_evidence, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    if not report.exists():
+        report.write_text(
+            json.dumps({"error": "The recovery probe did not produce a report."}, indent=2),
+            encoding="utf-8",
+        )
+    return {
+        "pytest": pytest_evidence,
+        "report": json.loads(report.read_text(encoding="utf-8")),
+    }
+
+
+def collect_sandbox(output: Path, *, project_root: Path) -> dict[str, Any]:
+    """Start a real container and preserve its inspectable isolation facts."""
+    output.mkdir(parents=True, exist_ok=False)
+    raw = output / "raw"
+    raw.mkdir()
+    report = raw / "sandbox.json"
+    environment = dict(os.environ)
+    environment["EVALUATION_SANDBOX_REPORT"] = str(report.resolve())
+    command = [sys.executable, "-m", "pytest", "-q", "-rs", *SANDBOX_TESTS]
+    completed = subprocess.run(
+        command, cwd=project_root, env=environment,
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=900, check=False,
+    )
+    pytest_evidence = {
+        "command": command,
+        "tests": SANDBOX_TESTS,
+        "returncode": completed.returncode,
+        "skipped": "skipped" in (completed.stdout or ""),
+        "stdout": completed.stdout,
+        "stderr": completed.stderr,
+    }
+    (raw / "pytest.json").write_text(
+        json.dumps(pytest_evidence, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    if not report.exists():
+        report.write_text(
+            json.dumps({"error": "The sandbox probe did not produce a report."}, indent=2),
+            encoding="utf-8",
+        )
+    return {
+        "pytest": pytest_evidence,
+        "report": json.loads(report.read_text(encoding="utf-8")),
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
     parser.add_argument(
-        "--gate", choices=("idempotency", "permissions"), default="idempotency"
+        "--gate", choices=("idempotency", "permissions", "recovery", "sandbox"),
+        default="idempotency",
     )
     args = parser.parse_args()
     collector = {
         "idempotency": collect_idempotency,
         "permissions": collect_permissions,
+        "recovery": collect_recovery,
+        "sandbox": collect_sandbox,
     }[args.gate]
     result = collector(args.output, project_root=args.project_root.resolve())
     print(json.dumps({

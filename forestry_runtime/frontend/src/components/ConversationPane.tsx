@@ -25,7 +25,7 @@ export function ConversationPane(props: Props) {
   const end = useRef<HTMLDivElement | null>(null)
   useEffect(() => { end.current?.scrollIntoView({ block: 'end' }) }, [messages.length, props.pending.length])
   return <section className="conversation">
-    <header className="topbar"><div><h1>Agent 对话</h1><p>界面只呈现 Runtime 返回的状态与事件</p></div><span className={`state ${props.run?.state || 'new'}`}>{props.run?.state || 'new'}{props.run?.state_version !== undefined ? ` · v${props.run.state_version}` : ''}</span></header>
+    <header className="topbar"><div><h1>Agent 对话</h1><p>界面只呈现 Runtime 返回的状态与事件</p></div>{props.run && <span className={`state ${props.run.state}`}>{props.run.state}{props.run.state_version !== undefined ? ` · v${props.run.state_version}` : ''}</span>}</header>
     <div className="messages">
       {!messages.length && <div className="empty"><strong>描述一个目标</strong><span>可使用 Workspace、已授权目录、沙盒代码与已启用工具。</span></div>}
       {messages.map((message, index) => <article key={index} className={`bubble ${message.role}`}>

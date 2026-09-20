@@ -317,7 +317,7 @@ export default function App() {
       <nav className="sessions">
         {sessions.map(item => <div key={item.chat_id} className={`sessionRow ${item.chat_id === chatId ? 'selected' : ''}`}>
           <button className="sessionSelect" onClick={() => void selectChat(item.chat_id)}>
-            <span>{item.title}</span><small>{item.run?.state || 'new'}</small>
+            <span>{item.title}</span><small>{item.run?.state ?? ''}</small>
           </button>
           <button className="sessionDelete" disabled={busy} title="删除任务" aria-label={`删除任务：${item.title}`} onClick={() => void deleteChat(item.chat_id)}>×</button>
         </div>)}
