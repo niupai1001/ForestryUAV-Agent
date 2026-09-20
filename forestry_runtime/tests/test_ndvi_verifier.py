@@ -52,6 +52,51 @@ class NdviVerifierTests(unittest.TestCase):
         values = np.array([[0.5, 0.0], [np.nan, 1.0]], dtype="float32")
         return write_raster(self.artifacts / name, values)
 
+    def upload_fixture(self) -> Path:
+        """The collector downloads the uploaded input beside the agent's output."""
+        return write_raster(
+            self.artifacts / "asset_0bb9a6d96ee64140ba7e9754cb0a2473-forest.tif",
+            np.array([[1, 2], [0, 0]], dtype="float32"),
+        )
+
+    def test_uploaded_fixture_is_not_mistaken_for_a_second_output(self):
+        """Regression: a correct single result once failed as "found 2 GeoTIFFs".
+
+        The collector downloads every referenced artifact, so the uploaded input
+        lands in artifacts/ next to the output. Counting all GeoTIFFs reported a
+        false failure on a run whose NDVI values were exactly right.
+        """
+        self.upload_fixture()
+        self.correct_raster()
+        pixels = compare_ndvi_pixels(
+            artifacts=self.artifacts, gold=GOLD, report=self.artifacts / "p.json"
+        )
+        grid = compare_ndvi_grid_mask(
+            artifacts=self.artifacts, gold=GOLD, report=self.artifacts / "g.json"
+        )
+        self.assertEqual(pixels.verdict, "pass", pixels.detail)
+        self.assertEqual(grid.verdict, "pass", grid.detail)
+
+    def test_a_wrong_output_still_fails_when_the_fixture_is_present(self):
+        self.upload_fixture()
+        write_raster(
+            self.artifacts / "asset_wrong-ndvi.tif",
+            np.array([[0.5, 0.3333333], [np.nan, 1.0]], dtype="float32"),
+        )
+        pixels = compare_ndvi_pixels(
+            artifacts=self.artifacts, gold=GOLD, report=self.artifacts / "p.json"
+        )
+        self.assertEqual(pixels.verdict, "fail")
+
+    def test_two_real_outputs_are_still_ambiguous(self):
+        self.upload_fixture()
+        self.correct_raster("asset_one-ndvi.tif")
+        self.correct_raster("asset_two-ndvi.tif")
+        verdict = compare_ndvi_pixels(
+            artifacts=self.artifacts, gold=GOLD, report=self.artifacts / "p.json"
+        )
+        self.assertEqual(verdict.verdict, "fail", "two outputs cannot both be the answer")
+
     def test_correct_raster_passes_every_check(self):
         self.correct_raster()
         pixels = compare_ndvi_pixels(

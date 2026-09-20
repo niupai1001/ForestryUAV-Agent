@@ -71,6 +71,35 @@ class ChmVerifierTests(unittest.TestCase):
             correct_values() if values is None else values, **kwargs,
         )
 
+    def upload_inputs(self) -> None:
+        """The collector downloads the uploaded DSM and DTM beside the CHM."""
+        base = np.array([[1.0, 2.0, 3.0, 4.0]] * 4, dtype="float64")
+        write_raster(self.artifacts / "asset_dsm0000000000000000000000000000-dsm.tif", base)
+        write_raster(self.artifacts / "asset_dtm0000000000000000000000000000-dtm.tif", base)
+
+    def test_uploaded_dsm_and_dtm_are_not_mistaken_for_outputs(self):
+        """Regression: the inputs land in artifacts/ and must not count as CHMs."""
+        self.upload_inputs()
+        self.write_chm()
+        pixels = compare_chm_pixels(
+            artifacts=self.artifacts, gold=GOLD, report=self.artifacts / "p.json")
+        grid = compare_chm_grid_mask(
+            artifacts=self.artifacts, gold=GOLD, report=self.artifacts / "g.json")
+        self.assertEqual(pixels.verdict, "pass", pixels.detail)
+        self.assertEqual(grid.verdict, "pass", grid.detail)
+
+    def test_negative_branch_ignores_the_uploaded_inputs(self):
+        """The gap case delivers no CHM, so the inputs must not look like one."""
+        self.upload_inputs()
+        verdict = chm_claims_match_artifact(
+            answer=json.dumps({
+                "built": False,
+                "missing_evidence": "DTM 缺少 vertical_reference 元数据，无法验证垂直基准。",
+            }),
+            artifacts=self.artifacts, gold=GOLD, require_built=False,
+            report=self.artifacts / "c.json")
+        self.assertEqual(verdict.verdict, "pass", verdict.detail)
+
     def test_correct_chm_passes_all_three_checks(self):
         self.write_chm()
         pixels = compare_chm_pixels(

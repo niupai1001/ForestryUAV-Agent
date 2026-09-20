@@ -120,6 +120,10 @@ def build(fixtures_root: Path, gold_root: Path) -> dict:
     gold = {
         "version": "forestry.chm-v1",
         "source": {"dsm": "dsm.tif", "dtm": "dtm.tif"},
+        # Uploaded inputs, so a verifier can tell the delivered DSM/DTM apart from
+        # the CHM the agent produced. Without this the collector's download of the
+        # inputs looks like extra outputs.
+        "fixture_files": ["dsm.tif", "dtm.tif"],
         "crs": CRS,
         "transform": list(TRANSFORM.to_gdal()),
         "shape": [len(DSM), len(DSM[0])],

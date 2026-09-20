@@ -49,13 +49,14 @@ def verify_trial(
         for event in events if event.get("type") == "message"
     )
 
-    claims_block = claims_block(answer_text)
-    delivered = raster_candidates(artifacts)
+    gold_contract = json.loads(gold.read_text(encoding="utf-8"))
+    reported = claims_block(answer_text)
+    delivered, excluded_inputs = raster_candidates(artifacts, gold_contract)
     # The fixture decides the expected branch: a raster means the inputs were
     # meant to support a CHM, so "built" must be true.
     require_built = bool(delivered)
-    if claims_block is not None and isinstance(claims_block.get("built"), bool):
-        require_built = claims_block["built"] or bool(delivered)
+    if reported is not None and isinstance(reported.get("built"), bool):
+        require_built = reported["built"] or bool(delivered)
 
     claims = chm_claims_match_artifact(
         answer=answer_text, artifacts=artifacts, gold=gold,

@@ -17,7 +17,7 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from .base import Verdict
+from .base import Verdict, output_rasters
 
 
 PIXELS_VERIFIER = "ndvi-pixels-v1"
@@ -50,12 +50,14 @@ def _expected(contract: dict) -> np.ndarray:
         return (nir - red) / denominator
 
 
-def _single_ndvi_artifact(artifacts: Path) -> list[Path]:
-    candidates = sorted(
-        path for path in artifacts.glob("asset_*")
-        if path.is_file() and path.suffix.casefold() in {".tif", ".tiff"}
-    )
-    return candidates
+def _single_ndvi_artifact(artifacts: Path, contract: dict) -> list[Path]:
+    """Delivered NDVI rasters with the uploaded fixture excluded.
+
+    The collector downloads the uploaded input alongside the agent's output, so
+    counting every GeoTIFF reported "found 2" for a correct single-raster result.
+    """
+    outputs, _ = output_rasters(artifacts, contract)
+    return outputs
 
 
 def compare_ndvi_pixels(
@@ -70,7 +72,7 @@ def compare_ndvi_pixels(
         rule = contract.get("numeric_tolerance", {})
         abs_tol = float(rule.get("abs", 1e-6))
         rel_tol = float(rule.get("rel", 1e-6))
-        candidates = _single_ndvi_artifact(artifacts)
+        candidates = _single_ndvi_artifact(artifacts, contract)
         observations["candidates"] = [path.name for path in candidates]
         if len(candidates) != 1:
             (report.parent / report.name).write_text(json.dumps({
@@ -131,7 +133,7 @@ def compare_ndvi_grid_mask(
     detail = ""
     try:
         contract = json.loads(gold.read_text(encoding="utf-8"))
-        candidates = _single_ndvi_artifact(artifacts)
+        candidates = _single_ndvi_artifact(artifacts, contract)
         if len(candidates) != 1:
             report.parent.mkdir(parents=True, exist_ok=True)
             report.write_text(json.dumps({
@@ -220,7 +222,7 @@ def reported_facts_match_artifact(
             except (json.JSONDecodeError, TypeError):
                 observed_claims = None
         observations["reported"] = observed_claims
-        candidates = _single_ndvi_artifact(artifacts)
+        candidates = _single_ndvi_artifact(artifacts, contract)
         if len(candidates) != 1:
             observations["error"] = "Expected exactly one delivered GeoTIFF"
             report.parent.mkdir(parents=True, exist_ok=True)

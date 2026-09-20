@@ -22,7 +22,7 @@ from typing import Any
 import numpy as np
 import rasterio
 
-from .base import Verdict
+from .base import Verdict, output_rasters
 
 
 PIXELS_VERIFIER = "chm-pixels-v1"
@@ -64,15 +64,18 @@ def expected_chm(contract: dict) -> np.ndarray:
     return result
 
 
-def raster_candidates(artifacts: Path) -> list[Path]:
-    return sorted(
-        path for path in artifacts.glob("asset_*")
-        if path.is_file() and path.suffix.casefold() in {".tif", ".tiff"}
-    )
+def raster_candidates(artifacts: Path, contract: dict) -> tuple[list[Path], list[Path]]:
+    """Split delivered GeoTIFFs into (outputs, excluded inputs).
+
+    The collector downloads the uploaded DSM and DTM beside the agent's CHM, so
+    counting every GeoTIFF would report three where one output was expected.
+    Inputs are excluded by the names frozen in the gold contract.
+    """
+    return output_rasters(artifacts, contract)
 
 
-def _only_raster(artifacts: Path) -> tuple[Path | None, list[Path]]:
-    candidates = raster_candidates(artifacts)
+def _only_raster(artifacts: Path, contract: dict) -> tuple[Path | None, list[Path]]:
+    candidates, _ = raster_candidates(artifacts, contract)
     return (candidates[0] if len(candidates) == 1 else None), candidates
 
 
@@ -89,7 +92,7 @@ def compare_chm_pixels(*, artifacts: Path, gold: Path, report: Path) -> Verdict:
         contract = json.loads(gold.read_text(encoding="utf-8"))
         rule = contract.get("numeric_tolerance", {})
         abs_tol, rel_tol = float(rule.get("abs", 1e-5)), float(rule.get("rel", 1e-6))
-        raster, candidates = _only_raster(artifacts)
+        raster, candidates = _only_raster(artifacts, contract)
         observations["candidates"] = [path.name for path in candidates]
         if raster is None:
             _write(report, {"error": "Expected exactly one delivered GeoTIFF", **observations})
@@ -142,7 +145,7 @@ def compare_chm_grid_mask(*, artifacts: Path, gold: Path, report: Path) -> Verdi
     verdict, detail = "unknown", ""
     try:
         contract = json.loads(gold.read_text(encoding="utf-8"))
-        raster, candidates = _only_raster(artifacts)
+        raster, candidates = _only_raster(artifacts, contract)
         if raster is None:
             _write(report, {"error": "Expected exactly one delivered GeoTIFF",
                             "candidates": [path.name for path in candidates]})
@@ -267,10 +270,10 @@ def chm_claims_match_artifact(
             )
             observations["declared_reason"] = reason
             observations["contract_reason"] = gap.get("reason")
-            checks["no_raster_delivered"] = not raster_candidates(artifacts)
+            checks["no_raster_delivered"] = not raster_candidates(artifacts, contract)[0]
         else:
             expected_facts = contract.get("expected_facts", {})
-            raster, _ = _only_raster(artifacts)
+            raster, _ = _only_raster(artifacts, contract)
             if raster is None:
                 checks["raster_delivered"] = False
             else:

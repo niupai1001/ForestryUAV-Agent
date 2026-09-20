@@ -1,6 +1,9 @@
 {
   "version": "forestry.product_qa-v1",
   "source": "orthomosaic.tif",
+  "fixture_files": [
+    "orthomosaic.tif"
+  ],
   "crs": "EPSG:4326",
   "is_projected": false,
   "linear_units": null,

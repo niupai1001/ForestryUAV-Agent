@@ -4,6 +4,10 @@
     "dsm": "dsm.tif",
     "dtm": "dtm.tif"
   },
+  "fixture_files": [
+    "dsm.tif",
+    "dtm.tif"
+  ],
   "crs": "EPSG:32650",
   "transform": [
     500000.0,

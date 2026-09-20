@@ -80,6 +80,9 @@ def build(fixtures_root: Path, gold_root: Path) -> dict:
     gold = {
         "version": "forestry.product_qa-v1",
         "source": "orthomosaic.tif",
+        # This case inspects the uploaded product itself, so the verifier selects
+        # the artifact carrying this name rather than excluding it.
+        "fixture_files": ["orthomosaic.tif"],
         "crs": CRS,
         "is_projected": False,
         "linear_units": linear_units,

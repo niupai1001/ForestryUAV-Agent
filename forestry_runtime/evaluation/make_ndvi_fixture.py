@@ -89,6 +89,10 @@ def build(fixtures_root: Path, gold_root: Path) -> dict:
     gold = {
         "version": "forestry.ndvi-v1",
         "source": "forest.tif",
+        # Uploaded inputs, so a verifier can tell the delivered fixture apart from
+        # the raster the agent produced. Without this the collector's download of
+        # the input looks like a second output.
+        "fixture_files": ["forest.tif"],
         "band_roles": {"red": 1, "nir": 3},
         "scale": SCALE,
         "offset": OFFSET,

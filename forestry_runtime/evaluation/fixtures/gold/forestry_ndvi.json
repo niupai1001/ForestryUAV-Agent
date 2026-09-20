@@ -1,6 +1,9 @@
 {
   "version": "forestry.ndvi-v1",
   "source": "forest.tif",
+  "fixture_files": [
+    "forest.tif"
+  ],
   "band_roles": {
     "red": 1,
     "nir": 3

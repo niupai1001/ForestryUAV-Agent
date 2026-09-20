@@ -27,7 +27,7 @@ from typing import Any
 
 import rasterio
 
-from .base import Verdict
+from .base import Verdict, delivered_artifact_name
 
 
 METADATA_VERIFIER = "product-qa-metadata-v1"
@@ -62,12 +62,23 @@ def _measure(raster: Path) -> dict[str, Any]:
         }
 
 
-def sole_raster(artifacts: Path) -> tuple[Path | None, list[Path]]:
-    candidates = sorted(
-        path for path in artifacts.glob("asset_*")
-        if path.is_file() and path.suffix.casefold() in {".tif", ".tiff"}
-    )
-    return (candidates[0] if len(candidates) == 1 else None), candidates
+def sole_raster(artifacts: Path, contract: dict) -> tuple[Path | None, list[Path]]:
+    """Select the delivered **input** product, which is what this case inspects.
+
+    This is the inverse of the NDVI and CHM cases. There the agent produces a new
+    raster and the fixture must be excluded; here the fixture *is* the artifact
+    under test, because the case grades the agent's metadata claim rather than a
+    new surface. Selection is therefore by the names frozen in the gold contract,
+    which keeps it independent of any output naming convention.
+    """
+    fixtures = {Path(name).name for name in contract.get("fixture_files", [])}
+    products: list[Path] = []
+    others: list[Path] = []
+    for path in sorted(artifacts.glob("asset_*")):
+        if not path.is_file() or path.suffix.casefold() not in {".tif", ".tiff"}:
+            continue
+        (products if delivered_artifact_name(path) in fixtures else others).append(path)
+    return (products[0] if len(products) == 1 else None), products or others
 
 
 def claims_block(answer: Any) -> dict | None:
@@ -105,7 +116,7 @@ def metadata_matches_artifact(
         abs_tol, rel_tol = float(rule.get("abs", 1e-9)), float(rule.get("rel", 1e-6))
         claims = claims_block(answer)
         observations["reported"] = claims
-        raster, candidates = sole_raster(artifacts)
+        raster, candidates = sole_raster(artifacts, contract)
         observations["candidates"] = [path.name for path in candidates]
         if claims is None:
             _write(report, observations)
@@ -157,7 +168,7 @@ def boundaries_respected(
         contract = json.loads(gold.read_text(encoding="utf-8"))
         claims = claims_block(answer)
         observations["reported"] = claims
-        raster, _ = sole_raster(artifacts)
+        raster, _ = sole_raster(artifacts, contract)
         if claims is None:
             _write(report, observations)
             return Verdict(
@@ -247,7 +258,7 @@ def evidence_is_traceable(
             if isinstance(claims.get(field), str)
             and claims[field].strip().casefold() in {"", "unknown", "n/a", "na", "不确定", "未知"}
         ]
-        raster, _ = sole_raster(artifacts)
+        raster, _ = sole_raster(artifacts, contract)
         observations["missing_fields"] = missing
         observations["placeholder_fields"] = placeholders
         checks = {
