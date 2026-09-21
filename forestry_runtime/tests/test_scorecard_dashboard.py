@@ -58,6 +58,42 @@ def post(url: str, payload) -> tuple[int, dict]:
         return exc.code, json.load(exc)
 
 
+class FailureReasonTests(unittest.TestCase):
+    """A crash and a gate failure share exit code 1 but mean different things."""
+
+    def test_success_and_real_gate_failure_report_nothing_extra(self):
+        self.assertIsNone(dashboard.failure_reason(0, "", None))
+        self.assertIsNone(
+            dashboard.failure_reason(1, "no traceback here", None),
+            "exit 1 without a traceback is a real blocked verdict",
+        )
+
+    def test_a_traceback_is_reported_as_a_crash_not_a_gate_failure(self):
+        stderr = (
+            "Traceback (most recent call last):\n"
+            '  File "x.py", line 1, in <module>\n'
+            "RuntimeError: Incomplete trial directory must be reviewed: /tmp/x"
+        )
+        reason = dashboard.failure_reason(1, stderr, None)
+        self.assertIsNotNone(reason)
+        self.assertIn("crashed", reason)
+        self.assertIn("earlier run", reason, "the reader must know the page is stale")
+        self.assertIn("RuntimeError", reason)
+
+    def test_incomplete_evidence_is_explained(self):
+        reason = dashboard.failure_reason(2, "", None)
+        self.assertIn("incomplete", reason)
+
+    def test_an_external_error_takes_precedence(self):
+        self.assertEqual(
+            dashboard.failure_reason(None, "", "the run timed out"),
+            "the run timed out",
+        )
+
+    def test_a_missing_return_code_is_reported(self):
+        self.assertIsNotNone(dashboard.failure_reason(None, "", None))
+
+
 class ViewTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

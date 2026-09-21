@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import shutil
 import subprocess
 from typing import Iterable
 import uuid
@@ -134,9 +135,76 @@ def _selected_slots(
     return slots
 
 
+def _discover_records(root: Path) -> list[Path]:
+    """Every trial record on disk, so a partial run still reports the whole picture.
+
+    Scoring only the slots selected for this run made selecting one track hide the
+    other track's evidence: running ``--tracks agent`` dropped the gate records and
+    reported ``gates=unknown``, and running ``--tracks engineering`` dropped the
+    agent records. The scorecard then described the selection rather than the
+    system. ``--tracks``/``--cases`` decide what is *collected*, not what is read.
+
+    Only per-trial records are read; ``<root>/records.json`` is the assembled output
+    of a previous run and is deliberately skipped, because reading it would feed
+    stale records back in alongside their replacements. Two files claiming the same
+    slot is a real defect and is reported rather than silently resolved.
+    """
+    per_slot: dict[tuple[str, object], Path] = {}
+    for pattern in ("*/record.json", "*/records.json"):
+        for path in sorted(root.glob(pattern)):
+            if not path.is_file():
+                continue
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                # A half-written record would otherwise hide every other slot.
+                continue
+            items = payload if isinstance(payload, list) else [payload]
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                key = (str(item.get("case_id")), item.get("repeat"))
+                if key in per_slot and per_slot[key] != path:
+                    raise RuntimeError(
+                        f"Two records claim slot {key[0]} repeat {key[1]}:\n"
+                        f"  {per_slot[key]}\n  {path}\n"
+                        f"  Delete the stale one (or the whole directory) and re-run."
+                    )
+                per_slot[key] = path
+    return sorted(set(per_slot.values()))
+
+
+def _infrastructure_record(case_id: str, repeat: int, configuration: dict,
+                           detail: str) -> dict:
+    """Record a slot whose collection never reached the Runtime.
+
+    A unique ``trial_id`` matters: an empty one is rejected by the scorecard as a
+    duplicate, which turns an unreachable service into an apparent gate failure.
+    The status is ``infra_error``, which keeps the slot in the denominator as
+    ``unknown`` rather than counting it as a failure of the system under test.
+    """
+    return {
+        "suite_version": "forestry-eval-0.1",
+        "case_id": case_id,
+        "track": "agent",
+        "execution": "real_model",
+        "repeat": repeat,
+        "trial_id": f"infra-{case_id.replace('.', '-')}-{repeat}-{uuid.uuid4().hex[:12]}",
+        "configuration": configuration,
+        "status": "infra_error",
+        "status_evidence": {
+            "verifier": "collection-v1",
+            "evidence": ["raw/collector_error.txt"],
+        },
+        "checks": {},
+        "infrastructure_error": detail.strip()[:500],
+    }
+
+
 def run_baseline(
     *, root: Path, tracks: Iterable[str] | None = None,
     cases: Iterable[str] | None = None, repeats: Iterable[int] | None = None,
+    force: bool = False,
 ) -> dict:
     """Run implemented slots, resuming complete records without re-collection."""
     root = Path(root).resolve()
@@ -166,8 +234,24 @@ def run_baseline(
         if record_file.is_file():
             record_files.append(record_file)
             continue
+        if trial.exists() and any(trial.iterdir()):
+            if not force:
+                # Evidence with no record is a review item: the failure happened
+                # after collection, so re-collecting spends again and silently
+                # replaces observations. The message names both ways out.
+                raise RuntimeError(
+                    f"Incomplete trial directory must be reviewed: {trial}\n"
+                    f"  It holds evidence but no record.json, which means collection "
+                    f"succeeded and verification failed.\n"
+                    f"  Either fix the verifier and re-verify without re-collecting, "
+                    f"or pass --force to discard this evidence and collect again."
+                )
+            shutil.rmtree(trial)
         if trial.exists():
-            raise RuntimeError(f"Incomplete trial directory must be reviewed: {trial}")
+            # An empty directory is a leftover from an interrupted attempt: the
+            # collector creates it first and fills it later. Treating it as review
+            # work aborted an entire run and surfaced as a stale scorecard.
+            trial.rmdir()
         if case["track"] == "engineering":
             ENGINEERING_COLLECTORS[case["id"]](trial, project_root=PROJECT_ROOT)
             record = _verify_gate(case["id"], trial, configs["engineering"], repeat)
@@ -183,7 +267,7 @@ def run_baseline(
                 api_key, os.environ.get("RUNTIME_EVALUATOR_OWNER", "evaluator"),
                 str(uuid.uuid4()),
             )
-            collect_trial(
+            collected = collect_trial(
                 client=client, case_id=case["id"], repeat=repeat,
                 prompt=prompt_file.read_text(encoding="utf-8"),
                 fixture_files=sorted(
@@ -192,12 +276,21 @@ def run_baseline(
                 ),
                 output=trial, configuration=configs["agent"],
             )
-            module = importlib.import_module(
-                AGENT_TRIALS.get(case["id"], "evaluation.verify.core_csv_trial")
-            )
-            record = module.verify_trial(
-                trial, configs["agent"], repeat, gold=PROJECT_ROOT / binding.gold
-            )
+            if collected.get("trace") is None:
+                # The Runtime was unreachable. Record the slot as an infrastructure
+                # failure with a unique id instead of letting the verifier build a
+                # record with an empty trial id, which the scorecard rejected as a
+                # duplicate and reported as a gate failure.
+                record = _infrastructure_record(
+                    case["id"], repeat, configs["agent"], collected.get("error") or "",
+                )
+            else:
+                module = importlib.import_module(
+                    AGENT_TRIALS.get(case["id"], "evaluation.verify.core_csv_trial")
+                )
+                record = module.verify_trial(
+                    trial, configs["agent"], repeat, gold=PROJECT_ROOT / binding.gold
+                )
         _write_json(record_file, record)
         record_files.append(record_file)
 
@@ -218,7 +311,7 @@ def run_baseline(
         record_files.append(record_file)
 
     assembled_path = root / "records.json"
-    records = assemble(record_files, assembled_path)
+    records = assemble(_discover_records(root), assembled_path)
     report = scorecard(suite, records, root)
     _write_json(root / "scorecard.json", report)
     return report
@@ -230,9 +323,14 @@ def main() -> int:
     parser.add_argument("--tracks", nargs="+", choices=("agent", "engineering", "ui"))
     parser.add_argument("--cases", nargs="+")
     parser.add_argument("--repeats", nargs="+", type=int)
+    parser.add_argument(
+        "--force", action="store_true",
+        help="discard a trial directory that holds evidence but no record",
+    )
     args = parser.parse_args()
     report = run_baseline(
-        root=args.root, tracks=args.tracks, cases=args.cases, repeats=args.repeats
+        root=args.root, tracks=args.tracks, cases=args.cases,
+        repeats=args.repeats, force=args.force,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
     return {"blocked": 1, "incomplete": 2, "measured_unqualified": 0}[

@@ -10,16 +10,18 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
+import evaluation.run_baseline as run_baseline
 from evaluation.cases.core_csv import CASE
 from evaluation.collect.engineering import inspect_idempotency
 from evaluation.collect.records import assemble
 from evaluation.collect.trace import failure_category, normalize_trace
+from evaluation.scorecard import CONFIG_FIELDS
 from evaluation.verify.csv import compare_by_business_key
 from evaluation.verify.gates import exactly_once
 from evaluation.verify.text import claims_match_table
 from evaluation.verify.ui_trial import CASES as UI_CASES, verify_trial as verify_ui_trial
-from evaluation.run_baseline import run_baseline
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -197,7 +199,7 @@ class EvaluationPipelineTests(unittest.TestCase):
         record_file.write_text(json.dumps(record), encoding="utf-8")
         original = record_file.read_bytes()
 
-        report = run_baseline(
+        report = run_baseline.run_baseline(
             root=baseline, tracks=["engineering"],
             cases=["gate.idempotency"], repeats={1},
         )
@@ -211,21 +213,82 @@ class EvaluationPipelineTests(unittest.TestCase):
         )
         self.assertTrue((baseline / "scorecard.json").is_file())
 
-    def test_run_baseline_rejects_ambiguous_incomplete_trial_directory(self):
+    def test_run_baseline_discards_an_empty_trial_directory(self):
+        """An interrupted attempt leaves an empty directory, which is not review work.
+
+        Treating it as review work aborted the whole run, and because the abort
+        happened before any scorecard was written, the viewer kept showing the
+        previous run's gates -- which reads as "gate blocked" when nothing failed.
+        The slot is re-collected instead.
+        """
         baseline = self.root / "baseline"
-        (baseline / "gate-permissions-1").mkdir(parents=True)
-        with self.assertRaisesRegex(RuntimeError, "Incomplete trial directory"):
-            run_baseline(
+        empty = baseline / "gate-permissions-1"
+        empty.mkdir(parents=True)
+        self.assertEqual(list(empty.iterdir()), [])
+        (baseline / "configuration-engineering.json").write_text(
+            json.dumps({field: "test" for field in CONFIG_FIELDS}), encoding="utf-8"
+        )
+        collected = {}
+
+        def fake_collector(trial: Path, *, project_root: Path):
+            collected["trial"] = trial
+            (trial / "raw").mkdir(parents=True, exist_ok=True)
+            (trial / "raw" / "pytest.json").write_text("{}", encoding="utf-8")
+
+        def fake_verify(case_id: str, trial: Path, configuration: dict, repeat: int):
+            (trial / "raw" / "permissions.json").write_text("{}", encoding="utf-8")
+            return {
+                "suite_version": "forestry-eval-0.1", "case_id": case_id,
+                "track": "engineering", "execution": "engineering", "repeat": repeat,
+                "trial_id": f"{case_id}-{repeat}", "configuration": configuration,
+                "status": "evaluated",
+                "status_evidence": {
+                    "verifier": "stub", "evidence": ["raw/pytest.json"],
+                },
+                "checks": {"enforced": {
+                    "verdict": "pass", "verifier": "stub",
+                    "evidence": ["raw/permissions.json"],
+                }},
+            }
+
+        with patch.dict(
+            run_baseline.ENGINEERING_COLLECTORS,
+            {"gate.permissions": fake_collector},
+        ), patch.object(run_baseline, "_verify_gate", fake_verify):
+            report = run_baseline.run_baseline(
                 root=baseline, tracks=["engineering"],
                 cases=["gate.permissions"], repeats={1},
             )
+
+        self.assertEqual(collected["trial"], empty, "the same slot is re-collected")
+        self.assertTrue((empty / "raw" / "pytest.json").is_file())
+
+    def test_run_baseline_rejects_an_interrupted_trial_that_holds_evidence(self):
+        """Evidence without a record means an interrupted verification, not garbage."""
+        baseline = self.root / "baseline"
+        partial = baseline / "gate-permissions-1"
+        (partial / "raw").mkdir(parents=True)
+        (partial / "raw" / "pytest.json").write_text("{}", encoding="utf-8")
+        (baseline / "configuration-engineering.json").write_text(
+            json.dumps({field: "test" for field in CONFIG_FIELDS}), encoding="utf-8"
+        )
+        with self.assertRaisesRegex(RuntimeError, "must be reviewed") as caught:
+            run_baseline.run_baseline(
+                root=baseline, tracks=["engineering"],
+                cases=["gate.permissions"], repeats={1},
+            )
+        self.assertIn("--force", str(caught.exception), "the error must name the way out")
+        self.assertTrue(
+            (partial / "raw" / "pytest.json").is_file(),
+            "recorded evidence must not be discarded",
+        )
 
     def test_run_baseline_rejects_bom_configuration_before_collection(self):
         baseline = self.root / "baseline"
         baseline.mkdir()
         (baseline / "configuration-agent.json").write_bytes(b"\xef\xbb\xbf{}")
         with self.assertRaisesRegex(ValueError, "without BOM"):
-            run_baseline(
+            run_baseline.run_baseline(
                 root=baseline, tracks=["agent"], cases=["core.csv"], repeats={1},
             )
 

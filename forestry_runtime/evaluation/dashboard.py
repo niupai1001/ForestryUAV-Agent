@@ -48,6 +48,7 @@ _RUN_STATE: dict = {
     "stdout": "",
     "stderr": "",
     "error": None,
+    "failure": None,
 }
 
 
@@ -101,6 +102,33 @@ def current_run() -> dict:
         }
 
 
+def failure_reason(returncode: int | None, stderr: str, error: str | None) -> str | None:
+    """Explain a failed run, distinguishing a crash from a scorecard verdict.
+
+    Exit code 1 means ``blocked`` when the scorecard was produced, but the same
+    code comes back when the runner raised. Reporting "gate blocked" for a crash
+    sends the reader to the wrong place -- in practice a leftover trial directory
+    aborted a run and the page still showed the previous run's gates.
+    """
+    if error:
+        return error
+    if returncode is None:
+        return "the run did not report a return code"
+    if returncode == 0:
+        return None
+    if "Traceback (most recent call last)" in (stderr or ""):
+        last = [line for line in (stderr or "").strip().splitlines() if line.strip()]
+        return (
+            "the run crashed before producing a scorecard, so the result below is "
+            "from an earlier run: " + (last[-1] if last else "no detail")
+        )
+    if returncode == 1:
+        return None  # a real gate failure; the scorecard explains it
+    if returncode == 2:
+        return "evidence is incomplete: not every preregistered slot has evidence yet"
+    return f"unexpected exit code {returncode}"
+
+
 def _execute(tracks: list[str], cases: list[str] | None, repeats: list[int] | None,
              root: Path) -> None:
     command = [
@@ -131,6 +159,7 @@ def _execute(tracks: list[str], cases: list[str] | None, repeats: list[int] | No
             "status": "finished", "finished_at": time.time(),
             "returncode": returncode, "stdout": stdout[-20000:],
             "stderr": stderr[-20000:], "error": error,
+            "failure": failure_reason(returncode, stderr, error),
         })
 
 
@@ -152,6 +181,7 @@ def start_run(tracks: list[str], cases: list[str] | None, repeats: list[int] | N
             "status": "running", "tracks": list(tracks),
             "started_at": time.time(), "finished_at": None,
             "returncode": None, "stdout": "", "stderr": "", "error": None,
+            "failure": None,
         })
     threading.Thread(
         target=_execute, args=(tracks, cases, repeats, root), daemon=True
@@ -232,6 +262,7 @@ label{color:var(--dim);font-size:12px}
       <button id="run">运行</button>
       <span class="meta" id="runmsg"></span>
     </div>
+    <div id="runwarn"></div>
     <div id="runlog"></div>
   </section>
 
@@ -378,14 +409,20 @@ function renderRun(run) {
   } else if (run.status === 'finished') {
     const code = run.returncode;
     const meaning = {0:'完整测量',1:'门禁阻断',2:'证据不齐'}[code] || ('退出码 ' + code);
-    $('runmsg').textContent = '上次运行结束：' + meaning +
-      (run.error ? ' · ' + run.error : '');
+    $('runmsg').textContent = '上次运行结束：' + meaning;
   } else {
     $('runmsg').textContent = '';
   }
+  // A crash and a gate failure share exit code 1. Saying "门禁阻断" for a crash
+  // sends the reader to the scorecard, which in that case is the previous run's.
+  $('runwarn').innerHTML = (run.status === 'finished' && run.failure)
+    ? '<p class="warn">上次运行未产生新的评分结果：' + esc(run.failure) +
+      ' 下面的内容可能来自更早的一次运行。</p>'
+    : '';
   const output = (run.stdout || '') + (run.stderr || '');
   $('runlog').innerHTML = output
-    ? '<details><summary>运行输出</summary><pre>' + esc(output.slice(-6000)) + '</pre></details>'
+    ? '<details' + (run.failure ? ' open' : '') +
+      '><summary>运行输出</summary><pre>' + esc(output.slice(-6000)) + '</pre></details>'
     : '';
 }
 

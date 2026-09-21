@@ -103,8 +103,20 @@ def scorecard(suite: dict, records: list[dict], evidence_root: Path) -> dict:
             raise ValueError("Repeat slot outside the preregistered denominator")
         key = (case_id, repeat)
         run_id = record.get("trial_id")
-        if not isinstance(run_id, str) or not run_id.strip() or run_id in seen_run_ids or key in index:
-            raise ValueError("Duplicate/missing trial ID or occupied repeat slot")
+        # Reported separately because they need different fixes, and because an
+        # empty id used to surface as "Duplicate trial ID" on a run whose real
+        # problem was an unreachable Runtime producing traces with no run_id.
+        if not isinstance(run_id, str) or not run_id.strip():
+            raise ValueError(
+                f"Record for {case_id} repeat {repeat} has no trial_id.\n"
+                f"  That happens when collection produced no Runtime run.\n"
+                f"  Re-collect the slot with: python -m evaluation.run_baseline "
+                f"--cases {case_id} --force"
+            )
+        if run_id in seen_run_ids or key in index:
+            raise ValueError(
+                f"Two records claim {case_id} repeat {repeat} (trial_id {run_id!r})."
+            )
         seen_run_ids.add(run_id)
         config = record.get("configuration", {})
         if any(not config.get(field) for field in CONFIG_FIELDS):

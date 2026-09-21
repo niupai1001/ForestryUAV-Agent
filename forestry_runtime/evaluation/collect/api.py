@@ -151,6 +151,18 @@ def collect_trial(
     (raw_dir / "turns.json").write_text(
         json.dumps(turns, ensure_ascii=False, indent=2), encoding="utf-8"
     )
+    if not run.get("id"):
+        # Collection never reached the Runtime. Writing a trace anyway produced a
+        # record whose trial_id was the empty string; the scorecard then rejected
+        # the whole run as "duplicate trial id", which surfaced as a gate failure
+        # for what was really an unreachable service. Leave the truth in place and
+        # let the caller mark the slot instead of fabricating a graded trial.
+        error_file = raw_dir / "collector_error.txt"
+        detail = (
+            error_file.read_text(encoding="utf-8").strip()
+            if error_file.is_file() else "collection produced no Runtime run"
+        )
+        return {"status": "infra_error", "run": run, "trace": None, "error": detail}
     trace = normalize_trace(
         events=events, run=run, turns=turns, case_id=case_id,
         repeat=repeat, configuration=configuration,
