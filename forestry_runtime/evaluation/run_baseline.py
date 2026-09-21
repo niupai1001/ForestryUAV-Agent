@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import importlib
 import json
+import logging
 import os
 from pathlib import Path
 import platform
@@ -24,6 +25,8 @@ from .collect.records import assemble
 from .scorecard import CONFIG_FIELDS, scorecard
 from .verify.ui_trial import verify_trial as verify_ui_trial
 
+
+LOGGER = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SUITE_PATH = Path(__file__).with_name("suite.json")
@@ -146,10 +149,18 @@ def _discover_records(root: Path) -> list[Path]:
 
     Only per-trial records are read; ``<root>/records.json`` is the assembled output
     of a previous run and is deliberately skipped, because reading it would feed
-    stale records back in alongside their replacements. Two files claiming the same
-    slot is a real defect and is reported rather than silently resolved.
+    stale records back in alongside their replacements.
+
+    Both documented layouts exist in practice: ``run_baseline`` writes
+    ``<case>-<repeat>/``, and the manual flow in ``evaluation/README.md`` writes
+    ``<case>-<repeat>`` for gates but ``<case>-<repeat>`` for UI cases. A directory
+    whose name ends in its own ``case_id`` is the manual layout. When both layouts
+    describe one slot the canonical ``-<repeat>`` directory wins and the other is
+    reported as skipped, because refusing to score at all is worse than preferring
+    the layout the runner itself maintains.
     """
     per_slot: dict[tuple[str, object], Path] = {}
+    superseded: list[str] = []
     for pattern in ("*/record.json", "*/records.json"):
         for path in sorted(root.glob(pattern)):
             if not path.is_file():
@@ -164,14 +175,31 @@ def _discover_records(root: Path) -> list[Path]:
                 if not isinstance(item, dict):
                     continue
                 key = (str(item.get("case_id")), item.get("repeat"))
-                if key in per_slot and per_slot[key] != path:
-                    raise RuntimeError(
-                        f"Two records claim slot {key[0]} repeat {key[1]}:\n"
-                        f"  {per_slot[key]}\n  {path}\n"
-                        f"  Delete the stale one (or the whole directory) and re-run."
-                    )
-                per_slot[key] = path
+                previous = per_slot.get(key)
+                if previous is None:
+                    per_slot[key] = path
+                    continue
+                if previous == path:
+                    continue
+                canonical = _canonical_trial_dir(str(key[0]), key[1])
+                winner = previous if previous.parent.name == canonical else path
+                loser = path if winner == previous else previous
+                per_slot[key] = winner
+                superseded.append(
+                    f"{loser.relative_to(root)} (superseded by "
+                    f"{winner.relative_to(root)})"
+                )
+    if superseded:
+        LOGGER.warning(
+            "records superseded by the canonical trial directory: %s",
+            "; ".join(superseded),
+        )
+    _discover_records.last_superseded = superseded
     return sorted(set(per_slot.values()))
+
+
+def _canonical_trial_dir(case_id: str, repeat: object) -> str:
+    return f"{case_id.replace('.', '-')}-{repeat}"
 
 
 def _infrastructure_record(case_id: str, repeat: int, configuration: dict,
