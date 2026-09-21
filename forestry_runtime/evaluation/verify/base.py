@@ -74,6 +74,27 @@ def output_rasters(artifacts: Path, gold: dict) -> tuple[list[Path], list[Path]]
     return outputs, excluded
 
 
+def status_for_terminal(actual: str | None, expected: str = "completed") -> str:
+    """Map a Run's terminal state onto a scorecard trial status.
+
+    ``scorecard`` treats ``timeout`` and ``crash`` as verified failures and
+    ``infra_error`` as unknown. A Run that ended ``failed`` or ``canceled`` is
+    therefore a ``crash`` -- the task did not succeed -- while a Run still running
+    or unreachable is an ``infra_error`` that stays in the denominator as unknown.
+
+    Recording a failed Run as ``infra_error`` was wrong in practice: a run that
+    exhausted its context budget was reported as untested rather than failed.
+    """
+    if actual == expected:
+        return "evaluated"
+    if actual in {"failed", "canceled", "cancel_incomplete"}:
+        return "crash"
+    if actual == "timeout":
+        return "timeout"
+    return "infra_error"
+
+
 __all__ = [
     "Verdict", "delivered_artifact_name", "output_rasters", "save_verdict",
+    "status_for_terminal",
 ]

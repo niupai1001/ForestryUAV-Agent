@@ -19,7 +19,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .base import Verdict, save_verdict
+from .base import Verdict, save_verdict, status_for_terminal
 from .product_qa import (
     boundaries_respected, evidence_is_traceable, metadata_matches_artifact,
 )
@@ -74,7 +74,7 @@ def verify_trial(
         "repeat": trace["repeat"],
         "trial_id": str(trace.get("run_id") or ""),
         "configuration": trace["configuration"],
-        "status": "evaluated" if terminal["actual"] == terminal["expected"] else "infra_error",
+        "status": status_for_terminal(terminal["actual"], terminal["expected"]),
         "status_evidence": {
             "verifier": "termination-v1",
             "evidence": ["termination-verifier.json", "trace.json"],

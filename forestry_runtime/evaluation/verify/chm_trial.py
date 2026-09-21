@@ -16,7 +16,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .base import Verdict, save_verdict
+from .base import Verdict, save_verdict, status_for_terminal
 from .chm import (
     chm_claims_match_artifact, claims_block, compare_chm_grid_mask,
     compare_chm_pixels, raster_candidates,
@@ -28,6 +28,15 @@ def _deferred(check: str, reason: str) -> dict[str, Any]:
     return {
         "verdict": "unknown",
         "verifier": f"chm-{check}-not-applicable-v1",
+        "evidence": [],
+        "detail": reason,
+    }
+
+
+def _failed(check: str, reason: str) -> dict[str, Any]:
+    return {
+        "verdict": "fail",
+        "verifier": f"chm-{check}-missing-surface-v1",
         "evidence": [],
         "detail": reason,
     }
@@ -53,10 +62,18 @@ def verify_trial(
     reported = claims_block(answer_text)
     delivered, excluded_inputs = raster_candidates(artifacts, gold_contract)
     # The fixture decides the expected branch: a raster means the inputs were
-    # meant to support a CHM, so "built" must be true.
+    # The contract branch is whichever the agent claims, and a delivered raster
+    # forces the positive branch because a built CHM must be graded as one.
+    #
+    # Inferring "abstained" from "no raster delivered" was wrong: a run that
+    # produced no surface because it exhausted the context budget looked like a
+    # correct abstention and scored `unknown` instead of failing. The fixture's
+    # positive half *does* support a CHM, so silence is a failure there.
     require_built = bool(delivered)
-    if reported is not None and isinstance(reported.get("built"), bool):
-        require_built = reported["built"] or bool(delivered)
+    if delivered:
+        require_built = True
+    elif reported is not None:
+        require_built = reported.get("built") is True
 
     claims = chm_claims_match_artifact(
         answer=answer_text, artifacts=artifacts, gold=gold,
@@ -84,16 +101,29 @@ def verify_trial(
         "The inputs cannot support a CHM, so no surface was expected; "
         "FRAMEWORK.md §5 allows correct abstention to satisfy the contract."
     )
+    missing_surface = (
+        "The task required a CHM and the inputs support one, but no raster was "
+        "delivered and no abstention was reported."
+    )
+    if pixels is not None:
+        positive_check = save_verdict(pixels, trial).as_check()
+    elif require_built:
+        # Claimed (or was required) to build, delivered nothing: that is a failure,
+        # not an abstention. Reporting `unknown` here let a run that exhausted its
+        # context budget look like a correct refusal.
+        positive_check = _failed("positive", missing_surface)
+    else:
+        positive_check = _deferred("positive", not_applicable)
+    if grid is not None:
+        claim_check = save_verdict(grid, trial).as_check()
+    elif require_built:
+        claim_check = _failed("claim", missing_surface)
+    else:
+        claim_check = _deferred("claim", not_applicable)
     checks = {
-        "positive": (
-            save_verdict(pixels, trial).as_check() if pixels is not None
-            else _deferred("positive", not_applicable)
-        ),
+        "positive": positive_check,
         "negative": save_verdict(claims, trial).as_check(),
-        "claim": (
-            save_verdict(grid, trial).as_check() if grid is not None
-            else _deferred("claim", not_applicable)
-        ),
+        "claim": claim_check,
     }
     return {
         "suite_version": "forestry-eval-0.1",
@@ -103,7 +133,7 @@ def verify_trial(
         "repeat": trace["repeat"],
         "trial_id": str(trace.get("run_id") or ""),
         "configuration": trace["configuration"],
-        "status": "evaluated" if terminal["actual"] == terminal["expected"] else "infra_error",
+        "status": status_for_terminal(terminal["actual"], terminal["expected"]),
         "status_evidence": {
             "verifier": "termination-v1",
             "evidence": ["termination-verifier.json", "trace.json"],
