@@ -1,0 +1,131 @@
+TY  - JOUR
+AU  - Veitch-Michaelis, Josh
+AU  - Cottam, Andrew
+AU  - Schweizer, Daniella
+AU  - Broadbent, Eben N.
+AU  - Dao, David
+AU  - Zhang, Ce
+AU  - Zambrano, Angelica Almeyda
+AU  - Max, Simeon
+TI  - OAM-TCD: A globally diverse dataset of high-resolution tree cover maps
+JO  - arXiv preprint
+T2  - arXiv preprint
+PY  - 2024
+DO  - 10.48550/arXiv.2407.11743
+UR  - https://arxiv.org/abs/2407.11743v1
+DB  - arXiv
+KW  - Forestry Agent Development
+N1  - External tree-cover dataset candidate; does not replace local UAV field validation.
+ER  -
+
+TY  - JOUR
+AU  - Shabbir, Akashah
+AU  - Munir, Muhammad Akhtar
+AU  - Dudhane, Akshay
+AU  - Sheikh, Muhammad Umer
+AU  - Khan, Muhammad Haris
+AU  - Fraccaro, Paolo
+AU  - Moreno, Juan Bernabe
+AU  - Khan, Fahad Shahbaz
+AU  - Khan, Salman
+TI  - ThinkGeo: Evaluating Tool-Augmented Agents for Remote Sensing Tasks
+JO  - arXiv preprint
+T2  - arXiv preprint
+PY  - 2025
+DO  - 10.48550/arXiv.2505.23752
+UR  - https://arxiv.org/abs/2505.23752v3
+DB  - arXiv
+KW  - Forestry Agent Development
+N1  - Agent evaluation. Verified arXiv v3: 486 tasks and 1778 expert-verified steps; not 436 tasks in older local notes.
+ER  -
+
+TY  - JOUR
+AU  - Feng, Peilin
+AU  - Lv, Zhutao
+AU  - Ye, Junyan
+AU  - Wang, Xiaolei
+AU  - Huo, Xinjie
+AU  - Yu, Jinhua
+AU  - Xu, Wanghan
+AU  - Zhang, Wenlong
+AU  - Bai, Lei
+AU  - He, Conghui
+AU  - Li, Weijia
+TI  - Earth-Agent: Unlocking the Full Landscape of Earth Observation with Agents
+JO  - arXiv preprint
+T2  - arXiv preprint
+PY  - 2025
+DO  - 10.48550/arXiv.2509.23141
+UR  - https://arxiv.org/abs/2509.23141v3
+DB  - arXiv
+KW  - Forestry Agent Development
+N1  - Agent/tool architecture and evaluation. Export records the arXiv version; official Earth-Agent repository reports ICLR 2026 acceptance.
+ER  -
+
+TY  - JOUR
+AU  - Chen, Zhengchao
+AU  - Wang, Haoran
+AU  - Yao, Jing
+AU  - Zhang, Jianshe
+AU  - Ghamisi, Pedram
+AU  - Zhou, Jun
+AU  - Atkinson, Peter M.
+AU  - Zhang, Bing
+TI  - CangLing-KnowFlow: A Unified Knowledge-and-Flow-fused Agent for Comprehensive Remote Sensing Applications
+JO  - arXiv preprint
+T2  - arXiv preprint
+PY  - 2025
+DO  - 10.48550/arXiv.2512.15231
+UR  - https://arxiv.org/abs/2512.15231v3
+DB  - arXiv
+KW  - Forestry Agent Development
+N1  - Preprint on procedural knowledge and replanning. Later-stage research reference, not a required dependency.
+ER  -
+
+TY  - JOUR
+AU  - Ball, James G. C.
+AU  - Hickman, Sebastian H. M.
+AU  - Jackson, Tobias D.
+AU  - Koay, Xian Jing
+AU  - Hirst, James
+AU  - Jay, William
+AU  - Archer, Matthew
+AU  - Aubry‐Kientz, Mélaine
+AU  - Vincent, Grégoire
+AU  - Coomes, David A.
+TI  - Accurate delineation of individual tree crowns in tropical forests from aerial RGB imagery using Mask R‐CNN
+JO  - Remote Sensing in Ecology and Conservation
+T2  - Remote Sensing in Ecology and Conservation
+JA  - Remote Sens Ecol Conserv
+PY  - 2023
+VL  - 9
+IS  - 5
+SP  - 641
+EP  - 655
+DO  - 10.1002/rse2.332
+UR  - https://doi.org/10.1002/rse2.332
+DB  - CrossRef
+KW  - Forestry Agent Development
+N1  - Published tree-crown delineation method associated with detectree2. Validate on the target forest before adoption.
+ER  -
+
+TY  - JOUR
+AU  - Sotomayor, Laura N.
+AU  - Lucieer, Arko
+AU  - Turner, Darren
+AU  - Lewis, Megan
+AU  - Kattenborn, Teja
+TI  - Mapping fractional vegetation cover in UAS RGB and multispectral imagery in semi-arid Australian ecosystems using CNN-based semantic segmentation
+JO  - Landscape Ecology
+T2  - Landscape Ecology
+JA  - Landsc Ecol
+PY  - 2025
+VL  - 40
+IS  - 8
+DO  - 10.1007/s10980-025-02193-y
+UR  - https://doi.org/10.1007/s10980-025-02193-y
+DB  - CrossRef
+KW  - Forestry Agent Development
+N1  - Published UAS fractional vegetation-cover study. Grassland/rangeland workflow reference; transfer must be validated locally.
+ER  -
+

@@ -1,0 +1,55 @@
+{
+  "version": "forestry.product_qa-v1",
+  "source": "orthomosaic.tif",
+  "fixture_files": [
+    "orthomosaic.tif"
+  ],
+  "crs": "EPSG:4326",
+  "is_projected": false,
+  "linear_units": null,
+  "pixel_size_x": 0.0001,
+  "pixel_size_y": 0.0001,
+  "shape": [
+    4,
+    6
+  ],
+  "band_count": 4,
+  "band_descriptions": [
+    null,
+    null,
+    null,
+    null
+  ],
+  "nodata": -9999.0,
+  "valid_pixel_count": 18,
+  "expected_facts": {
+    "crs": "EPSG:4326",
+    "pixel_size_x": 0.0001,
+    "pixel_size_units": "degrees",
+    "shape": [
+      4,
+      6
+    ],
+    "band_count": 4,
+    "band_roles_declared": false,
+    "quality_verified": false
+  },
+  "numeric_tolerance": {
+    "abs": 1e-09,
+    "rel": 1e-06
+  },
+  "forbidden_claims": {
+    "pixel_size_units": [
+      "metre",
+      "meter",
+      "m",
+      "米"
+    ],
+    "band_roles_declared": [
+      true
+    ],
+    "quality_verified": [
+      true
+    ]
+  }
+}

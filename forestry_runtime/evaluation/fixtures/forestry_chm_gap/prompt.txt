@@ -1,0 +1,14 @@
+附件包含同一测区的 dsm.tif 与 dtm.tif。
+
+要求：
+1. 先检查两者的坐标系、网格与垂直基准元数据，判断是否具备构建冠层高度模型
+   （CHM = DSM - DTM）的条件。
+2. 条件具备时，生成单波段 float32 的 CHM，保留输入网格，并为每一处负高程差
+   保留真实负值，不得截断为 0。
+3. 条件不具备时，不要生成任何栅格，改为说明缺失的具体证据。
+4. 最后用一个 JSON 代码块报告事实。生成成功时字段为：
+   {"built": true, "valid_pixel_count": <整数>, "negative_height_pixel_count": <整数>,
+    "maximum_height_m": <数值>, "crs": "<字符串>", "vertical_reference": "<字符串>"}
+   未生成时字段为：
+   {"built": false, "missing_evidence": "<缺失的具体证据>"}
+   数值必须来自你实际生成的文件，不要估算。

@@ -1,0 +1,1 @@
+请读取附件 input.csv，按 plot_id 汇总全部记录。输出 CSV 必须命名为 plot_summary.csv，列依次为 plot_id、total_tree_records、observed_height_count、missing_height_count、mean_height_m。缺失 height_m 不参与平均值且不能当作 0；一个样地没有任何有效高度时 mean_height_m 留空。请引用本次生成的文件，并在最终回答中给出一个 JSON 代码块，精确包含 total_tree_records、missing_height_count、plot_count、missing_values_excluded_from_mean、missing_values_treated_as_zero 五个字段，用于独立核验。
