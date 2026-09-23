@@ -6,6 +6,7 @@ from typing import Callable, Literal
 
 from pydantic import BaseModel, Field
 
+from .declaration import Declaration
 from .protocol import inline_schema
 
 
@@ -39,12 +40,16 @@ class ToolSpec:
     keywords: tuple[str, ...] = ()
     deferred: bool = False
     handler: Callable | None = None
+    #: What this tool states about when it applies. Optional and additive: a tool
+    #: without one behaves exactly as before, and the declaration is never
+    #: evaluated by the Runtime -- it is told to the model, which checks it.
+    declaration: Declaration | None = None
 
     def model_schema(self) -> dict:
         return inline_schema(self.params.model_json_schema())
 
     def trace_summary(self) -> dict:
-        return {
+        summary = {
             "side_effect": self.side_effect.value,
             "equivalent": self.equivalence_group,
             "scope": self.scope.model_dump(),
@@ -52,6 +57,9 @@ class ToolSpec:
             "returns": self.returns,
             "verification": self.verification,
         }
+        if self.declaration is not None:
+            summary["declaration"] = self.declaration.as_dict()
+        return summary
 
 
 ARTIFACT_TYPES = {
