@@ -1,0 +1,7 @@
+.env
+data
+backups
+test-output
+__pycache__
+frontend/node_modules
+.git

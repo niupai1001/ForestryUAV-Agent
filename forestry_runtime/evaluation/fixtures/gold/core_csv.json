@@ -1,0 +1,46 @@
+{
+  "version": "core.csv-v1",
+  "business_key": ["plot_id"],
+  "columns": {
+    "plot_id": "string",
+    "total_tree_records": "integer",
+    "observed_height_count": "integer",
+    "missing_height_count": "integer",
+    "mean_height_m": "number"
+  },
+  "null_values": ["", "NA", "null"],
+  "allow_extra_columns": false,
+  "numeric_tolerance": {
+    "mean_height_m": {"abs": 0.000001, "rel": 0.000001}
+  },
+  "rows": [
+    {
+      "plot_id": "P-01",
+      "total_tree_records": 3,
+      "observed_height_count": 2,
+      "missing_height_count": 1,
+      "mean_height_m": 11.0
+    },
+    {
+      "plot_id": "P-02",
+      "total_tree_records": 2,
+      "observed_height_count": 2,
+      "missing_height_count": 0,
+      "mean_height_m": 9.0
+    },
+    {
+      "plot_id": "P-03",
+      "total_tree_records": 1,
+      "observed_height_count": 0,
+      "missing_height_count": 1,
+      "mean_height_m": null
+    }
+  ],
+  "answer_claims": {
+    "total_tree_records": 6,
+    "missing_height_count": 2,
+    "plot_count": 3,
+    "missing_values_excluded_from_mean": true,
+    "missing_values_treated_as_zero": false
+  }
+}

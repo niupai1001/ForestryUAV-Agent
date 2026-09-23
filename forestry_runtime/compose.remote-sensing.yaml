@@ -1,0 +1,14 @@
+services:
+  runtime:
+    build:
+      context: .
+      target: remote-sensing
+    environment:
+      REMOTE_SENSING_PLUGINS_ENABLED: "true"
+      UAV_INPUT_ROOT: /uav-input
+      UAV_INPUT_HOST_ROOT: ${UAV_INPUT_HOST_ROOT:-E:/UAV_INPUT}
+    volumes:
+      - type: bind
+        source: ${UAV_INPUT_HOST_ROOT:-E:/UAV_INPUT}
+        target: /uav-input
+        read_only: true

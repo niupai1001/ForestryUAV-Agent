@@ -1,0 +1,14 @@
+name: prosail-local
+channels:
+  - https://repo.anaconda.com/pkgs/main
+dependencies:
+  - python=3.12.14
+  - numpy=2.4.6
+  - scipy=1.18.1
+  - rasterio=1.4.3
+  - pillow=11.1.0
+  - numba=0.66.0
+  - pip
+  - pip:
+      - prosail==2.0.5
+      - pytest==9.1.1

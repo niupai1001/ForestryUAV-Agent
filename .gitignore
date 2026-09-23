@@ -1,0 +1,9 @@
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+forestry_runtime/.env
+forestry_runtime/data/
+forestry_runtime/test-output/
+tmp/
+uav_prosail_baseline/runtime/ODM/
+uav_prosail_baseline/runtime/python/

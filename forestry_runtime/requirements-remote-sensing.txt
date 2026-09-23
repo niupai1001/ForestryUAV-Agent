@@ -1,0 +1,5 @@
+rasterio==1.5.1
+numpy==2.2.5
+prosail==2.0.5
+scipy==1.15.3
+scikit-image==0.26.0
