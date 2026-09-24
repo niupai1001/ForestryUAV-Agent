@@ -1,0 +1,1536 @@
+{
+  "scope": "statically visible Runtime raises and literal failure results",
+  "total": 189,
+  "by_family": {
+    "artifacts": 3,
+    "environment": 5,
+    "forest_structure": 16,
+    "fs": 13,
+    "job_cancel": 1,
+    "job_status": 2,
+    "knowledge_search": 3,
+    "prosail": 14,
+    "raster": 23,
+    "runtime": 89,
+    "uav_audit": 20
+  },
+  "by_diagnosis_source": {
+    "known_code": 10,
+    "producer": 11,
+    "unknown": 168
+  },
+  "points": [
+    {
+      "site": "runtime/agent.py:321",
+      "family": "runtime",
+      "kind": "failure_return",
+      "code": "duplicate_failed_call",
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/agent.py:671",
+      "family": "runtime",
+      "kind": "failure_return",
+      "code": "action_outcome_unsettled",
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/artifacts/service.py:20",
+      "family": "artifacts",
+      "kind": "ToolPreconditionError",
+      "code": "asset_not_available",
+      "reason": "inapplicable",
+      "diagnosis_source": "producer"
+    },
+    {
+      "site": "runtime/capabilities/artifacts/service.py:31",
+      "family": "artifacts",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/artifacts/service.py:74",
+      "family": "artifacts",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/domain_runtime.py:52",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/domain_runtime.py:71",
+      "family": "runtime",
+      "kind": "failure_return",
+      "code": "unknown_tool",
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/environment/service.py:333",
+      "family": "environment",
+      "kind": "ToolPreconditionError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/environment/service.py:346",
+      "family": "environment",
+      "kind": "ToolPreconditionError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/environment/service.py:353",
+      "family": "environment",
+      "kind": "SubmissionRefused",
+      "code": "repeated_install_failure",
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/environment/service.py:543",
+      "family": "environment",
+      "kind": "SubmissionRefused",
+      "code": "blocked_by",
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/environment/service.py:593",
+      "family": "environment",
+      "kind": "failure_return",
+      "code": "blocked_by",
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/forest_structure/service.py:115",
+      "family": "forest_structure",
+      "kind": "ToolPreconditionError",
+      "code": "vertical_reference_mismatch",
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/forest_structure/service.py:182",
+      "family": "forest_structure",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/forest_structure/service.py:263",
+      "family": "forest_structure",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/forest_structure/service.py:272",
+      "family": "forest_structure",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/forest_structure/service.py:35",
+      "family": "forest_structure",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/forest_structure/service.py:44",
+      "family": "forest_structure",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/forest_structure/service.py:47",
+      "family": "forest_structure",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/forest_structure/service.py:49",
+      "family": "forest_structure",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/forest_structure/service.py:51",
+      "family": "forest_structure",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/forest_structure/service.py:518",
+      "family": "forest_structure",
+      "kind": "ToolPreconditionError",
+      "code": "raster_grid_mismatch",
+      "reason": "inapplicable",
+      "diagnosis_source": "producer"
+    },
+    {
+      "site": "runtime/capabilities/forest_structure/service.py:535",
+      "family": "forest_structure",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/forest_structure/service.py:543",
+      "family": "forest_structure",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/forest_structure/service.py:69",
+      "family": "forest_structure",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/forest_structure/service.py:73",
+      "family": "forest_structure",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/forest_structure/service.py:85",
+      "family": "forest_structure",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/forest_structure/service.py:98",
+      "family": "forest_structure",
+      "kind": "ToolPreconditionError",
+      "code": "vertical_reference_conflict",
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/fs/service.py:110",
+      "family": "fs",
+      "kind": "SourcePathError",
+      "code": "source_path_not_found",
+      "reason": "not_found",
+      "diagnosis_source": "known_code"
+    },
+    {
+      "site": "runtime/capabilities/fs/service.py:118",
+      "family": "fs",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/fs/service.py:135",
+      "family": "fs",
+      "kind": "SourcePathError",
+      "code": "source_path_not_found",
+      "reason": "not_found",
+      "diagnosis_source": "known_code"
+    },
+    {
+      "site": "runtime/capabilities/fs/service.py:160",
+      "family": "fs",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/fs/service.py:174",
+      "family": "fs",
+      "kind": "ToolPreconditionError",
+      "code": "file_version_conflict",
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/fs/service.py:18",
+      "family": "fs",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/fs/service.py:182",
+      "family": "fs",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/fs/service.py:184",
+      "family": "fs",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/fs/service.py:21",
+      "family": "fs",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/fs/service.py:53",
+      "family": "fs",
+      "kind": "SourcePathError",
+      "code": "source_path_not_found",
+      "reason": "not_found",
+      "diagnosis_source": "known_code"
+    },
+    {
+      "site": "runtime/capabilities/fs/service.py:59",
+      "family": "fs",
+      "kind": "ToolPreconditionError",
+      "code": "path_not_found",
+      "reason": "not_found",
+      "diagnosis_source": "known_code"
+    },
+    {
+      "site": "runtime/capabilities/fs/service.py:70",
+      "family": "fs",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/fs/service.py:93",
+      "family": "fs",
+      "kind": "ToolPreconditionError",
+      "code": "asset_not_available",
+      "reason": "inapplicable",
+      "diagnosis_source": "producer"
+    },
+    {
+      "site": "runtime/capabilities/job_cancel/service.py:22",
+      "family": "job_cancel",
+      "kind": "failure_return",
+      "code": "install_cancel_refused",
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/job_status/service.py:89",
+      "family": "job_status",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/job_status/service.py:90",
+      "family": "job_status",
+      "kind": "failure_return",
+      "code": "local_photogrammetry_backend_removed",
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/knowledge_search/service.py:12",
+      "family": "knowledge_search",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/knowledge_search/service.py:15",
+      "family": "knowledge_search",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/knowledge_search/service.py:23",
+      "family": "knowledge_search",
+      "kind": "ToolPreconditionError",
+      "code": "knowledge_search_budget_exhausted",
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/prosail/service.py:185",
+      "family": "prosail",
+      "kind": "ToolPreconditionError",
+      "code": "invalid_reflectance_asset_type",
+      "reason": "inapplicable",
+      "diagnosis_source": "producer"
+    },
+    {
+      "site": "runtime/capabilities/prosail/service.py:192",
+      "family": "prosail",
+      "kind": "ToolPreconditionError",
+      "code": "invalid_lut_asset_type",
+      "reason": "inapplicable",
+      "diagnosis_source": "producer"
+    },
+    {
+      "site": "runtime/capabilities/prosail/service.py:203",
+      "family": "prosail",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/prosail/service.py:215",
+      "family": "prosail",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/prosail/service.py:225",
+      "family": "prosail",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/prosail/service.py:227",
+      "family": "prosail",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/prosail/service.py:229",
+      "family": "prosail",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/prosail/service.py:231",
+      "family": "prosail",
+      "kind": "ToolPreconditionError",
+      "code": "neighbors_exceeds_lut_rows",
+      "reason": "invalid_arguments",
+      "diagnosis_source": "producer"
+    },
+    {
+      "site": "runtime/capabilities/prosail/service.py:241",
+      "family": "prosail",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/prosail/service.py:249",
+      "family": "prosail",
+      "kind": "ToolPreconditionError",
+      "code": "lut_bands_unavailable",
+      "reason": "inapplicable",
+      "diagnosis_source": "producer"
+    },
+    {
+      "site": "runtime/capabilities/prosail/service.py:273",
+      "family": "prosail",
+      "kind": "ToolPreconditionError",
+      "code": "raster_band_out_of_range",
+      "reason": "invalid_arguments",
+      "diagnosis_source": "producer"
+    },
+    {
+      "site": "runtime/capabilities/prosail/service.py:394",
+      "family": "prosail",
+      "kind": "ToolPreconditionError",
+      "code": "no_valid_reflectance_pixels",
+      "reason": "inapplicable",
+      "diagnosis_source": "producer"
+    },
+    {
+      "site": "runtime/capabilities/prosail/service.py:46",
+      "family": "prosail",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/prosail/service.py:59",
+      "family": "prosail",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:1011",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:217",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:231",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:237",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:243",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:251",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:317",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:322",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:344",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:350",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:352",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:356",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:358",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:46",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:636",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:656",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:666",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:696",
+      "family": "raster",
+      "kind": "ToolPreconditionError",
+      "code": "no_valid_ndvi_pixels",
+      "reason": "inapplicable",
+      "diagnosis_source": "producer"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:817",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:827",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:833",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:838",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/raster/service.py:919",
+      "family": "raster",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/audit.py:279",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/audit.py:282",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/audit.py:288",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/audit.py:302",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/audit.py:304",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/audit.py:371",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/audit.py:378",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/audit.py:386",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/audit.py:388",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/audit.py:391",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/audit.py:397",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/audit.py:437",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/audit.py:93",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/service.py:108",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/service.py:121",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/service.py:230",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/service.py:61",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/service.py:72",
+      "family": "uav_audit",
+      "kind": "SourcePathError",
+      "code": "source_path_not_found",
+      "reason": "not_found",
+      "diagnosis_source": "known_code"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/service.py:83",
+      "family": "uav_audit",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/capabilities/uav_audit/service.py:97",
+      "family": "uav_audit",
+      "kind": "ToolPreconditionError",
+      "code": "recursive_scope_unconfirmed",
+      "reason": "inapplicable",
+      "diagnosis_source": "known_code"
+    },
+    {
+      "site": "runtime/kernel/protocol.py:103",
+      "family": "runtime",
+      "kind": "failure_return",
+      "code": "invalid_arguments",
+      "reason": "invalid_arguments",
+      "diagnosis_source": "known_code"
+    },
+    {
+      "site": "runtime/kernel/protocol.py:125",
+      "family": "runtime",
+      "kind": "failure_return",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/kernel/protocol.py:137",
+      "family": "runtime",
+      "kind": "failure_return",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/kernel/protocol.py:147",
+      "family": "runtime",
+      "kind": "failure_return",
+      "code": "missing_shared_library",
+      "reason": "missing_env",
+      "diagnosis_source": "producer"
+    },
+    {
+      "site": "runtime/kernel/protocol.py:156",
+      "family": "runtime",
+      "kind": "failure_return",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/lifecycle.py:104",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/lifecycle.py:146",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/lifecycle.py:20",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/lifecycle.py:59",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:190",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:249",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:264",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:271",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:293",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:311",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:416",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:426",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:462",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:501",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:523",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:542",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:547",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:609",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:617",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:667",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:675",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:710",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:759",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/memory.py:823",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:115",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:139",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:197",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:219",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:221",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:260",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:262",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:331",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:500",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:559",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:574",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:581",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:591",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:658",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:679",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:688",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:706",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:730",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:740",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:870",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/run_store.py:89",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/session/coordinator.py:75",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/session/state.py:25",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/session/state.py:28",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/storage.py:110",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/storage.py:135",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/storage.py:137",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/storage.py:140",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/storage.py:58",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/storage.py:62",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/storage.py:81",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/storage.py:85",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/storage.py:97",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/store/executions.py:49",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:117",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:144",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:237",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:239",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:245",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:268",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:300",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:308",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:319",
+      "family": "runtime",
+      "kind": "SourcePathError",
+      "code": "source_path_not_found",
+      "reason": "not_found",
+      "diagnosis_source": "known_code"
+    },
+    {
+      "site": "runtime/workspace.py:324",
+      "family": "runtime",
+      "kind": "SourcePathError",
+      "code": "source_path_not_found",
+      "reason": "not_found",
+      "diagnosis_source": "known_code"
+    },
+    {
+      "site": "runtime/workspace.py:332",
+      "family": "runtime",
+      "kind": "SourcePathError",
+      "code": "source_path_not_found",
+      "reason": "not_found",
+      "diagnosis_source": "known_code"
+    },
+    {
+      "site": "runtime/workspace.py:337",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:340",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:400",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:411",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:415",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:443",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:448",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:460",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:471",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:476",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    },
+    {
+      "site": "runtime/workspace.py:85",
+      "family": "runtime",
+      "kind": "AssetError",
+      "code": null,
+      "reason": "unknown",
+      "diagnosis_source": "unknown"
+    }
+  ]
+}

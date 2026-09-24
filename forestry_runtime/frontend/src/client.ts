@@ -30,3 +30,11 @@ export function jsonBody(value: unknown): RequestInit {
     body: JSON.stringify(value),
   }
 }
+
+export function putBody(value: unknown): RequestInit {
+  return {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(value),
+  }
+}

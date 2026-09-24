@@ -16,7 +16,8 @@ from ..workspace import WorkspaceRegistry
 from ..session.coordinator import RunCoordinator
 from ..memory import MemoryManager
 from .models import (
-    AssetListResponse, AssetResponse, GrantRequest, KnowledgeSourceRequest,
+    AssetListResponse, AssetResponse, GrantRequest, InstructionPreviewRequest,
+    InstructionRequest, KnowledgeSourceRequest,
     MemoryRequest, Message, ProjectRequest, ProjectSelection, RunEventsResponse,
     RunMessage, RunRequest, RunResponse, RunTurnsResponse, SessionRequest, Sources,
 )
@@ -53,7 +54,21 @@ async def lifespan(app):
             await asyncio.sleep(2)
     task = asyncio.create_task(cleaner())
     try:
-        await runs.reconcile()
+        # Recovery must never prevent the service from coming up. Reconciliation
+        # talks to the host bridge for every durable job reference, and a bridge that
+        # accepts a connection but never answers used to hold startup indefinitely --
+        # the container reported "unhealthy" and the whole Runtime was unreachable
+        # because of one stale job. The budget is generous enough for real work and
+        # finite either way.
+        await asyncio.wait_for(
+            runs.reconcile(),
+            timeout=float(os.getenv('STARTUP_RECONCILE_SECONDS', '120')),
+        )
+    except asyncio.TimeoutError:
+        log.exception(
+            'Run reconciliation exceeded its startup budget; the service is starting '
+            'anyway and active Runs will be reconciled on demand'
+        )
     except Exception:
         # A stale or temporarily unavailable durable job must not prevent the
         # HTTP service (including health and recovery controls) from starting.
@@ -111,10 +126,16 @@ class SessionMiddleware:
 
     async def __call__(self, scope, receive, send):
         path = scope.get('path', '')
+        # Routes that resolve a per-chat store. A route using `request_store` must be
+        # listed here, or its dependency fails with a bare AttributeError on
+        # `request.state.store` rather than anything that names the cause.
         scoped = (
             path == '/assets' or path.startswith('/assets/')
             or path == '/runs' or path.startswith('/runs/')
             or path == '/workspace' or path.startswith('/workspace/')
+            # Settings are stored per chat like everything else, so a value written
+            # from one task does not silently change another's behaviour.
+            or path == '/settings' or path.startswith('/settings/')
         )
         if scope['type'] != 'http' or not scoped:
             return await self.app(scope, receive, send)
@@ -234,11 +255,12 @@ from .routes.health import router as health_router
 from .routes.projects import router as projects_router
 from .routes.runs import router as runs_router
 from .routes.sessions import router as sessions_router
+from .routes.settings import router as settings_router
 from .routes.workspace import router as workspace_router
 
 for router in (
     sessions_router, projects_router, assets_router, workspace_router,
-    runs_router, health_router,
+    runs_router, settings_router, health_router,
 ):
     app.include_router(router)
 

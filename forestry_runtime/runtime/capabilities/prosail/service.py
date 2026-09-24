@@ -23,6 +23,7 @@ from scipy.stats import qmc
 from scipy import ndimage as ndi
 
 from ...storage import AssetError
+from ...kernel.protocol import ToolPreconditionError
 from ..uav_audit.audit import GEOSPATIAL_SUFFIXES, IMAGE_SUFFIXES
 from .tool import PROSAIL_PARAMETER_NAMES
 
@@ -181,9 +182,19 @@ class ProsailCapability:
         asset, raster_path = self.asset(asset_id)
         lut_asset, lut_path = self.asset(lut_asset_id)
         if Path(asset['name']).suffix.lower() not in ('.tif', '.tiff'):
-            raise AssetError('PROSAIL反演输入必须是GeoTIFF反射率影像')
+            raise ToolPreconditionError(
+                'PROSAIL反演输入必须是GeoTIFF反射率影像',
+                code='invalid_reflectance_asset_type', reason='inapplicable',
+                missing=[{'kind': 'geotiff_reflectance', 'asset_id': asset_id}],
+                actual_name=asset['name'], accepted_suffixes=['.tif', '.tiff'],
+            )
         if Path(lut_asset['name']).suffix.lower() != '.npz':
-            raise AssetError('PROSAIL LUT必须是build_prosail_lut生成的NPZ资产')
+            raise ToolPreconditionError(
+                'PROSAIL LUT必须是build_prosail_lut生成的NPZ资产',
+                code='invalid_lut_asset_type', reason='inapplicable',
+                missing=[{'kind': 'prosail_lut_npz', 'asset_id': lut_asset_id}],
+                actual_name=lut_asset['name'], accepted_suffixes=['.npz'],
+            )
         self.validate_tiff(raster_path)
 
         with np.load(lut_path, allow_pickle=False) as lut_file:
@@ -217,7 +228,14 @@ class ProsailCapability:
         if np.any((reflectance < 0) | (reflectance > 1)):
             raise AssetError('LUT反射率必须使用0到1范围的无量纲反射率比例')
         if neighbors > reflectance.shape[0]:
-            raise AssetError('neighbors不能大于LUT记录数')
+            raise ToolPreconditionError(
+                'neighbors不能大于LUT记录数',
+                code='neighbors_exceeds_lut_rows', reason='invalid_arguments',
+                missing=[{'kind': 'valid_neighbor_count', 'asset_id': lut_asset_id}],
+                maximum_neighbors=int(reflectance.shape[0]),
+                requested_neighbors=int(neighbors),
+                suggested_arguments={'neighbors': int(reflectance.shape[0])},
+            )
         for name, values in parameter_values.items():
             if values.shape != (reflectance.shape[0],):
                 raise AssetError(f'LUT参数{name!r}的记录数不一致')
@@ -228,7 +246,12 @@ class ProsailCapability:
             if item['lut_band'] not in lut_columns
         ]
         if unknown:
-            raise AssetError('LUT中不存在波段：' + ', '.join(unknown))
+            raise ToolPreconditionError(
+                'LUT中不存在波段：' + ', '.join(unknown),
+                code='lut_bands_unavailable', reason='inapplicable',
+                missing=[{'kind': 'lut_band', 'name': name} for name in unknown],
+                candidates=[{'lut_band': name} for name in lut_band_names[:20]],
+            )
         requested_raster_bands = [
             item['raster_band'] for item in band_mapping
         ]
@@ -247,8 +270,12 @@ class ProsailCapability:
                     [alpha_band] if alpha_band is not None else []
                 )
                 if max(all_bands) > src.count:
-                    raise AssetError(
-                        f'波段编号超出源影像波段数{src.count}'
+                    raise ToolPreconditionError(
+                        f'波段编号超出源影像波段数{src.count}',
+                        code='raster_band_out_of_range', reason='invalid_arguments',
+                        missing=[{'kind': 'raster_band', 'asset_id': asset_id}],
+                        available_band_count=src.count,
+                        requested_bands=all_bands,
                     )
                 profile = src.profile.copy()
                 output_names = [
@@ -364,7 +391,13 @@ class ProsailCapability:
                             valid_count += observations.shape[0]
                         dst.write(output, window=window)
                 if not valid_count:
-                    raise AssetError('反射率影像中没有可用于PROSAIL反演的有效像元')
+                    raise ToolPreconditionError(
+                        '反射率影像中没有可用于PROSAIL反演的有效像元',
+                        code='no_valid_reflectance_pixels', reason='inapplicable',
+                        missing=[{'kind': 'valid_reflectance_pixels', 'asset_id': asset_id}],
+                        checked_scope={'asset_id': asset_id, 'windows_scanned': 'all'},
+                        valid_pixels=0, width=src.width, height=src.height,
+                    )
                 pixel_count = src.width * src.height
 
             output_name = f'{Path(asset["name"]).stem}_prosail_inversion.tif'

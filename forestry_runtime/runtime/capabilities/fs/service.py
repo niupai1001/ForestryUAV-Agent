@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ...kernel.protocol import ToolPreconditionError
 from ...storage import AssetError
-from ...workspace import SourcePathError, is_host_path
+from ...workspace import BridgeRequestError, SourcePathError, is_host_path
 
 
 class FilesystemCapability:
@@ -45,16 +45,25 @@ class FilesystemCapability:
             grant, relative = self._grant(source_id, path)
             try:
                 data = self.workspaces.bridge.fs("list", self.workspaces.bridge_payload(grant, path=relative, page=page, page_size=page_size))
-            except AssetError:
+            except BridgeRequestError as exc:
+                if exc.code != "path_not_found":
+                    raise
                 suggestion = self.workspaces.suggest_grant_directory(grant, relative)
                 if suggestion:
                     raise SourcePathError(
                         f"Source directory was not found. Retry with path='{suggestion}' "
                         f"and source_id='{grant['id']}'.",
                         source_id=grant["id"], requested_path=relative,
-                        suggested_path=suggestion,
+                        suggested_path=suggestion, argument_key="path",
                     )
-                raise
+                raise ToolPreconditionError(
+                    "Source directory was not found under the authorized grant.",
+                    code="path_not_found", requested_path=relative,
+                    source_id=grant["id"],
+                    checked_scope={"source_id": grant["id"], "path": relative},
+                    missing=[{"kind": "directory", "path": relative}],
+                    candidates=[], control_verified=None,
+                ) from exc
             return data | {"source": grant}
         target = self.workspaces.workspace_path(self.store, path, require_exists=True)
         if not target.is_dir():
@@ -81,12 +90,29 @@ class FilesystemCapability:
             scope = "source"
         if scope == "asset":
             if not asset_id or asset_id not in self.allowed:
-                raise AssetError("An attached asset_id is required")
+                raise ToolPreconditionError(
+                    "An attached asset_id is required.",
+                    code="asset_not_available", reason="inapplicable",
+                    missing=[{"kind": "asset_id", "value": asset_id}],
+                    checked_scope={"scope": "chat_assets"},
+                    candidates=[{"asset_id": item["id"], "name": item["name"]}
+                                for item in self.attachment_context()[:10]],
+                )
             asset = self.store.get(asset_id, self.owner)
             return self._read_local(self.store.path(asset_id, self.owner), start_line, max_lines, max_chars) | {"asset": asset}
         if scope == "source":
             grant, relative = self._grant(source_id, path)
-            return self.workspaces.bridge.fs("read", self.workspaces.bridge_payload(grant, path=relative, start_line=start_line, max_lines=max_lines, max_chars=max_chars)) | {"source_id": grant["id"]}
+            try:
+                data = self.workspaces.bridge.fs("read", self.workspaces.bridge_payload(grant, path=relative, start_line=start_line, max_lines=max_lines, max_chars=max_chars))
+            except BridgeRequestError as exc:
+                if exc.code != "path_not_found":
+                    raise
+                raise SourcePathError(
+                    "Source file was not found under the authorized grant.",
+                    source_id=grant["id"], requested_path=relative,
+                    argument_key="path", kind="file",
+                ) from exc
+            return data | {"source_id": grant["id"]}
         target = self.workspaces.workspace_path(self.store, path, require_exists=True)
         if not target.is_file():
             raise AssetError("Workspace path is not a file")
@@ -101,7 +127,17 @@ class FilesystemCapability:
             scope = "source"
         if scope == "source":
             grant, relative = self._grant(source_id, path)
-            return self.workspaces.bridge.fs("search", self.workspaces.bridge_payload(grant, path=relative, query=query, glob=glob, max_results=max_results)) | {"source_id": grant["id"]}
+            try:
+                data = self.workspaces.bridge.fs("search", self.workspaces.bridge_payload(grant, path=relative, query=query, glob=glob, max_results=max_results))
+            except BridgeRequestError as exc:
+                if exc.code != "path_not_found":
+                    raise
+                raise SourcePathError(
+                    "Source search path was not found under the authorized grant.",
+                    source_id=grant["id"], requested_path=relative,
+                    argument_key="path", kind="path",
+                ) from exc
+            return data | {"source_id": grant["id"]}
         root = self.workspaces.workspace_path(self.store, path, require_exists=True)
         matches = []
         paths = [root] if root.is_file() else root.rglob("*")

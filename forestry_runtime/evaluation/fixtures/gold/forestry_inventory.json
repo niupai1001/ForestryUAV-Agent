@@ -1,0 +1,55 @@
+{
+  "version": "forestry.inventory-v1",
+  "fixture_files": [],
+  "files": [
+    "DJI_0001_Blue.JPG",
+    "DJI_0002_Green.JPG",
+    "DJI_0003_Red.JPG",
+    "DJI_0004_RedEdge.JPG",
+    "DJI_0005_NIR.JPG",
+    "DJI_0006_Blue.JPG",
+    "参考板_起飞前_01_Red.JPG",
+    "参考板_起飞前_02_Red.JPG",
+    "参考板_起飞后_01_Red.JPG",
+    "参考板_起飞后_02_Red.JPG",
+    "1605-白桦_正射影像.tif",
+    "capture_index.csv"
+  ],
+  "index_file": "capture_index.csv",
+  "roles": {
+    "flight_imagery": 6,
+    "reference_panel_before": 2,
+    "reference_panel_after": 2,
+    "geospatial_product": 1
+  },
+  "total_uploaded_files": 12,
+  "capture_groups": 5,
+  "flight_capture_groups": 3,
+  "bands": {
+    "Blue": 2,
+    "Green": 1,
+    "NIR": 1,
+    "Red": 1,
+    "RedEdge": 1
+  },
+  "answer_claims": {
+    "flight_imagery": 6,
+    "reference_panel_before": 2,
+    "reference_panel_after": 2,
+    "geospatial_products": 1,
+    "capture_groups": 5,
+    "bands": {
+      "Blue": 2,
+      "Green": 1,
+      "NIR": 1,
+      "Red": 1,
+      "RedEdge": 1
+    }
+  },
+  "forbidden_claims": [
+    "精度",
+    "RTK",
+    "一定成功",
+    "保证"
+  ]
+}

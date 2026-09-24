@@ -1,0 +1,31 @@
+附件中有两个栅格：
+
+- `strata.tif`：分区/类别栅格，像元值 1、2、3 表示三个分区，0 表示无效区，像元为 10 米；
+- `vegetation_index.tif`：连续植被指数栅格，无效像元用 NoData 标记。
+
+请按 `strata.tif` 的分区统计 `vegetation_index.tif`，并交付：
+
+1. 一个 CSV 文件 `zonal_stats.csv`，表头固定为
+   `class,valid_pixels,area_ha,mean_index,min_index,max_index`，每个分区一行；
+2. 回答末尾的 JSON 代码块：
+```json
+{
+  "classes": [1, 2, 3],
+  "grid_source": "strata.tif",
+  "resampling": "<你采用的像元对齐方式>",
+  "nodata_excluded": true,
+  "output_file": "zonal_stats.csv"
+}
+```
+
+要求：
+- 统计只在分区内**且**指数有效的像元上进行；
+- 面积由像元大小与投影单位推导，单位写公顷；
+- 对齐方式必须与数据类型匹配（类别量不能用会制造新类别的方式）；
+- `valid_pixels` 必须只在有效像元上计数。
+
+交付要求：
+- 只使用附件中的数据，不要引入外部数值；
+- 只读输入，不要修改或覆盖附件文件；
+- 在回答末尾给出一个 JSON 代码块，字段按上面规定；
+- 报告的数字必须来自你实际生成并写出的文件，不要估算或复述提示中的数字。

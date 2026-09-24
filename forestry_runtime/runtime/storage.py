@@ -21,6 +21,33 @@ class Store:
     def operation(self):
         return nullcontext()
 
+    # ------------------------------------------------------------------ settings
+
+    def setting_overrides(self) -> dict[str, str]:
+        """Tunable values written through the workbench, which outrank the environment.
+
+        Deliberately on the base store: the settings panel is served for whichever
+        store the request resolves to, and a method that existed only on the run
+        store would fail there with an AttributeError naming nothing useful.
+        """
+        with self.connect() as connection:
+            rows = connection.execute("SELECT key, value FROM settings").fetchall()
+        return {str(row["key"]): str(row["value"]) for row in rows}
+
+    def set_setting(self, key: str, value: str, *, updated_by: str = "") -> None:
+        with self.connect() as connection:
+            connection.execute(
+                "INSERT INTO settings(key, value, updated_at, updated_by) VALUES(?,?,?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
+                "updated_at=excluded.updated_at, updated_by=excluded.updated_by",
+                (key, value, time.time(), updated_by),
+            )
+
+    def clear_setting(self, key: str) -> None:
+        """Drop an override so the environment or the default applies again."""
+        with self.connect() as connection:
+            connection.execute("DELETE FROM settings WHERE key=?", (key,))
+
     def __init__(self, root):
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
@@ -37,6 +64,12 @@ class Store:
                 c.execute("ALTER TABLE assets ADD COLUMN artifact_kind TEXT NOT NULL DEFAULT 'file'")
             if 'metadata_json' not in columns:
                 c.execute("ALTER TABLE assets ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}'")
+            # Tunable values live beside the chat's own data. They are read on demand
+            # rather than cached at start, so a change applies to the next Run, and a
+            # value written for one chat does not silently change another's behaviour.
+            c.execute('''CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY, value TEXT NOT NULL,
+                updated_at REAL NOT NULL, updated_by TEXT)''')
             if 'sealed_at' not in columns:
                 c.execute('ALTER TABLE assets ADD COLUMN sealed_at REAL')
             if 'verification_json' not in columns:

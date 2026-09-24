@@ -1,4 +1,4 @@
-"""Turn collected gate.idempotency evidence into one engineering record."""
+﻿"""Turn collected gate.idempotency evidence into one engineering record."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from pathlib import Path
 import uuid
 
 from .gates import exactly_once
+from ..rules import SCORING_RULES_VERSION
 
 
 def verify_trial(trial: Path, configuration: dict, repeat: int) -> dict:
@@ -18,6 +19,7 @@ def verify_trial(trial: Path, configuration: dict, repeat: int) -> dict:
     status = "evaluated" if pytest_result.get("returncode") == 0 else "crash"
     return {
         "suite_version": "forestry-eval-0.1",
+        "scoring_rules_version": SCORING_RULES_VERSION,
         "case_id": "gate.idempotency",
         "track": "engineering",
         "execution": "engineering",

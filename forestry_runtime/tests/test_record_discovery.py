@@ -14,6 +14,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
+import evaluation.run_baseline as run_baseline
 from evaluation.run_baseline import _canonical_trial_dir, _discover_records
 
 
@@ -78,8 +79,8 @@ class DiscoveryTests(unittest.TestCase):
         found = _discover_records(self.root)
         self.assertEqual(len(found), 1)
         self.assertEqual(found[0], canonical)
-        self.assertEqual(len(_discover_records.last_superseded), 1)
-        self.assertIn("gate-idempotency", _discover_records.last_superseded[0])
+        self.assertEqual(len(run_baseline._LAST_SUPERSEDED), 1)
+        self.assertIn("gate-idempotency", run_baseline._LAST_SUPERSEDED[0])
 
     def test_a_half_written_record_does_not_hide_the_others(self):
         self.write("gate-idempotency-1", "record.json", record("gate.idempotency", 1, "a"))

@@ -1,0 +1,4 @@
+plot_id,tree_id,species,height_m,dbh_cm
+P-01,T-001,Pinus,12.4,18.2
+P-01,T-002,Pinus,11.8,
+P-03,T-007,Pinus

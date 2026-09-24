@@ -711,18 +711,21 @@ def _guide_catalogue_part(tool_defs: list) -> tuple[str, list[dict]]:
     if not entries:
         return "", []
     lines = [
-        "Domain guide catalogue. These guides hold forestry, remote-sensing, "
-        "data-quality and method-applicability rules. Full text is NOT included "
-        "here: call domain_guide with the id when the detail is relevant, and cite "
-        "its citation.",
+        "Domain guide catalogue. Forestry, remote-sensing, data-quality and "
+        "method-applicability evidence. It is not an exhaustive list of valid methods: "
+        "a missing guide, or a missing input for one method, does not rule out another "
+        "method. Choose what the current inputs can support, and state the output "
+        "definition and its uncertainty.",
         "",
     ]
     for entry in entries:
-        tags = ", ".join(entry["tags"][:8])
-        lines.append(
-            f"- {entry['id']} -- {entry['title']}: {entry['summary']}"
-            + (f" [tags: {tags}]" if tags else "")
-        )
+        # `document` marks what each line is, per line. That is the whole
+        # disambiguation, and it is deliberately not a sentence of explanation: a
+        # header costs tokens on every request, while the entry prefix costs nothing
+        # it was not already spending. A bare `- id` is what a tool list looks like,
+        # and a Run read the same document 124 times because it took the id for a
+        # callable tool.
+        lines.append(f"- document \"{entry['id']}\" ({entry['title']})")
     return "\n".join(lines), entries
 
 

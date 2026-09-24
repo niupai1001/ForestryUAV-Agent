@@ -15,13 +15,17 @@ class CapabilityLayoutTests(unittest.TestCase):
             "fs_edit": "runtime.capabilities.fs.tool",
             "code_run": "runtime.capabilities.code_run.tool",
             "dependency_install": "runtime.capabilities.dependency_install.tool",
+            "environment_check": "runtime.capabilities.environment.tool",
             "job_status": "runtime.capabilities.job_status.tool",
+            "job_wait": "runtime.capabilities.job_status.tool",
+            "job_log": "runtime.capabilities.job_status.tool",
             "job_cancel": "runtime.capabilities.job_cancel.tool",
             "tool_result_read": "runtime.capabilities.artifacts.tool",
             "artifacts_inspect": "runtime.capabilities.artifacts.tool",
             "artifacts_preview": "runtime.capabilities.artifacts.tool",
             "knowledge_search": "runtime.capabilities.knowledge_search.tool",
             "knowledge_read": "runtime.capabilities.knowledge_search.tool",
+            "domain_guide": "runtime.capabilities.domain_guides.tool",
         }
         self.assertEqual(set(expected_modules), {spec.name for spec in _REGISTRY})
         for name, module in expected_modules.items():
@@ -70,14 +74,27 @@ class CapabilityLayoutTests(unittest.TestCase):
         self.assertEqual(ExecutionRecords.__module__, "runtime.store.executions")
 
     def test_job_capabilities_own_job_observation_and_cancel(self):
-        self.assertEqual(
-            RuntimeTools.job_status.__module__,
-            "runtime.capabilities.job_status.service",
-        )
+        for method in ("job_status", "job_wait", "job_log"):
+            with self.subTest(method=method):
+                self.assertEqual(
+                    getattr(RuntimeTools, method).__module__,
+                    "runtime.capabilities.job_status.service",
+                )
         self.assertEqual(
             RuntimeTools.job_cancel.__module__,
             "runtime.capabilities.job_cancel.service",
         )
+
+    def test_environment_capability_owns_environment_probing(self):
+        for method in (
+            "environment_check", "require_verified", "execution_preflight",
+            "installed_top_levels",
+        ):
+            with self.subTest(method=method):
+                self.assertEqual(
+                    getattr(RuntimeTools, method).__module__,
+                    "runtime.capabilities.environment.service",
+                )
 
     def test_remote_sensing_methods_are_split_by_domain(self):
         expected = {

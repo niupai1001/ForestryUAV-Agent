@@ -1,0 +1,8 @@
+附件 samples.csv 与 broken.py 已经修好可用，附件本身是只读的。
+
+要求：
+1. 先把附件复制到工作区，运行 broken.py 生成 summary.json。
+2. 把工作区副本中 P-02 的 T-005 高度从 9.5 改为 11.5。附件原件必须保持不变。
+3. 再次运行 broken.py，生成反映新数值的 summary.json。
+4. 最后用一个 JSON 代码块报告，字段固定为：
+   {"new_p02_mean_height_m": <数值>, "rerun": true}

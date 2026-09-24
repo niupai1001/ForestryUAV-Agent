@@ -1,4 +1,4 @@
-"""Turn gate.permissions evidence into one engineering record."""
+﻿"""Turn gate.permissions evidence into one engineering record."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from pathlib import Path
 import uuid
 
 from .gates import permissions_enforced
+from ..rules import SCORING_RULES_VERSION
 
 
 def verify_trial(trial: Path, configuration: dict, repeat: int) -> dict:
@@ -17,6 +18,7 @@ def verify_trial(trial: Path, configuration: dict, repeat: int) -> dict:
     pytest_result = json.loads((trial / "raw" / "pytest.json").read_text(encoding="utf-8"))
     return {
         "suite_version": "forestry-eval-0.1",
+        "scoring_rules_version": SCORING_RULES_VERSION,
         "case_id": "gate.permissions",
         "track": "engineering",
         "execution": "engineering",

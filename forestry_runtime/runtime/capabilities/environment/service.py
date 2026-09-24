@@ -44,6 +44,7 @@ def install_attempt_limit() -> int:
     except ValueError:
         return DEFAULT_INSTALL_ATTEMPT_LIMIT
 
+
 _IMPORT_PATTERN = re.compile(
     r"^[ \t]*(?:from[ \t]+([A-Za-z_][A-Za-z0-9_.]*)[ \t]+import|import[ \t]+([A-Za-z_][A-Za-z0-9_.]*))",
     re.MULTILINE,
@@ -109,6 +110,31 @@ def requirement_fingerprint(packages) -> str:
     return "env_" + hashlib.sha256(
         f"{VERIFICATION_VERSION}:{payload}".encode("utf-8")
     ).hexdigest()[:32]
+
+
+#: The final line an install job prints, reporting the system packages it installed.
+_SYSTEM_PACKAGES_MARKER = "SYSTEM_PACKAGES="
+
+
+def _reported_system_packages(output: str) -> set[str]:
+    """The system packages an install job reported installing.
+
+    Read from the job's own output rather than from the workspace: a system library
+    lands in the image and is not visible in the dependency directory, so the job's
+    terminal report is the only evidence this call can actually obtain.
+    """
+    for line in reversed(str(output or "").splitlines()):
+        stripped = line.strip()
+        index = stripped.find(_SYSTEM_PACKAGES_MARKER)
+        if index < 0:
+            continue
+        try:
+            parsed = json.loads(stripped[index + len(_SYSTEM_PACKAGES_MARKER):])
+        except ValueError:
+            continue
+        if isinstance(parsed, list):
+            return {str(item) for item in parsed}
+    return set()
 
 
 class EnvironmentCapability:
@@ -412,16 +438,25 @@ class EnvironmentCapability:
             "Dependency installation is not wired into this environment."
         )
 
-    def environment_install(self, packages, timeout_seconds=1800):
+    def environment_install(self, packages, timeout_seconds=1800, system_packages=None):
         """Install dependencies and prove they landed before returning success.
 
         The job is submitted through the normal durable-job path, then this call
         waits for its terminal state.  A partial install is reported as a failure
         with the packages that are still missing, never as a success.
+
+        ``system_packages`` names operating-system packages, which are installed
+        before the Python requirements in the same job. A wheel can need a shared
+        library the wheel cannot carry, and pip reports that install as a success
+        while the import fails -- so the two kinds are installable together and
+        verified together.
         """
+        system_packages = list(system_packages or [])
         requirements = normalise_requirements(packages)
-        if not requirements:
-            raise ToolPreconditionError("At least one package is required.")
+        if not requirements and not system_packages:
+            raise ToolPreconditionError(
+                "At least one Python package or one system package is required."
+            )
         key = requirement_fingerprint(packages)
         prior = self._install_attempts(key)
         limit = install_attempt_limit()
@@ -474,13 +509,15 @@ class EnvironmentCapability:
         # The record is only created for a submission that actually happens, so a
         # refused attempt never leaves an unsettled job behind to block the next
         # legitimate request.
-        started = self._submit_install(list(packages), timeout_seconds)
+        started = self._submit_install(
+            list(packages), timeout_seconds, system_packages=system_packages,
+        )
         job_id = (started.get("data") or {}).get("job_id") or started.get("job_id")
         if not job_id:
             return started
         if started.get("terminal"):
             # Reconciled submission that is already settled: no waiting needed.
-            return self._finish_install(job_id, packages, requirements, started)
+            return self._finish_install(job_id, packages, requirements, started, system_packages)
         # Wait in model-visible increments rather than one long block: the Run
         # stays resumable and the model can report honest progress.  The first
         # increment is short so a job that is still running is observed quickly
@@ -497,7 +534,7 @@ class EnvironmentCapability:
             waited += chunk
             if observation.get("terminal") or self._run_interrupted():
                 break
-        return self._finish_install(job_id, packages, requirements, observation)
+        return self._finish_install(job_id, packages, requirements, observation, system_packages)
 
     @staticmethod
     def _install_wait_schedule() -> list[int]:
@@ -516,17 +553,26 @@ class EnvironmentCapability:
         return schedule or [90]
 
     def _finish_install(
-        self, job_id: str, packages, requirements: list[str], observation: dict
+        self, job_id: str, packages, requirements: list[str], observation: dict,
+        system_packages: list[str] | None = None,
     ) -> dict:
+        system_packages = list(system_packages or [])
         state = str(observation.get("state") or "")
         manifest = self._installed_packages()
         installed = {row["name"].replace("_", "-").casefold() for row in manifest}
         missing = [name for name in requirements if name not in installed]
+        # The system packages are proven by the job's own final report, because the
+        # library lands in the image rather than in the dependency directory that
+        # holds the Python manifest. A job that exited zero without reporting them
+        # did not complete both steps, so it must not be recorded as verified.
+        reported_system = _reported_system_packages(str(observation.get("output") or ""))
+        system_missing = [name for name in system_packages if name not in reported_system]
         key = requirement_fingerprint(packages)
         records = self._environment_records()
-        if state == "succeeded" and not missing:
+        if state == "succeeded" and not missing and not system_missing:
             records[key] = {
                 "requirements": requirements,
+                "system_packages": system_packages,
                 "modules": sorted(records.get(key, {}).get("modules") or []),
                 "image": observation.get("image"),
                 "installed_at": time.time(),
@@ -541,6 +587,8 @@ class EnvironmentCapability:
             "terminal": bool(observation.get("terminal")),
             "exit_code": observation.get("exit_code"),
             "requirements": requirements,
+            "system_packages": system_packages,
+            "missing_system_packages": system_missing,
             "missing_from_manifest": missing,
             "installed_packages": manifest[:500],
             "verification_key": key,

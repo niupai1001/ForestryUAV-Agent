@@ -1,0 +1,59 @@
+{
+  "version": "capability_inventory-v1",
+  "condition": "normal",
+  "files": [
+    "DJI_0001.PNG",
+    "DJI_0002.PNG",
+    "DJI_0003.PNG",
+    "DJI_0004.PNG",
+    "canopy_tiles.tif",
+    "flight_index.csv",
+    "plot_trees.csv",
+    "points.las",
+    "参考板_起飞前_01.JPG",
+    "参考板_起飞后_01.JPG"
+  ],
+  "file_sha256": {
+    "DJI_0001.PNG": "29c470e5c5e7c82ed9bc82f7f99f5c852fb4f89e1a3bb33a2941bd91f2d8b484",
+    "DJI_0002.PNG": "29c470e5c5e7c82ed9bc82f7f99f5c852fb4f89e1a3bb33a2941bd91f2d8b484",
+    "DJI_0003.PNG": "29c470e5c5e7c82ed9bc82f7f99f5c852fb4f89e1a3bb33a2941bd91f2d8b484",
+    "DJI_0004.PNG": "29c470e5c5e7c82ed9bc82f7f99f5c852fb4f89e1a3bb33a2941bd91f2d8b484",
+    "flight_index.csv": "fb7ea211a6b5d721e27010129fe741dda95406ec3c9918d8a688110de3aa5a92",
+    "plot_trees.csv": "18258b7ffd749914ede6007db3722e2aada664f08ece1a076ce1ef16a4b543c5",
+    "参考板_起飞前_01.JPG": "4ae42c4cb22226dca0914f03d11fab881bd9357b14a493e9e3c18a8a0f5ad0d0",
+    "参考板_起飞后_01.JPG": "79d66f22088a062b3be914f2ed6e1a9d6b01a4c3b9d966ef4af394f6f26ac958",
+    "canopy_tiles.tif": "8b2bb96ba34ff7470d6aa18c8be68214dc922927fa2326f690c87514fe56bc7d",
+    "points.las": "0d901d6e2d16e10a2f54445187bb0d6ee47819137fbab4bac12fbceffae22f93"
+  },
+  "counts_by_extension": {
+    "png": 4,
+    "jpg": 2,
+    "tif": 1,
+    "csv": 2,
+    "las": 1,
+    "zip": 0
+  },
+  "quality_problems": [
+    {
+      "path": "points.las",
+      "kind": "truncated_point_cloud",
+      "why": "the LAS header declares 500 points but the file ends after 12 bytes of point data, so the cloud cannot be read completely"
+    },
+    {
+      "path": "flight_index.csv",
+      "kind": "malformed_row",
+      "why": "a data row has fewer fields than the header, so the index cannot be parsed reliably"
+    }
+  ],
+  "usable_for_chm": false,
+  "usable_for_chm_reason": "the directory holds a single small DSM-like tile and no DTM, no survey-grade products and no ground reference, so a canopy height model cannot be produced or validated from it",
+  "required_evidence_for_chm": [
+    "a DTM matching the DSM grid, CRS and vertical reference",
+    "an explicit vertical reference for both surfaces"
+  ],
+  "forbidden_claims": [
+    "photogrammetry or modelling was started",
+    "the products are geometrically or radiometrically validated",
+    "species, biomass or DBH were derived"
+  ]
+}

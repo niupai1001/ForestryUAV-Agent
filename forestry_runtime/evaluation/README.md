@@ -40,13 +40,31 @@ configuration JSON 必须是**无 BOM 的 UTF-8**，编排器会对 BOM 给出�
 
 ## 浏览器界面
 
-不想用命令行时，用本地可视化界面读分并触发运行：
+`start.cmd` / `setup.ps1` 会把评分界面和 Host Bridge 一起以隐藏进程启动，并打印
+`Scorecard viewer is ready at http://127.0.0.1:8012/`。工作台左上角的「⊞ 评分界面」
+按钮会先探测该地址，再打开页面——正常部署下**不需要任何命令行操作**。
+
+界面默认读 `evaluation/work/score-now`（若存在），否则读 `evaluation/work/baseline`，
+因为前者才是有 agent 记录的目录。
+
+手动启动（改端口或做无头部署时才需要）：
 
 ```powershell
-python -m evaluation.dashboard                       # 默认 127.0.0.1:8012，读 evaluation/work/baseline
+python -m evaluation.dashboard                             # 默认 127.0.0.1:8012，并自动打开浏览器
+python -m evaluation.dashboard --no-open                   # 不打开浏览器（由 setup.ps1 托管时使用）
 python -m evaluation.dashboard --root evaluation/work/score-now --port 8012
-python -m evaluation.dashboard --run-tracks engineering   # 起服务的同时立即开跑
+python -m evaluation.dashboard --run-tracks engineering    # 起服务的同时立即开跑
 ```
+
+已在运行时重复执行该命令**不是错误**：它会打印 `scorecard viewer is already
+running` 并以 0 退出，同时打开已有页面。这件事在 Windows 上尤其重要——
+`HTTPServer.allow_reuse_address` 默认为 1，在 Windows 上等于 `SO_REUSEADDR`，
+会让**第二个**进程也绑定同一个端口、然后服务于一个浏览器永远访问不到的 socket；
+因此这里显式关闭该标志，让占用端口变成可见的失败。
+
+点「运行」前会先做 pre-flight，缺冻结配置或缺 `RUNTIME_API_KEY` 都在**点击时**报出，
+而不是等几分钟后抛 traceback：`RUNTIME_API_KEY` 由 `.env` 提供（与 Runtime 容器同源），
+`run_baseline` 与 `dashboard` 都会读取它。
 
 打开 `http://127.0.0.1:8012/` 可以看到：
 

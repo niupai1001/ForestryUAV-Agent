@@ -18,7 +18,7 @@ from runtime.memory import MemoryManager
 from runtime.run_store import RunStore
 from runtime.session.coordinator import RunCoordinator
 from runtime.storage import AssetError
-from runtime.workspace import WorkspaceRegistry
+from runtime.workspace import BridgeRequestError, WorkspaceRegistry
 
 
 class FakeBridge:
@@ -33,7 +33,7 @@ class FakeBridge:
         try:
             target = Path(path).resolve(strict=True)
         except OSError as exc:
-            raise AssetError(str(exc)) from exc
+            raise BridgeRequestError(str(exc), status_code=404, code="path_not_found") from exc
         return {"path": str(target), "type": "directory" if target.is_dir() else "file"}
 
     def fs(self, operation, payload):
@@ -41,7 +41,8 @@ class FakeBridge:
             root = Path(payload["root"])
             target = root / Path(str(payload.get("path") or "."))
             if not target.exists():
-                raise AssetError("path does not exist")
+                raise BridgeRequestError("path does not exist", status_code=404,
+                                         code="path_not_found")
             rows = []
             for item in sorted(target.iterdir(), key=lambda value: value.name.casefold()):
                 rows.append({
@@ -535,14 +536,124 @@ print("core-import-ok")
         self.assertEqual(len(self.bridge.started), 2)
 
     def test_dependency_install_result_returns_resolved_manifest(self):
-        with patch.dict(os.environ, {"RUNTIME_DATA_HOST_ROOT": str(self.root)}):
-            started = self.box.execute("dependency_install", {"packages": ["demo-package==1.2.3"]})
+        """Installation is only reported successful once it is observed terminal.
+
+        The install job is submitted, then settled by the environment (the bridge),
+        and only then may the Runtime report the resolved package manifest.  An
+        unsettled install is a failure with the job still reachable, never a
+        success that lets dependent code start.
+        """
+        with patch.dict(os.environ, {
+            "RUNTIME_DATA_HOST_ROOT": str(self.root),
+            "INSTALL_WAIT_SECONDS": "1",
+        }):
+            started = self.box.execute(
+                "dependency_install", {"packages": ["demo-package==1.2.3"]}
+            )
+        self.assertFalse(started["ok"], started)
+        self.assertEqual(started["failure"]["code"], "install_still_running")
         job_id = started["data"]["job_id"]
-        manifest = self.registry.workspace(self.store) / ".runtime" / "deps" / "installed-packages.json"
-        manifest.write_text('[{"name":"demo-package","version":"1.2.3"}]', encoding="utf-8")
         self.bridge.states[job_id] = "succeeded"
-        result = self.box.execute("job_status", {"job_id": job_id, "wait_seconds": 0})
-        self.assertEqual(result["data"]["installed_packages"], [{"name": "demo-package", "version": "1.2.3"}])
+        workspace = self.registry.workspace(self.store)
+        manifest = workspace / ".runtime" / "deps" / "installed-packages.json"
+        manifest.write_text('[{"name":"demo-package","version":"1.2.3"}]', encoding="utf-8")
+        # The Runtime refuses to install twice at once, and refuses to report an
+        # install as successful until the job is observed terminal. Submitting a job
+        # needs the host-side workspace path, so the deployment setting stays in
+        # place for the whole sequence -- without it the submission is refused as an
+        # unavailable sandbox, which is a different condition entirely.
+        with patch.dict(os.environ, {
+            "RUNTIME_DATA_HOST_ROOT": str(self.root),
+            "INSTALL_WAIT_SECONDS": "1",
+        }):
+            blocked = self.box.execute(
+                "dependency_install", {"packages": ["demo-package==1.2.3"]}
+            )
+            # The first installation is still in flight, so the second submission is
+            # refused rather than started twice. Settling the first one lets the
+            # environment answer the next install immediately, as a warm install
+            # would, and the manifest is now present.
+            settled = self.box.execute("job_wait", {"job_id": job_id, "timeout_seconds": 2})
+            original_job = self.bridge.job
+            self.bridge.job = lambda operation, payload: (
+                {"job_id": payload["job_id"], "state": "succeeded",
+                 "terminal": True, "offset": 0, "output": "", "exit_code": 0}
+            ) if operation == "start" else original_job(operation, payload)
+            verified = self.box.execute(
+                "dependency_install", {"packages": ["demo-package==1.2.3"]}
+            )
+        self.assertEqual(blocked["failure"]["blocked_by"], "dependency_install")
+        self.assertFalse(blocked["failure"]["operation_started"])
+        self.assertTrue(settled["data"]["terminal"])
+        self.assertTrue(verified.get("ok"), verified)
+        verification = verified["data"]["verification"]
+        self.assertEqual(
+            verification["installed_packages"],
+            [{"name": "demo-package", "version": "1.2.3"}],
+        )
+        self.assertTrue(verification["succeeded"])
+        self.assertEqual(verification["state"], "succeeded")
+
+        status = self.box.execute("job_status", {"job_id": job_id, "wait_seconds": 0})
+        self.assertEqual(
+            status["data"]["installed_packages"],
+            [{"name": "demo-package", "version": "1.2.3"}],
+        )
+        self.assertEqual(status["data"]["job_type"], "install")
+
+    def test_a_missing_sandbox_is_reported_as_such_not_as_an_unknown(self):
+        """Without a host workspace the Runtime must say so, not fail vaguely."""
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("RUNTIME_DATA_HOST_ROOT", None)
+            result = self.box.execute(
+                "code_run", {"language": "python", "code": "print('later')"}
+            )
+        self.assertFalse(result["ok"], result)
+        self.assertEqual(result["failure"]["code"], "sandbox_unavailable")
+        self.assertFalse(result["failure"]["operation_started"])
+        self.assertFalse(result["failure"]["retryable"])
+        self.assertIn("cannot run here", result["failure"]["guidance"])
+
+    def test_unsettled_install_blocks_execution_with_blocked_by(self):
+        """Code must not start while an installation is still undecided."""
+        with patch.dict(os.environ, {
+            "RUNTIME_DATA_HOST_ROOT": str(self.root),
+            "INSTALL_WAIT_SECONDS": "1",
+        }):
+            self.box.execute("dependency_install", {"packages": ["demo-package==1.2.3"]})
+            blocked = self.box.execute(
+                "code_run", {"language": "python", "code": "print('later')"}
+            )
+        self.assertFalse(blocked["ok"])
+        self.assertEqual(blocked["failure"]["code"], "blocked_by")
+        self.assertEqual(blocked["failure"]["blocked_by"], "dependency_install")
+        self.assertFalse(blocked["failure"]["operation_started"])
+
+    def test_full_execution_slot_is_a_retryable_admission_decision(self):
+        """A full slot pool must not be reported as an unknown submission outcome."""
+        from runtime.workspace import BridgeRequestError
+
+        def busy(operation, payload):
+            if operation == "start":
+                raise BridgeRequestError(
+                    "the 1 execution slot(s) are occupied",
+                    status_code=200, code="resource_busy", retryable=True,
+                    details={"active_jobs": ["forestry-other"], "max_jobs": 1},
+                )
+            return {"job_id": payload["job_id"], "state": "running",
+                    "terminal": False, "offset": 0, "output": ""}
+
+        self.bridge.job = busy
+        with patch.dict(os.environ, {"RUNTIME_DATA_HOST_ROOT": str(self.root)}):
+            result = self.box.execute(
+                "code_run", {"language": "python", "code": "print('later')"}
+            )
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["failure"]["code"], "resource_busy")
+        self.assertTrue(result["failure"]["retryable"])
+        self.assertFalse(result["failure"]["operation_started"])
+        rows = {row["id"]: row["state"] for row in self.box.records.recent()}
+        self.assertIn("not_started", rows.values())
 
     def test_uncertain_submission_is_reconciled_by_action_id(self):
         original_job = self.bridge.job

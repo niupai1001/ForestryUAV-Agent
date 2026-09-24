@@ -1,12 +1,16 @@
-"""Verify one collected forestry.chm evidence package and emit a scorecard record.
+﻿"""Verify one collected forestry.chm evidence package and emit a scorecard record.
 
-The contract has two halves and one verifier serves both. The positive half
-delivers a raster, so ``pixels`` and ``mask_units`` are decidable. The negative
-half must *not* deliver one, which makes those two checks undecidable for that
-trial -- they report ``unknown`` and stay in the denominator rather than being
-silently dropped or falsely passed. ``claims`` decides which half applies by
-reading the answer's ``built`` flag, so a trial that fabricates a CHM while the
-inputs cannot support one is judged on the raster it should not have produced.
+The contract declares its input conditions up front, in ``Case.fixture_conditions``:
+``normal`` (a DSM and DTM that share grid and vertical reference, so a CHM must be
+built) and ``gap`` (an input that cannot support a CHM, so refusing to compute and
+naming the missing evidence is the correct outcome).
+
+The expected branch therefore comes from the **declared condition**, never from what
+the model wrote. An earlier version read the answer's ``built`` flag to choose the
+branch, which let a run that produced nothing move itself onto the easier branch by
+writing ``{"built": false}`` -- and left the declared gap fixture unexercised by any
+driver path. A delivered raster still forces the positive branch, because a built
+surface must be graded as one.
 """
 
 from __future__ import annotations
@@ -17,17 +21,18 @@ from pathlib import Path
 from typing import Any
 
 from .base import Verdict, save_verdict, status_for_terminal
+from ..rules import SCORING_RULES_VERSION
 from .chm import (
     chm_claims_match_artifact, claims_block, compare_chm_grid_mask,
     compare_chm_pixels, raster_candidates,
 )
 
 
-
-def _deferred(check: str, reason: str) -> dict[str, Any]:
+def _not_applicable(check: str, reason: str) -> dict[str, Any]:
+    """A check that this declared condition genuinely does not exercise."""
     return {
-        "verdict": "unknown",
-        "verifier": f"chm-{check}-not-applicable-v1",
+        "verdict": "not_applicable",
+        "verifier": f"chm-{check}-not-applicable-v2",
         "evidence": [],
         "detail": reason,
     }
@@ -36,7 +41,7 @@ def _deferred(check: str, reason: str) -> dict[str, Any]:
 def _failed(check: str, reason: str) -> dict[str, Any]:
     return {
         "verdict": "fail",
-        "verifier": f"chm-{check}-missing-surface-v1",
+        "verifier": f"chm-{check}-missing-surface-v2",
         "evidence": [],
         "detail": reason,
     }
@@ -44,6 +49,7 @@ def _failed(check: str, reason: str) -> dict[str, Any]:
 
 def verify_trial(
     trial: Path, configuration: dict, repeat: int, *, gold: Path | None = None,
+    case_id: str = "forestry.chm", condition: str = "normal",
 ) -> dict[str, Any]:
     gold = gold or (
         Path(__file__).resolve().parents[1] / "fixtures" / "gold" / "forestry_chm.json"
@@ -61,19 +67,10 @@ def verify_trial(
     gold_contract = json.loads(gold.read_text(encoding="utf-8"))
     reported = claims_block(answer_text)
     delivered, excluded_inputs = raster_candidates(artifacts, gold_contract)
-    # The fixture decides the expected branch: a raster means the inputs were
-    # The contract branch is whichever the agent claims, and a delivered raster
-    # forces the positive branch because a built CHM must be graded as one.
-    #
-    # Inferring "abstained" from "no raster delivered" was wrong: a run that
-    # produced no surface because it exhausted the context budget looked like a
-    # correct abstention and scored `unknown` instead of failing. The fixture's
-    # positive half *does* support a CHM, so silence is a failure there.
-    require_built = bool(delivered)
-    if delivered:
-        require_built = True
-    elif reported is not None:
-        require_built = reported.get("built") is True
+
+    # The declared condition decides the branch. A delivered raster overrides it,
+    # because a surface that was produced must be judged as a produced surface.
+    require_built = condition == "normal" or bool(delivered)
 
     claims = chm_claims_match_artifact(
         answer=answer_text, artifacts=artifacts, gold=gold,
@@ -98,28 +95,28 @@ def verify_trial(
         json.dumps(terminal, ensure_ascii=False, indent=2), encoding="utf-8"
     )
     not_applicable = (
-        "The inputs cannot support a CHM, so no surface was expected; "
-        "FRAMEWORK.md §5 allows correct abstention to satisfy the contract."
+        f"The declared condition is '{condition}': the inputs cannot support a CHM, "
+        "so no surface was expected and the pixel comparison does not apply."
     )
     missing_surface = (
-        "The task required a CHM and the inputs support one, but no raster was "
-        "delivered and no abstention was reported."
+        "The task required a CHM and the declared condition supports one, but no "
+        "raster was delivered."
     )
     if pixels is not None:
         positive_check = save_verdict(pixels, trial).as_check()
     elif require_built:
-        # Claimed (or was required) to build, delivered nothing: that is a failure,
-        # not an abstention. Reporting `unknown` here let a run that exhausted its
-        # context budget look like a correct refusal.
+        # The condition requires a surface and none was delivered: a failure, not an
+        # abstention. Reporting `unknown` here let a run that exhausted its context
+        # budget look like a correct refusal.
         positive_check = _failed("positive", missing_surface)
     else:
-        positive_check = _deferred("positive", not_applicable)
+        positive_check = _not_applicable("positive", not_applicable)
     if grid is not None:
         claim_check = save_verdict(grid, trial).as_check()
     elif require_built:
         claim_check = _failed("claim", missing_surface)
     else:
-        claim_check = _deferred("claim", not_applicable)
+        claim_check = _not_applicable("claim", not_applicable)
     checks = {
         "positive": positive_check,
         "negative": save_verdict(claims, trial).as_check(),
@@ -127,10 +124,12 @@ def verify_trial(
     }
     return {
         "suite_version": "forestry-eval-0.1",
+        "scoring_rules_version": SCORING_RULES_VERSION,
         "case_id": "forestry.chm",
         "track": "agent",
         "execution": "real_model",
         "repeat": trace["repeat"],
+        "condition": condition,
         "trial_id": str(trace.get("run_id") or ""),
         "configuration": trace["configuration"],
         "status": status_for_terminal(terminal["actual"], terminal["expected"]),
@@ -147,11 +146,12 @@ def main() -> int:
     parser.add_argument("--trial", type=Path, required=True)
     parser.add_argument("--gold", type=Path, required=True)
     parser.add_argument("--record", type=Path, required=True)
+    parser.add_argument("--condition", default="normal", choices=["normal", "gap"])
     args = parser.parse_args()
     trace = json.loads((args.trial / "trace.json").read_text(encoding="utf-8"))
     record = verify_trial(
         args.trial.resolve(), trace["configuration"], int(trace["repeat"]),
-        gold=args.gold.resolve(),
+        gold=args.gold.resolve(), condition=args.condition,
     )
     args.record.write_text(
         json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8"

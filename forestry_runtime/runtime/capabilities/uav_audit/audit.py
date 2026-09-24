@@ -404,6 +404,16 @@ class UavInspectionService:
 
     def inspect_folder(self, folder_path: str, recursive: bool = False) -> dict[str, Any]:
         directory, images = self._path_images(folder_path, recursive)
+        if not images:
+            return {
+                'outcome': 'empty', 'code': 'no_matching_images',
+                'control_verified': None,
+                'checked_scope': {'folder_path': folder_path, 'recursive': recursive},
+                'matching_image_count': 0,
+                'child_directories': [item.name for item in sorted(directory.iterdir())
+                                      if item.is_dir()][:50],
+                'interpretation': 'No matching images in the checked scope; other scopes are unverified.',
+            }
         return inspect_images(
             images,
             source_type='mounted_path',

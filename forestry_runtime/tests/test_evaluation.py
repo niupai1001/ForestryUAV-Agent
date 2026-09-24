@@ -5,6 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
+from evaluation.rules import SCORING_RULES_VERSION
 from evaluation.scorecard import CONFIG_FIELDS, numeric_check, scorecard
 
 
@@ -30,20 +31,36 @@ class EvaluationTests(unittest.TestCase):
         return {
             "suite_version": self.suite["version"], "case_id": case_id,
             "track": case["track"],
+            "scoring_rules_version": SCORING_RULES_VERSION,
             "execution": {"agent": "real_model", "engineering": "engineering", "ui": "browser"}[case["track"]],
             "repeat": repeat, "trial_id": f"{case_id}-{repeat}",
             "configuration": {name: "synthetic-test-only" for name in CONFIG_FIELDS},
             "status": "evaluated",
             "status_evidence": {"verifier": "test-v1", "evidence": ["proof.json"]},
-            "checks": {"value": {"verdict": verdict, "verifier": "test-v1", "evidence": ["proof.json"]}},
+            "checks": {"value": {
+                "verdict": verdict, "verifier": "test-v1", "evidence": ["proof.json"],
+                "detail": "synthetic check",
+            }},
         }
 
     def all_records(self):
-        return [
-            self.record(case["id"], repeat)
-            for case in self.suite["cases"]
-            for repeat in range(1, self.suite["repeats"][case["track"]] + 1)
-        ]
+        records = []
+        for case in self.suite["cases"]:
+            conditions = max(1, len(case.get("conditions") or ["normal"]))
+            for repeat in range(
+                1, self.suite["repeats"][case["track"]] * conditions + 1
+            ):
+                record = self.record(case["id"], repeat)
+                if conditions > 1:
+                    per_condition = self.suite["repeats"][case["track"]]
+                    names = list(case.get("conditions") or ["normal"])
+                    record["condition"] = names[min(
+                        len(names) - 1, (repeat - 1) // per_condition
+                    )]
+                    record["repeat"] = ((repeat - 1) % per_condition) + 1
+                    record["trial_id"] = f"{case['id']}-{record['condition']}-{record['repeat']}"
+                records.append(record)
+        return records
 
     def test_no_records_means_unknown_not_perfect_or_zero_capability(self):
         report = scorecard(self.suite, [], self.root)
@@ -141,8 +158,24 @@ class EvaluationTests(unittest.TestCase):
         path = Path(__file__).resolve().parents[1] / "evaluation" / "suite.json"
         suite = json.loads(path.read_text(encoding="utf-8"))
         report = scorecard(suite, [], self.root)
-        self.assertEqual(len(report["cases"]), 18)
-        self.assertEqual(sum(item["planned"] for item in report["cases"]), 46)
+        self.assertEqual(len(report["cases"]), 24)
+        # The base denominator is 46 preregistered slots; each case that declares an
+        # extra input condition registers slots for it. The capability task set adds
+        # six families over twelve scenarios, six slots each.
+        self.assertEqual(sum(item["planned"] for item in report["cases"]), 85)
+        capability = [item for item in report["cases"] if item["group"] == "capability"]
+        self.assertEqual(len(capability), 6)
+        self.assertEqual(sum(item["planned"] for item in capability), 36)
+        conditional = {
+            item["id"] for item in report["cases"] if item["conditions"] == 2
+        }
+        self.assertEqual(conditional, {
+            "capability.chm", "capability.inventory", "capability.ndvi",
+            "capability.raster_stats", "capability.recompute",
+            "capability.supervised", "forestry.chm",
+        })
+        self.assertIn("capability", suite["agent_groups"])
+        self.assertIn("agent.capability", report["groups"])
         self.assertEqual(report["qualification"], "incomplete")
         self.assertIsNone(report["agent_macro_score"])
 

@@ -1,0 +1,44 @@
+{
+  "version": "core.paths-v1",
+  "root": ".",
+  "fixture_files": [],
+  "entries": [
+    {
+      "name": "1605桦.tif",
+      "type": "file"
+    },
+    {
+      "name": "1605白桦.tif",
+      "type": "file"
+    },
+    {
+      "name": "IMG_0001.JPG",
+      "type": "file"
+    },
+    {
+      "name": "IMG_0001.JPG.bak",
+      "type": "file"
+    },
+    {
+      "name": "IMG_0003.JPG",
+      "type": "file"
+    },
+    {
+      "name": "README",
+      "type": "file"
+    },
+    {
+      "name": "notes with spaces.txt",
+      "type": "file"
+    },
+    {
+      "name": "reference_after.JPG",
+      "type": "file"
+    },
+    {
+      "name": "reference_before.JPG",
+      "type": "file"
+    }
+  ],
+  "entry_count": 9
+}

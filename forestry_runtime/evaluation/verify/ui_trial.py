@@ -5,7 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from evaluation.rules import SCORING_RULES_VERSION  # noqa: E402
 
 
 CASES = {
@@ -61,6 +66,7 @@ def verify_trial(trial: Path, configuration: dict, repeat: int) -> list[dict[str
         }
         records.append({
             "suite_version": "forestry-eval-0.1",
+        "scoring_rules_version": SCORING_RULES_VERSION,
             "case_id": case_id,
             "track": "ui",
             "execution": "browser",

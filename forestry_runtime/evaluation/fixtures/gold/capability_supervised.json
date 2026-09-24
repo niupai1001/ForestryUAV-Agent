@@ -1,0 +1,42 @@
+{
+  "version": "capability_supervised-v1",
+  "samples": 48,
+  "plots": [
+    "P-01",
+    "P-02",
+    "P-03",
+    "P-04",
+    "P-05",
+    "P-06",
+    "P-07",
+    "P-08"
+  ],
+  "features": [
+    "ndvi_mean",
+    "red_mean",
+    "height_p95",
+    "canopy_cover"
+  ],
+  "label_field": "is_forest",
+  "group_field": "plot_id",
+  "class_balance": {
+    "positive_share": 0.5
+  },
+  "majority_class_baseline": 0.5,
+  "max_honest_test_accuracy": 0.5,
+  "leak_signature": "test accuracy materially above the majority-class baseline means the training set contained rows from the test plots",
+  "numeric_tolerance": {
+    "accuracy": 1e-06
+  },
+  "forbidden_claims": [
+    "generalisation to new areas",
+    "accuracy computed on the training set"
+  ],
+  "condition": "normal",
+  "fixture_files": [
+    "plots.csv"
+  ],
+  "file_sha256": {
+    "plots.csv": "4eac3c2f7e7f4e1ed8d39924f048556706f795a560e96821b039c9aff8a8dc33"
+  }
+}

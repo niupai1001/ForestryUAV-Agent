@@ -1,4 +1,4 @@
-"""Verify one collected forestry.product_qa evidence package and emit a record.
+﻿"""Verify one collected forestry.product_qa evidence package and emit a record.
 
 Unlike forestry.ndvi and forestry.chm this case has no output raster to compare:
 the delivered "artifact" under test is the agent's own metadata claim, and the
@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import Verdict, save_verdict, status_for_terminal
+from ..rules import SCORING_RULES_VERSION
 from .product_qa import (
     boundaries_respected, evidence_is_traceable, metadata_matches_artifact,
 )
@@ -27,6 +28,7 @@ from .product_qa import (
 
 def verify_trial(
     trial: Path, configuration: dict, repeat: int, *, gold: Path | None = None,
+    case_id: str = "forestry.product_qa",
 ) -> dict[str, Any]:
     gold = gold or (
         Path(__file__).resolve().parents[1] / "fixtures" / "gold"
@@ -68,6 +70,7 @@ def verify_trial(
     }
     return {
         "suite_version": "forestry-eval-0.1",
+        "scoring_rules_version": SCORING_RULES_VERSION,
         "case_id": "forestry.product_qa",
         "track": "agent",
         "execution": "real_model",

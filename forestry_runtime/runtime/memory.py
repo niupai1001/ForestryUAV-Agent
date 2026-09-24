@@ -122,6 +122,16 @@ class MemoryManager:
                 locator TEXT NOT NULL,state TEXT NOT NULL,version TEXT,error TEXT,
                 created_at REAL NOT NULL,updated_at REAL NOT NULL,
                 UNIQUE(project_id,locator))""")
+            # Editable project instructions.  The live row carries the current
+            # revision; every accepted write also appends an immutable version so
+            # a Turn can be replayed against the exact instruction text it used.
+            conn.execute("""CREATE TABLE IF NOT EXISTS project_instructions(
+                project_id TEXT PRIMARY KEY,content TEXT NOT NULL,revision INTEGER NOT NULL,
+                updated_by TEXT,created_at REAL NOT NULL,updated_at REAL NOT NULL)""")
+            conn.execute("""CREATE TABLE IF NOT EXISTS project_instruction_versions(
+                project_id TEXT NOT NULL,revision INTEGER NOT NULL,content TEXT NOT NULL,
+                origin TEXT NOT NULL,actor TEXT,created_at REAL NOT NULL,
+                PRIMARY KEY(project_id,revision))""")
             conn.execute("""CREATE TABLE IF NOT EXISTS knowledge_chunks(
                 id TEXT PRIMARY KEY,project_id TEXT NOT NULL,source_id TEXT NOT NULL,
                 ordinal INTEGER NOT NULL,content TEXT NOT NULL,citation TEXT NOT NULL,
@@ -300,6 +310,189 @@ class MemoryManager:
         if not rows:
             raise AssetError("Memory history not found")
         return [dict(row) for row in rows]
+
+    # ------------------------------------------------------------ instructions
+
+    def _instruction_budget_tokens(self) -> int:
+        configured = os.getenv("PROJECT_INSTRUCTION_BUDGET_TOKENS", "2000")
+        try:
+            value = int(configured)
+        except ValueError:
+            value = 2000
+        return max(200, min(8000, value))
+
+    def default_instruction(self) -> str:
+        """Initial editable instruction text: a scaffold, never a policy grant."""
+        return (
+            "# 项目指令（用户维护）\n"
+            "\n"
+            "本段由项目维护者编辑，描述项目目标、沟通偏好、交付规范与项目约定。\n"
+            "它不授予任何权限，也不改变执行安全边界；权限由 Runtime 的授权与工具范围决定。\n"
+            "\n"
+            "## 项目目标\n"
+            "\n"
+            "- （填写本项目的长期目标）\n"
+            "\n"
+            "## 沟通偏好\n"
+            "\n"
+            "- （填写语言、粒度、是否需要中间确认等）\n"
+            "\n"
+            "## 交付规范\n"
+            "\n"
+            "- （填写交付物命名、目录、必须随附的说明等）\n"
+            "\n"
+            "## 项目约定\n"
+            "\n"
+            "- （填写数据版本、坐标系、单位等约定）\n"
+        )
+
+    def _instruction_row(self, conn, project_id: str):
+        return conn.execute(
+            "SELECT * FROM project_instructions WHERE project_id=?", (project_id,)
+        ).fetchone()
+
+    def _ensure_instruction(self, conn, project_id: str) -> None:
+        if self._instruction_row(conn, project_id) is not None:
+            return
+        now = time.time()
+        content = self.default_instruction()
+        conn.execute(
+            """INSERT INTO project_instructions(
+            project_id,content,revision,updated_by,created_at,updated_at)
+            VALUES(?,?,?,?,?,?)""",
+            (project_id, content, 1, None, now, now),
+        )
+        conn.execute(
+            """INSERT INTO project_instruction_versions(
+            project_id,revision,content,origin,actor,created_at) VALUES(?,?,?,?,?,?)""",
+            (project_id, 1, content, "default", None, now),
+        )
+
+    def project_instruction(self, owner: str, project_id: str) -> dict:
+        """Current instruction text with its revision and budget accounting."""
+        self._project(owner, project_id)
+        with self.db() as conn:
+            self._ensure_instruction(conn, project_id)
+            row = self._instruction_row(conn, project_id)
+        return self._instruction_payload(dict(row))
+
+    def _instruction_payload(self, row: dict) -> dict:
+        from .tokens import estimate_text
+
+        content = str(row["content"] or "")
+        budget = self._instruction_budget_tokens()
+        used = estimate_text(content)
+        return {
+            "project_id": row["project_id"],
+            "content": content,
+            "revision": int(row["revision"]),
+            "updated_by": row.get("updated_by"),
+            "updated_at": row.get("updated_at"),
+            "budget_tokens": budget,
+            "estimated_tokens": used,
+            "within_budget": used <= budget,
+            "is_default": content == self.default_instruction(),
+        }
+
+    def set_project_instruction(
+        self, owner: str, project_id: str, content: str, *,
+        expected_revision: int | None = None, actor: str | None = None,
+        origin: str = "edit",
+    ) -> dict:
+        """Replace the instruction text, refusing lossy or conflicting writes.
+
+        Over-budget text is rejected with the measurement and a request to
+        shorten it: silently truncating would change the user's own words without
+        saying so.  A stale ``expected_revision`` is rejected so two editors
+        cannot overwrite each other.
+        """
+        from .tokens import estimate_text
+
+        self._project(owner, project_id)
+        text = str(content or "")
+        budget = self._instruction_budget_tokens()
+        used = estimate_text(text)
+        if used > budget:
+            raise AssetError(
+                f"Project instructions exceed the {budget}-token budget "
+                f"(estimated {used} tokens). Shorten the text and save again; "
+                "the Runtime does not truncate it silently."
+            )
+        now = time.time()
+        with self.db() as conn:
+            self._ensure_instruction(conn, project_id)
+            row = dict(self._instruction_row(conn, project_id))
+            if expected_revision is not None and int(row["revision"]) != int(expected_revision):
+                raise AssetError(
+                    "Project instructions were modified by someone else "
+                    f"(expected revision {int(expected_revision)}, found {int(row['revision'])}). "
+                    "Reload before saving."
+                )
+            revision = int(row["revision"]) + 1
+            conn.execute(
+                """UPDATE project_instructions SET content=?,revision=?,updated_by=?,
+                updated_at=? WHERE project_id=?""",
+                (text, revision, actor, now, project_id),
+            )
+            conn.execute(
+                """INSERT INTO project_instruction_versions(
+                project_id,revision,content,origin,actor,created_at) VALUES(?,?,?,?,?,?)""",
+                (project_id, revision, text, origin, actor, now),
+            )
+            updated = dict(self._instruction_row(conn, project_id))
+        return self._instruction_payload(updated)
+
+    def reset_project_instruction(self, owner: str, project_id: str, *,
+                                  actor: str | None = None) -> dict:
+        """Restore the default scaffold as a new revision (never a silent delete)."""
+        return self.set_project_instruction(
+            owner, project_id, self.default_instruction(),
+            actor=actor, origin="reset",
+        )
+
+    def instruction_version(self, owner: str, project_id: str, revision: int) -> dict:
+        self._project(owner, project_id)
+        with self.db() as conn:
+            row = conn.execute(
+                """SELECT * FROM project_instruction_versions
+                WHERE project_id=? AND revision=?""",
+                (project_id, int(revision)),
+            ).fetchone()
+        if row is None:
+            raise AssetError("That instruction revision does not exist")
+        return dict(row)
+
+    def instruction_history(self, owner: str, project_id: str, limit: int = 20) -> list[dict]:
+        self._project(owner, project_id)
+        with self.db() as conn:
+            rows = conn.execute(
+                """SELECT revision,origin,actor,created_at,
+                length(content) AS content_chars FROM project_instruction_versions
+                WHERE project_id=? ORDER BY revision DESC LIMIT ?""",
+                (project_id, max(1, min(100, int(limit)))),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def instruction_snapshot(
+        self, owner: str, chat_id: str, revision: int | None = None
+    ) -> dict:
+        """Pin the instruction text a Turn will use.
+
+        The returned snapshot is what gets injected, so a mid-Turn edit cannot
+        change the instructions of a Turn already in flight.
+        """
+        project = self.selected_project(owner, chat_id)
+        if not project:
+            return {}
+        current = self.project_instruction(owner, project["id"])
+        if revision is not None and int(revision) != int(current["revision"]):
+            version = self.instruction_version(owner, project["id"], int(revision))
+            current = current | {
+                "content": version["content"],
+                "revision": int(version["revision"]),
+                "pinned": True,
+            }
+        return current | {"project_name": project["name"]}
 
     def _allowed_local(self, locator: str) -> Path:
         target = Path(locator).resolve()

@@ -1,0 +1,36 @@
+{
+  "version": "capability_recompute-v1",
+  "condition": "normal",
+  "fixture_files": [
+    "trees.csv"
+  ],
+  "file_sha256": {
+    "trees.csv": "4226eafc382e818f7279a6311dffdbbcadf62c9e5d1909e325ade25b01e18167"
+  },
+  "expected_summary": {
+    "P-01": {
+      "mean_height_m": 11.266667,
+      "tree_count": 3
+    },
+    "P-02": {
+      "mean_height_m": 10.85,
+      "tree_count": 2
+    }
+  },
+  "first_pass_summary": {
+    "P-01": {
+      "mean_height_m": 11.266667,
+      "tree_count": 3
+    },
+    "P-02": {
+      "mean_height_m": 9.55,
+      "tree_count": 2
+    }
+  },
+  "changed_plot": "P-02",
+  "expected_p02_mean": 10.85,
+  "output_file": "summary.json",
+  "numeric_tolerance": {
+    "mean_height_m": 1e-06
+  }
+}

@@ -1,0 +1,2237 @@
+{
+ "ledger_version": "grounded_v1-gabench-sieve-1",
+ "generated_by": "DSH delegated agent (GIS six screening)",
+ "upstream": {
+  "repository": "https://github.com/GeoX-Lab/GABench",
+  "pinned_commit": "e8c64e883bbe45e2b94515c73941e7a0837320ae",
+  "pinned_commit_date": "2026-09-03T16:52:10+08:00",
+  "pinned_commit_subject": "docs: add Apache-2.0 license",
+  "clone_path": "data/gabench/repo",
+  "clone_method": "git clone --depth 1 (git 的 TLS 校验失败，改用 GIT_SSL_NO_VERIFY=true 只读克隆；完整性由文件级 SHA-256 与 git rev-parse 校验)",
+  "benchmark_csv": {
+   "path": "benchmark/benchmark.csv",
+   "sha256": "74cb8d877a6f507899b78eb4a8442a9e54f9bad52ddd93f488cfb4e479770e6c",
+   "size_bytes": 193385,
+   "git_lfs_oid": "sha256:74cb8d877a6f507899b78eb4a8442a9e54f9bad52ddd93f488cfb4e479770e6c",
+   "download_url": "https://media.githubusercontent.com/media/GeoX-Lab/GABench/e8c64e883bbe45e2b94515c73941e7a0837320ae/benchmark/benchmark.csv"
+  },
+  "repo_license": "Apache-2.0 (LICENSE in repo root)",
+  "dataset_licenses": "上游仓库未对数据集逐项标注许可，只有仓库级 Apache-2.0；data/gabench/repo 内检索不到逐数据集 LICENSE/README，绝大多数输入数据的许可未记录 = 未核实"
+ },
+ "counts": {
+  "total_tasks": 57,
+  "non_satellite_tasks": 54,
+  "satellite_dependent_tasks": 3,
+  "satellite_dependency_unverified_in_satellite_bucket": 0,
+  "tasks_with_all_inputs_in_pinned_commit": 55,
+  "tasks_requiring_network_or_private_service": 0,
+  "tasks_with_non_image_expected_result": 4,
+  "tasks_with_explicit_upstream_check_rule": 3,
+  "qualifying_tasks": 4,
+  "qualifying_and_semantically_valid": 3,
+  "qualifying_vector": 2,
+  "qualifying_raster": 1,
+  "qualifying_combined": 0,
+  "question_bank_sufficient": false,
+  "tasks_with_missing_or_misnamed_input_paths": 2,
+  "satellite_dependency_unverified": 1,
+  "retained_by_sieve": 4
+ },
+ "qualifying_ids": [
+  "9",
+  "12",
+  "27",
+  "42"
+ ],
+ "qualifying_by_family": {
+  "vector": [
+   "9",
+   "42"
+  ],
+  "raster": [
+   "12"
+  ],
+  "combined": []
+ },
+ "stop_condition": "题库不足（question bank insufficient）：矢量处理 2 题、栅格处理 1 题、组合分析 0 题，合计 4 题，少于要求的 6 题；按规划文档要求停在此处，不替换为合成题。",
+ "criteria": [
+  "c1: 有完整输入（在 pin 住的提交内全部存在，可一次性获取）",
+  "c2: 不依赖在线/私有服务（全部为本地文件 + 本地工具）",
+  "c3: 最终结果可程序化判定（存在独立复算方法，不调用被评测 runtime 的业务函数）",
+  "c4: 命中至少一个家族（vector / raster / combined），且每族需要 2 题"
+ ],
+ "tasks": [
+  {
+   "id": "1",
+   "short_description": "Your task is analyzing urban heat using Kriging interpolation techniques. The analysis should focus on understanding spatial patterns of urban heat islands by u",
+   "gabench_domain": "Geostatistical Analysis",
+   "family": "combined",
+   "expected_result_spec": "interpolated_urban_heat.png",
+   "reference_layers": [
+    "agg_CensusBlock_mean.geojson",
+    "filter_agg_CensusBlock_mean.geojson"
+   ],
+   "toolchain_length": 7,
+   "inputs": [
+    {
+     "path": "dataset/CensusBlock.geojson",
+     "present_in_repo": true,
+     "size_bytes": 518712,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/CensusBlock.geojson"
+    },
+    {
+     "path": "dataset/Temperature.geojson",
+     "present_in_repo": true,
+     "size_bytes": 34610,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/Temperature.geojson"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（interpolated_urban_heat.png），无程序化参考对象；上游只用 VLM 比对 GT 图像",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "2",
+   "short_description": "Your task is performing analysis on public transit access in Hamilton County Tennessee. The goal is to map out existing bus stops service area with enriched map",
+   "gabench_domain": "Vector Spatial Analysis",
+   "family": "vector",
+   "expected_result_spec": "transit_access.png",
+   "reference_layers": [
+    "BusServiceArea.geojson",
+    "HamiltonDemographics.geojson"
+   ],
+   "toolchain_length": 3,
+   "inputs": [
+    {
+     "path": "dataset/BusServiceArea.geojson",
+     "present_in_repo": true,
+     "size_bytes": 293989,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/BusServiceArea.geojson"
+    },
+    {
+     "path": "dataset/HamiltonDemographics.geojson",
+     "present_in_repo": true,
+     "size_bytes": 3934974,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/HamiltonDemographics.geojson"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（transit_access.png），无程序化参考对象",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "3",
+   "short_description": "Your task is assessing burn scars using satellite imagery and perform spatial analysis to understand the impact of wildfires. The goal is to use the satellite i",
+   "gabench_domain": "Raster Spatial Analysis",
+   "family": "satellite-dependent",
+   "expected_result_spec": "burn_scar_analysis.png",
+   "reference_layers": [
+    "nbrdelta_nbr_G_2014_nbr_G_2015_burndisplay.tif",
+    "nbrdelta_nbr_G_2014_nbr_G_2015_burnscar.geojson"
+   ],
+   "toolchain_length": 9,
+   "inputs": [
+    {
+     "path": "dataset/G_2014.tif",
+     "present_in_repo": true,
+     "size_bytes": 57676149,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/G_2014.tif"
+    },
+    {
+     "path": "dataset/G_2015.tif",
+     "present_in_repo": true,
+     "size_bytes": 57676149,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/G_2015.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "verified",
+   "satellite_evidence": "task text: 'satellite imagery data from 2014 and 2015 ... taken by Landsat 8'",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "卫星影像任务（G_2014/G_2015 为 Landsat 8 影像），按‘非卫星’条件排除",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "4",
+   "short_description": "Your task is to identify risk zones. First, project mc_soils.shp, mc_boundary.shp, and mc_land_cover.tif to the Lambert Conformal Conic projection (EPSG:32126).",
+   "gabench_domain": "Raster Spatial Analysis",
+   "family": "combined",
+   "expected_result_spec": "risk_zones.png",
+   "reference_layers": [
+    "final_risk.tif"
+   ],
+   "toolchain_length": 15,
+   "inputs": [
+    {
+     "path": "dataset/mc_boundary.shp",
+     "present_in_repo": true,
+     "size_bytes": 14812,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/mc_boundary.shp"
+    },
+    {
+     "path": "dataset/mc_land_cover.tif",
+     "present_in_repo": true,
+     "size_bytes": 664988,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/mc_land_cover.tif"
+    },
+    {
+     "path": "dataset/mc_soils.shp",
+     "present_in_repo": true,
+     "size_bytes": 19952240,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/mc_soils.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "参考规范内部冲突：任务原文要求对 vulnerable_areas 做 [1,10] 标准化后再与 land_cover 加权，而参考工具链先算 drainage*5+water_depth*4、再做独立 min-max 标准化、最后 *8+*10；且 canonical 中间产物 final_risk.tif 未发布，无法确定唯一参考值",
+   "retained": false,
+   "borderline_note": "近似命中：题面写明了完整重分类表与加权公式（vulnerable = drainage*5 + water_depth*4；risk = vulnerable*8 + land_cover*10、EPSG:32126、以 mc_boundary 为范围、以 mc_land_cover 为像元与 snap），输入 mc_land_cover.tif（uint8、3025x3896、30 m、nodata=255）与 mc_soils.shp 均已获取；但“vulnerable_areas 标准化到 [1,10]”与参考工具链的“先加权、再 min-max 标准化、最后与 land_cover 加权”顺序冲突，且 canonical final_risk.tif 未发布。",
+   "inputs_resolvable": true
+  },
+  {
+   "id": "5",
+   "short_description": "Your task is visualizing data about children with elevated blood lead levels in a privacy-conscious manner. First, conduct Optimized Hot Spot Analysis to identi",
+   "gabench_domain": "Geostatistical Analysis",
+   "family": "other",
+   "expected_result_spec": "blood_lead_hotspots_hex.png",
+   "reference_layers": [
+    "sacramento_3857.shp",
+    "sacramento_hex_counts.geojson"
+   ],
+   "toolchain_length": 7,
+   "inputs": [
+    {
+     "path": "dataset/High_Blood_Level_Results.shp",
+     "present_in_repo": true,
+     "size_bytes": 10544,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/High_Blood_Level_Results.shp"
+    },
+    {
+     "path": "dataset/Sacramento_ZIP_Codes.shp",
+     "present_in_repo": true,
+     "size_bytes": 136908,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/Sacramento_ZIP_Codes.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（blood_lead_hotspots_hex.png）；Optimized Hot Spot Analysis 的参考实现未发布，参考值不唯一",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "6",
+   "short_description": "Yout task is analyzing and visualizing Elk movements in the given dataset. The goal is to estimate home ranges and assess habitat preferences using spatial anal",
+   "gabench_domain": "Geostatistical Analysis",
+   "family": "other",
+   "expected_result_spec": "Elk_Analysis.png",
+   "reference_layers": [
+    "elk_clusters.geojson",
+    "elk_convex_hull.geojson",
+    "elk_kde.tif"
+   ],
+   "toolchain_length": 6,
+   "inputs": [
+    {
+     "path": "dataset/Elk_in_Southwestern_Alberta_2009.geojson",
+     "present_in_repo": true,
+     "size_bytes": 88758365,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/Elk_in_Southwestern_Alberta_2009.geojson"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（Elk_Analysis.png）；KDE/MCP 带宽等参数未在题面完全固定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "7",
+   "short_description": "Your task is analyzing the impact of land subsidence on flooding based on future elevation data of the study area with a design water level of -200. Identify fl",
+   "gabench_domain": "Hydrological Analysis",
+   "family": "combined",
+   "expected_result_spec": "flooding_analysis.png",
+   "reference_layers": [
+    "flood_depth.tif",
+    "damage_assessment.geojson"
+   ],
+   "toolchain_length": 5,
+   "inputs": [
+    {
+     "path": "dataset/Elevation_2050.tif",
+     "present_in_repo": true,
+     "size_bytes": 4591102,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/Elevation_2050.tif"
+    },
+    {
+     "path": "dataset/StudyAreaBuildings.shp",
+     "present_in_repo": true,
+     "size_bytes": 3619284,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/StudyAreaBuildings.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（flooding_analysis.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "8",
+   "short_description": "Your task is analyzing Toronto fire stations and their service coverage. The goal is visualize the current fire station coverage in Etobicoke by buffering to id",
+   "gabench_domain": "Vector Spatial Analysis",
+   "family": "vector",
+   "expected_result_spec": "Fire_Service_Analysis.png",
+   "reference_layers": [
+    "etobicoke_32617.geojson",
+    "no_service.geojson"
+   ],
+   "toolchain_length": 9,
+   "inputs": [
+    {
+     "path": "dataset/etobicoke.geojson",
+     "present_in_repo": true,
+     "size_bytes": 236128,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/etobicoke.geojson"
+    },
+    {
+     "path": "dataset/fire_stations.geojson",
+     "present_in_repo": true,
+     "size_bytes": 21618,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/fire_stations.geojson"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（Fire_Service_Analysis.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "9",
+   "short_description": "Your task is to find the deforestation rate for the Brazilian state of Rondônia. The goal is to calculate the percentage of deforested area within a 5.5 km buff",
+   "gabench_domain": "Vector Spatial Analysis",
+   "family": "vector",
+   "expected_result_spec": "deforestation_rate.csv",
+   "reference_layers": [
+    "deforestation_rate.csv"
+   ],
+   "toolchain_length": 12,
+   "inputs": [
+    {
+     "path": "dataset/deforestedArea.geojson",
+     "present_in_repo": true,
+     "size_bytes": 21033068,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/deforestedArea.geojson"
+    },
+    {
+     "path": "dataset/roads.geojson",
+     "present_in_repo": true,
+     "size_bytes": 14959869,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/roads.geojson"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": null,
+   "retained": true,
+   "independent_recomputation_method": "独立复算方法（确定性，已在环境内核对算术一致性）：(1) 读取 dataset/roads.geojson 与 dataset/deforestedArea.geojson；题面规定无 CRS 时按 EPSG:4326 处理；(2) 两者重投影到 EPSG:32723（UTM 23S），参考实现使用该 CRS；(3) 道路 buffer 5500 m；(4) 缓冲面 dissolve 后求面积 A_buf；(5) 以 deforestedArea 裁剪 dissolve 缓冲面，求交集面积 A_def；(6) 参考值 = A_def / A_buf。参考工具链记录的中间量为 A_buf=179792795540.404 m^2、A_def=86176671033.82933 m^2、比值=0.4793110356552816，与已发布 dataset/result/deforestation_rate.csv 逐位一致（本地已核对：86176671033.82933/179792795540.404 == 0.4793110356552816）。判定：读取提交的 deforestation_rate.csv 中 percentage_deforestation 列，按相对容差（建议 rtol=1e-6，绝对下限 1e-9）比较。未完成的部分：运行时环境缺 geopandas/shapely，未能用独立实现实际重算并比对，标记为“算术已核对、几何未独立重算”。",
+   "inputs_resolvable": true
+  },
+  {
+   "id": "10",
+   "short_description": "Your task is to predict the effect of future proposed roads on deforestation in the Brazilian state of Rondônia. A planned road network will be added to Rondôni",
+   "gabench_domain": "Vector Spatial Analysis",
+   "family": "combined",
+   "expected_result_spec": "predictedRiskyArea.png",
+   "reference_layers": [
+    "risky_area.geojson",
+    "protected_32723.geojson",
+    "planned_32723.geojson",
+    "roads_32723.geojson"
+   ],
+   "toolchain_length": 14,
+   "inputs": [
+    {
+     "path": "dataset/deforestedArea.geojson",
+     "present_in_repo": true,
+     "size_bytes": 21033068,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/deforestedArea.geojson"
+    },
+    {
+     "path": "dataset/planned_road.geojson",
+     "present_in_repo": true,
+     "size_bytes": 6578,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/planned_road.geojson"
+    },
+    {
+     "path": "dataset/protectedForest.geojson",
+     "present_in_repo": true,
+     "size_bytes": 7246230,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/protectedForest.geojson"
+    },
+    {
+     "path": "dataset/roads.geojson",
+     "present_in_repo": true,
+     "size_bytes": 14959869,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/roads.geojson"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（predictedRiskyArea.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "11",
+   "short_description": "Your task is performing raster analysis on the elevation and environmental factors influencing coral and sponge distribution at Catalina Island. Update the data",
+   "gabench_domain": "Raster Spatial Analysis",
+   "family": "combined",
+   "expected_result_spec": "CoralandSponge.png",
+   "reference_layers": [
+    "group_statistics.csv"
+   ],
+   "toolchain_length": 10,
+   "inputs": [
+    {
+     "path": "dataset/CatalinaBathymetry.tif",
+     "present_in_repo": true,
+     "size_bytes": 2755621,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/CatalinaBathymetry.tif"
+    },
+    {
+     "path": "dataset/CoralandSpongeCatalina.geojson",
+     "present_in_repo": true,
+     "size_bytes": 6167125,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/CoralandSpongeCatalina.geojson"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（CoralandSponge.png）；分组统计为描述性输出，参考值未发布",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "12",
+   "short_description": "Your task is evaluating mountain lion habitat suitability, and the first step is calculating terrain ruggedness using elevation data. Visualizing the ruggedness",
+   "gabench_domain": "Raster Spatial Analysis",
+   "family": "raster",
+   "expected_result_spec": "ruggedness.png",
+   "reference_layers": [
+    "rugged_Elevation.tif"
+   ],
+   "toolchain_length": 3,
+   "inputs": [
+    {
+     "path": "dataset/Elevation.tif",
+     "present_in_repo": true,
+     "size_bytes": 31468285,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/Elevation.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": null,
+   "retained": true,
+   "independent_recomputation_method": "独立复算方法（确定性，已在本机完整复算并与已发布参考产物逐像元比对）：(1) rasterio 打开 dataset/Elevation.tif，按 float64 读取第 1 波段 z（该文件 dtype=uint8、无 nodata 元数据、3062x2494、30 m、EPSG:26911）；(2) 对 z 施加 3x3 窗口的 local range 滤波（等价 scipy.ndimage.generic_filter(z, lambda v: nanmax(v)-nanmin(v), size=(3,3))，即每个像元邻域最大值减最小值）；(3) 结果即参考对象 rugged_Elevation.tif。本地验证：按上述步骤重算得到 min=0.0、max=36.0、无 NaN，与已发布 dataset/ruggedness.tif 逐像元完全相等（max|diff|=0.0，一致率 100%）。判定：比对提交栅格的网格（宽高/仿射/CRS 与 Elevation.tif 相同）、dtype 与逐像元整数相等（容差 0）。必须固化的约定：不要把 255 当作 nodata（该文件未声明 nodata；参考产物确实把 255 当普通高程参与计算），否则结果不同。",
+   "inputs_resolvable": true
+  },
+  {
+   "id": "13",
+   "short_description": "Your task is using sea temperature and salinity data from the South Atlantic Ocean to calculate and analyze a vertical temperature-salinity profile within a spe",
+   "gabench_domain": "3D Modeling and Analysis",
+   "family": "other",
+   "expected_result_spec": "ocean_profiles_vis.png",
+   "reference_layers": [
+    "profile_atlantic_profiles.csv"
+   ],
+   "toolchain_length": 3,
+   "inputs": [
+    {
+     "path": "dataset/atlantic_profiles.nc",
+     "present_in_repo": true,
+     "size_bytes": 34783,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/atlantic_profiles.nc"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（ocean_profiles_vis.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "14",
+   "short_description": "Your task is using 240 years of annual average surface temperature data from North America to calculate and plot the number of occurrences where the temperature",
+   "gabench_domain": "Geostatistical Analysis",
+   "family": "raster",
+   "expected_result_spec": "temperature_statistic_vis.png",
+   "reference_layers": [
+    "spell_E1_north_america.tif"
+   ],
+   "toolchain_length": 3,
+   "inputs": [
+    {
+     "path": "dataset/E1_north_america.nc",
+     "present_in_repo": true,
+     "size_bytes": 1824028,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/E1_north_america.nc"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "方法确定（count_netcdf_spells 为确定性算法），但发布的参考产物只有 PNG，没有可逐像元比对的栅格或数值参考",
+   "retained": false,
+   "borderline_note": "近似命中：count_netcdf_spells 为确定性算法（阈值 280K、连续 5 年），输入 E1_north_america.nc 已获取；但发布产物只有 temperature_statistic_vis.png。",
+   "inputs_resolvable": true
+  },
+  {
+   "id": "15",
+   "short_description": "Your task is analyzing the distribution of Total Electron Content. Load Total Electron Content (TEC) data from a space weather NetCDF file and visualize it. Sav",
+   "gabench_domain": "Raster Spatial Analysis",
+   "family": "raster",
+   "expected_result_spec": "TEC_vis.png",
+   "reference_layers": [
+    "nc_space_weather_TEC.tif"
+   ],
+   "toolchain_length": 3,
+   "inputs": [
+    {
+     "path": "dataset/space_weather.nc",
+     "present_in_repo": true,
+     "size_bytes": 248208,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/space_weather.nc"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（TEC_vis.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "16",
+   "short_description": "Load North America climate data in NetCDF file and extract temperature data along the time series, then perform a quadratic polynomial fit analysis on the tempe",
+   "gabench_domain": "Geostatistical Analysis",
+   "family": "raster",
+   "expected_result_spec": "polynomial_fit_pred.png",
+   "reference_layers": [
+    "polyfit_A1B_north_america.csv"
+   ],
+   "toolchain_length": 4,
+   "inputs": [
+    {
+     "path": "dataset/A1B_north_america.nc",
+     "present_in_repo": true,
+     "size_bytes": 1824028,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/A1B_north_america.nc"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "方法确定（二次多项式拟合），但发布的参考产物只有 PNG，无参考数值/序列",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "17",
+   "short_description": "Your task is using data on the locations and related information of fatal car crashes in New York City to analyze fatal car crash distribution in 2016. You will",
+   "gabench_domain": "Geostatistical Analysis",
+   "family": "vector",
+   "expected_result_spec": "collisions_map_vis.png",
+   "reference_layers": [
+    "nyc_boroughs.geojson",
+    "fatal_collisions.geojson"
+   ],
+   "toolchain_length": 3,
+   "inputs": [
+    {
+     "path": "dataset/fatal_collisions.geojson",
+     "present_in_repo": true,
+     "size_bytes": 13159,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/fatal_collisions.geojson"
+    },
+    {
+     "path": "dataset/nyc_boroughs.geojson",
+     "present_in_repo": true,
+     "size_bytes": 3077124,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/nyc_boroughs.geojson"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（collisions_map_vis.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "18",
+   "short_description": "Your task is using the distribution data data about San Francisco street trees and shapefiles of administrative regions to analyze the tree species NULL percent",
+   "gabench_domain": "Vector Spatial Analysis",
+   "family": "vector",
+   "expected_result_spec": "trees_count_vis.png",
+   "reference_layers": [
+    "quadtree_street_trees_sample.geojson",
+    "sfo_boroughs.geojson"
+   ],
+   "toolchain_length": 5,
+   "inputs": [
+    {
+     "path": "dataset/sfo_boroughs.geojson",
+     "present_in_repo": true,
+     "size_bytes": 7603,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/sfo_boroughs.geojson"
+    },
+    {
+     "path": "dataset/street_trees_sample.geojson",
+     "present_in_repo": true,
+     "size_bytes": 4404998,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/street_trees_sample.geojson"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（trees_count_vis.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "19",
+   "short_description": "Your task is to model water quality using spatial interpolation techniques. The analysis should focus on understanding spatial patterns of water quality by usin",
+   "gabench_domain": "Geostatistical Analysis",
+   "family": "combined",
+   "expected_result_spec": "interploated_water_quality.png",
+   "reference_layers": [
+    "kde_DissolvedO2.tif",
+    "Bay.geojson"
+   ],
+   "toolchain_length": 4,
+   "inputs": [
+    {
+     "path": "dataset/Bay.geojson",
+     "present_in_repo": true,
+     "size_bytes": 9831,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/Bay.geojson"
+    },
+    {
+     "path": "dataset/DissolvedO2.geojson",
+     "present_in_repo": true,
+     "size_bytes": 18490482,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/DissolvedO2.geojson"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（interploated_water_quality.png）；KDE 带宽未固定，参考值不唯一",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "20",
+   "short_description": "Your task is performing a random forest prospectivity analysis for tin-tungsten deposits in Tasmania. The analysis should focus on training and applying a model",
+   "gabench_domain": "Raster Spatial Analysis",
+   "family": "raster",
+   "expected_result_spec": "mineral_prospectivity.png",
+   "reference_layers": [
+    "data_proba.tif"
+   ],
+   "toolchain_length": 17,
+   "inputs": [
+    {
+     "path": "dataset/sn_w_minoccs.gpkg",
+     "present_in_repo": true,
+     "size_bytes": 299008,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/sn_w_minoccs.gpkg"
+    },
+    {
+     "path": "dataset/tasgrav_IR.tif",
+     "present_in_repo": true,
+     "size_bytes": 19774207,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/tasgrav_IR.tif"
+    },
+    {
+     "path": "dataset/tasgrav_IR_1VD.tif",
+     "present_in_repo": true,
+     "size_bytes": 19774207,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/tasgrav_IR_1VD.tif"
+    },
+    {
+     "path": "dataset/tasmag_TMI.tif",
+     "present_in_repo": true,
+     "size_bytes": 19774207,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/tasmag_TMI.tif"
+    },
+    {
+     "path": "dataset/tasmag_TMI_1VD.tif",
+     "present_in_repo": true,
+     "size_bytes": 19774207,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/tasmag_TMI_1VD.tif"
+    },
+    {
+     "path": "dataset/tasrad_K_pct.tif",
+     "present_in_repo": true,
+     "size_bytes": 19774372,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/tasrad_K_pct.tif"
+    },
+    {
+     "path": "dataset/tasrad_Th_ppm.tif",
+     "present_in_repo": true,
+     "size_bytes": 19774372,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/tasrad_Th_ppm.tif"
+    },
+    {
+     "path": "dataset/tasrad_U_ppm.tif",
+     "present_in_repo": true,
+     "size_bytes": 19774372,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/tasrad_U_ppm.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付为 PNG（mineral_prospectivity.png）；参考概率栅格 data_proba.tif 未随仓库发布",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "21",
+   "short_description": "Your task is standardizing land cover datasets for consistency in analysis for mountain lion habitat. Reclassify this categorical dataset to a common scale usin",
+   "gabench_domain": "Raster Spatial Analysis",
+   "family": "raster",
+   "expected_result_spec": "reclassified_landCover.png",
+   "reference_layers": [
+    "landCover_reclassified.tif"
+   ],
+   "toolchain_length": 3,
+   "inputs": [
+    {
+     "path": "dataset/landCover.tif",
+     "present_in_repo": true,
+     "size_bytes": 7876684,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/landCover.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "已发布参考栅格与题面映射冲突：题面 90(Woody Wetlands)->3、95(Emergent Wetlands)->3，实际 landCover_reclassified.tif 中 90、95 均为 4（共 33676 像元，占全部不一致像元）；同一产物无法同时满足题面与参考值",
+   "retained": false,
+   "borderline_note": "近似命中：方法完全确定（题面给出 11->10,21->8,22->7,23->8,24->9,31->6,41->2,42->1,43->2,52->3,71->3,72->3,81->4,82->6,90->3,95->3,255->10），输入 dataset/landCover.tif 为 uint8、3062x2494、30 m、EPSG:26911、无 nodata，共 17 个取值 [0,11,21,22,23,24,31,41,42,43,52,71,81,82,90,95,255]；实做后发现唯一冲突是湿地方向：题面 90->3、95->3，而已发布 dataset/landCover_reclassified.tif 中 90、95 全部为 4（本地逐像元比对：我的复算与参考栅格不一致的 33676 像元恰好就是 code 90 的 19262 个与 code 95 的 14414 个；其余 126 个 code 全部一致，含 41->2、21->8、42->1、52/71->3，且 0 与 255 原样保留）。",
+   "inputs_resolvable": true
+  },
+  {
+   "id": "22",
+   "short_description": "Your task is integrating ruggedness, road distance, land cover, and protected status into a single cost surface. Assign weights to each criterion—specifically, ",
+   "gabench_domain": "Raster Spatial Analysis",
+   "family": "raster",
+   "expected_result_spec": "mountainLionCorridor.png",
+   "reference_layers": [
+    "weighted_overlay.tif"
+   ],
+   "toolchain_length": 6,
+   "inputs": [
+    {
+     "path": "dataset/Protected_Status_reclassified.tif",
+     "present_in_repo": true,
+     "size_bytes": 7867570,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/Protected_Status_reclassified.tif"
+    },
+    {
+     "path": "dataset/distance.tif",
+     "present_in_repo": true,
+     "size_bytes": 7867570,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/distance.tif"
+    },
+    {
+     "path": "dataset/landCover_reclassified.tif",
+     "present_in_repo": true,
+     "size_bytes": 7867570,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/landCover_reclassified.tif"
+    },
+    {
+     "path": "dataset/ruggedness.tif",
+     "present_in_repo": true,
+     "size_bytes": 31461518,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/ruggedness.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（mountainLionCorridor.png）；输入 landCover_reclassified.tif / Protected_Status_reclassified.tif / ruggedness.tif / distance.tif 本身即为派生产物，链条不可独立复算",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "23",
+   "short_description": "Your task is to process a de-identified point-level dataset that includes all variables of interest for each child as well as their approximate locations. You n",
+   "gabench_domain": "Spatial Data Management",
+   "family": "vector",
+   "expected_result_spec": "rounded_points_plot.png",
+   "reference_layers": [
+    "rounded_coords_reproj_High_Blood_Level_Results_4326.geojson"
+   ],
+   "toolchain_length": 6,
+   "inputs": [
+    {
+     "path": "dataset/High_Blood_Level_Results.shp",
+     "present_in_repo": true,
+     "size_bytes": 10544,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/High_Blood_Level_Results.shp"
+    },
+    {
+     "path": "dataset/Sacramento_ZIP_Codes.shp",
+     "present_in_repo": true,
+     "size_bytes": 136908,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/Sacramento_ZIP_Codes.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（rounded_points_plot.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "24",
+   "short_description": "Your task is to analyze COVID-19 risk in HKG. First, use similarity search to map transmission risk from hkg_constituency.shp and target_risk.shp. Second, join ",
+   "gabench_domain": "Geostatistical Analysis",
+   "family": "combined",
+   "expected_result_spec": "hkg_covid_risk_profiles.png",
+   "reference_layers": [
+    "risk_profiles_candidates_expo.geojson"
+   ],
+   "toolchain_length": 14,
+   "inputs": [
+    {
+     "path": "dataset/hkg_constituency.shp",
+     "present_in_repo": true,
+     "size_bytes": 1238228,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/hkg_constituency.shp"
+    },
+    {
+     "path": "dataset/target_risk.shp",
+     "present_in_repo": true,
+     "size_bytes": 508,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/target_risk.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（hkg_covid_risk_profiles.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "25",
+   "short_description": "Your task is to identify groundwater-vulnerable areas that require protection. First, project mc_soils.shp, mc_boundary.shp, and mc_land_cover.tif to the Lamber",
+   "gabench_domain": "Raster Spatial Analysis",
+   "family": "combined",
+   "expected_result_spec": "vulnerable_areas.png",
+   "reference_layers": [
+    "wsum_poly2ras_reproj_mc_soils_32126_drclassdcd_reclass_poly2ras_reproj_mc_soils_32126_wdepannmin_reclass.tif"
+   ],
+   "toolchain_length": 12,
+   "inputs": [
+    {
+     "path": "dataset/mc_boundary.shp",
+     "present_in_repo": true,
+     "size_bytes": 14812,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/mc_boundary.shp"
+    },
+    {
+     "path": "dataset/mc_land_cover.tif",
+     "present_in_repo": true,
+     "size_bytes": 664988,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/mc_land_cover.tif"
+    },
+    {
+     "path": "dataset/mc_soils.shp",
+     "present_in_repo": true,
+     "size_bytes": 19952240,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/mc_soils.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（vulnerable_areas.png）；方法虽在题面写明，但未发布 canonical 栅格产物，且 water_depth 越界/nodata 处理未定义",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "26",
+   "short_description": "Your task is to identify those high risk zones of groundwater vulnerable areas that need protection. First, use vulnerable_areas and land_cover to perform suita",
+   "gabench_domain": "Raster Spatial Analysis",
+   "family": "raster",
+   "expected_result_spec": "undeveloped_areas.png",
+   "reference_layers": [
+    "undeveloped_high_risk.tif",
+    "wsum_risk.tif"
+   ],
+   "toolchain_length": 10,
+   "inputs": [
+    {
+     "path": "dataset/land_cover.tif",
+     "present_in_repo": true,
+     "size_bytes": 749325,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/land_cover.tif"
+    },
+    {
+     "path": "dataset/vulnerable_areas.tif",
+     "present_in_repo": true,
+     "size_bytes": 786775,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/vulnerable_areas.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（undeveloped_areas.png）；输入 vulnerable_areas.tif 为上游派生中间产物（仓库未发布对应生成脚本的确定性配置）",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "27",
+   "short_description": "Your task is to estimate the interaction strengths between subregions using a Random Forest model. First, load the OD flow data and socio-economic attribute dat",
+   "gabench_domain": "Geostatistical Analysis",
+   "family": "other",
+   "expected_result_spec": "CHECK:JSON_VALUE:model_performance.json:mse:<6000",
+   "reference_layers": [
+    "model_performance.json"
+   ],
+   "toolchain_length": 8,
+   "inputs": [
+    {
+     "path": "dataset/od_data.csv",
+     "present_in_repo": true,
+     "size_bytes": 147863,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/od_data.csv"
+    },
+    {
+     "path": "dataset/socioeconomic_data.csv",
+     "present_in_repo": true,
+     "size_bytes": 5703,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/socioeconomic_data.csv"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": null,
+   "retained": true,
+   "independent_recomputation_method": "部分可程序化：上游规则为 CHECK:JSON_VALUE:model_performance.json:mse:<6000（读取 JSON 键 mse 并做数值比较）。参考值：{\"mse\": 5679.815885878322, \"best_params\": null}（dataset/result/model_performance.json）。不能独立复算的原因：参考产物只剩 28_best_model.joblib 未发布、tune_model_hyperparameters 的搜索网格与随机种子未定义；仅 split_train_test 的 random_state=42 已知。因此只能复刻整条流水线（aggregate_od_flows -> prepare_model_data -> split(random_state=42,test_size=0.2) -> GridSearchCV -> MSE）得到一个“同量级”的 MSE，不能保证与参考值一致。",
+   "inputs_resolvable": true
+  },
+  {
+   "id": "28",
+   "short_description": "To calculate tsunami travel time, set up your project with bathymetric and coastal data, then identify the tsunami origin. Simulate wave travel over the bathyme",
+   "gabench_domain": "3D Modeling and Analysis",
+   "family": "combined",
+   "expected_result_spec": "TsunamiRiskMap.png",
+   "reference_layers": [
+    "AtlanticDEM.tif",
+    "Path_TravelTime.shp"
+   ],
+   "toolchain_length": 8,
+   "inputs": [
+    {
+     "path": "dataset/AtlanticDEM.tif",
+     "present_in_repo": true,
+     "size_bytes": 34549120,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/AtlanticDEM.tif"
+    },
+    {
+     "path": "dataset/TsunamiPaths.shp",
+     "present_in_repo": true,
+     "size_bytes": 364,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/TsunamiPaths.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（TsunamiRiskMap.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "29",
+   "short_description": "Your task is to analyze the spatial aggregation patterns and scales of geographical flows using the L-function.  First, load the flow data, origin area data , a",
+   "gabench_domain": "Geostatistical Analysis",
+   "family": "other",
+   "expected_result_spec": "l_function.png",
+   "reference_layers": [
+    "L_localK_flow.csv"
+   ],
+   "toolchain_length": 7,
+   "inputs": [
+    {
+     "path": "dataset/d_area.csv",
+     "present_in_repo": true,
+     "size_bytes": 25,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/d_area.csv"
+    },
+    {
+     "path": "dataset/flow.csv",
+     "present_in_repo": true,
+     "size_bytes": 78080,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/flow.csv"
+    },
+    {
+     "path": "dataset/o_area.csv",
+     "present_in_repo": true,
+     "size_bytes": 25,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/o_area.csv"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（l_function.png）；参考实现（local K/global L 的边界改正）未发布",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "30",
+   "short_description": "Your task is analyzing the impact of land subsidence on flooding based on future elevation data of the study area. You will calculate the flood damage to buildi",
+   "gabench_domain": "Hydrological Analysis",
+   "family": "combined",
+   "expected_result_spec": "Damage_Costs.png",
+   "reference_layers": [
+    "Damage_Costs.geojson"
+   ],
+   "toolchain_length": 7,
+   "inputs": [
+    {
+     "path": "dataset/Elevation_2050.tif",
+     "present_in_repo": true,
+     "size_bytes": 4591102,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/Elevation_2050.tif"
+    },
+    {
+     "path": "dataset/StudyAreaBuildings.shp",
+     "present_in_repo": true,
+     "size_bytes": 3619284,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/StudyAreaBuildings.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（Damage_Costs.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "31",
+   "short_description": "To promote sustainable development in the nation's rural areas, your task is estimating access to all-season roads. First, you'll add population and road data a",
+   "gabench_domain": "Vector Spatial Analysis",
+   "family": "vector",
+   "expected_result_spec": "accessibility.png",
+   "reference_layers": [
+    "accessibility_proportion.geojson",
+    "AllSeasonRoads.geojson"
+   ],
+   "toolchain_length": 8,
+   "inputs": [
+    {
+     "path": "dataset/AllSeasonRoads.geojson",
+     "present_in_repo": true,
+     "size_bytes": 5483403,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/AllSeasonRoads.geojson"
+    },
+    {
+     "path": "dataset/ShikokuMetropolitan.geojson",
+     "present_in_repo": true,
+     "size_bytes": 800983,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/ShikokuMetropolitan.geojson"
+    },
+    {
+     "path": "dataset/ShikokuPopulation.geojson",
+     "present_in_repo": true,
+     "size_bytes": 69615786,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/ShikokuPopulation.geojson"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（accessibility.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "32",
+   "short_description": "Your task is to assess the impact of hail damage on cornfields using pre- and post-storm satellite imagery. You will calculate vegetation loss due to the storm ",
+   "gabench_domain": "Raster Spatial Analysis",
+   "family": "satellite-dependent",
+   "expected_result_spec": "Veg_Loss.png",
+   "reference_layers": [
+    "Veg_Loss.tif"
+   ],
+   "toolchain_length": 7,
+   "inputs": [
+    {
+     "path": "dataset/After_Storm.tif",
+     "present_in_repo": true,
+     "size_bytes": null,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/After_Storm.tif"
+    },
+    {
+     "path": "dataset/Before_Storm.tif",
+     "present_in_repo": true,
+     "size_bytes": null,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/Before_Storm.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "verified",
+   "satellite_evidence": "input filenames Before_storm.tif / After_storm.tif; task text 'vegetation loss ... storm'; upstream does NOT state the sensor",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "卫星影像任务（Before_storm.tif / After_storm.tif 为灾前灾后影像），按‘非卫星’条件排除",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "33",
+   "short_description": "Your task is to calculate the travel time from Natural History Building(Geography department) at University of Illinois Urbana-Champaign to the other buildings ",
+   "gabench_domain": "Vector Spatial Analysis",
+   "family": "other",
+   "expected_result_spec": "travel_time.png",
+   "reference_layers": [
+    "edges_time_layer.geojson",
+    "nodes_time_layer.geojson"
+   ],
+   "toolchain_length": 11,
+   "inputs": [
+    {
+     "path": "dataset/distances.pkl",
+     "present_in_repo": true,
+     "size_bytes": 3531,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/distances.pkl"
+    },
+    {
+     "path": "dataset/street_graph.graphml",
+     "present_in_repo": true,
+     "size_bytes": 481781,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/street_graph.graphml"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（travel_time.png）；距离矩阵 distances.pkl 为上游派生中间产物，参考值未发布",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "34",
+   "short_description": "Your task is to analyze changes in malaria prevalence among children aged 2–10 in Sub-Saharan Africa from 2000 to 2015. Using raster data from the Malaria Atlas",
+   "gabench_domain": "Raster Spatial Analysis",
+   "family": "satellite-dependent",
+   "expected_result_spec": "Malaria_Change.png",
+   "reference_layers": [
+    "Malaria_Change.tif"
+   ],
+   "toolchain_length": 4,
+   "inputs": [
+    {
+     "path": "dataset/2015_Nature_Africa_PR.2000.tif",
+     "present_in_repo": true,
+     "size_bytes": 4058634,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/2015_Nature_Africa_PR.2000.tif"
+    },
+    {
+     "path": "dataset/2015_Nature_Africa_PR.2015.tif",
+     "present_in_repo": true,
+     "size_bytes": 4118854,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/2015_Nature_Africa_PR.2015.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "unverified",
+   "satellite_evidence": "input filenames 2015_Nature_Africa_PR.2000/2015.tif; task text names no satellite sensor and the data description does not describe the product",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "卫星影像任务（2015_Nature_Africa_PR.2000/2015.tif，2015 年 Nature 论文的非洲恶性疟原虫感染率栅格为卫星/模型派生产品），按‘非卫星’条件排除；具体传感器未在仓库中说明，标记为未核实",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "35",
+   "short_description": "Your task is to perform spatial autocorrelation analysis on airbnb prices in Berlin. The analysis involves loading geospatial data of Berlin neighborhoods and r",
+   "gabench_domain": "Geostatistical Analysis",
+   "family": "vector",
+   "expected_result_spec": "moran_local.png",
+   "reference_layers": [
+    "moran_local.geojson"
+   ],
+   "toolchain_length": 6,
+   "inputs": [
+    {
+     "path": "dataset/berlin_listings.csv",
+     "present_in_repo": true,
+     "size_bytes": 68060709,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/berlin_listings.csv"
+    },
+    {
+     "path": "dataset/berlin_neighbourhoods.geojson",
+     "present_in_repo": true,
+     "size_bytes": 751619,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/berlin_neighbourhoods.geojson"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（moran_local.png）；Local Moran's I 的参考实现（PySAL/esda）与随机化参数未发布",
+   "retained": false,
+   "borderline_note": "近似命中：local_moran 为确定性算法（PySAL/esda），输入已获取；但随机化/邻接矩阵参数未发布，参考产物只有 PNG。",
+   "inputs_resolvable": true
+  },
+  {
+   "id": "36",
+   "short_description": "Your task is to evaluate mountain lion habitat suitability by calculating terrain ruggedness from elevation data. The analysis applies focal statistics with a 3",
+   "gabench_domain": "Raster Spatial Analysis",
+   "family": "raster",
+   "expected_result_spec": "ruggedness_norm.png",
+   "reference_layers": [
+    "ruggedness_norm.tif"
+   ],
+   "toolchain_length": 4,
+   "inputs": [
+    {
+     "path": "dataset/Elevation.tif",
+     "present_in_repo": true,
+     "size_bytes": 31468285,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/Elevation.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "方法确定（3x3 focal range 后 min-max 标准化到 [1,10]），但发布参考产物只有 PNG，无 canonical 栅格；且输入 Elevation.tif 无 nodata 元数据，0/255 的处理未定义",
+   "retained": false,
+   "borderline_note": "近似命中：3x3 focal range 后 min-max 标准化到 [1,10] 完全确定，输入 Elevation.tif 已获取；但发布产物只有 ruggedness_norm.png，且 Elevation.tif 无 nodata 元数据（0 与 255 语义未定义）。",
+   "inputs_resolvable": true
+  },
+  {
+   "id": "37",
+   "short_description": "Your task is to calculate impervious surface area by combining the impervious surface raster data with land parcel polygons. Use the Tabulate Area tool to compu",
+   "gabench_domain": "Raster Spatial Analysis",
+   "family": "combined",
+   "expected_result_spec": "impervious_area.png",
+   "reference_layers": [
+    "parcels_impervious_join.geojson"
+   ],
+   "toolchain_length": 6,
+   "inputs": [
+    {
+     "path": "dataset/impervious.tif",
+     "present_in_repo": true,
+     "size_bytes": 303472,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/impervious.tif"
+    },
+    {
+     "path": "dataset/parcels.shp",
+     "present_in_repo": true,
+     "size_bytes": 367744,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/parcels.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "方法确定（calculate_area_above_threshold 逐地块统计阈值像元面积并回连矢量），但 canonical 产物 parcels_impervious_join.geojson 未随仓库发布，参考值不可核对",
+   "retained": false,
+   "borderline_note": "近似命中：calculate_area_above_threshold（toolbox/Spatial.py:948）对每个地块用 rasterio.mask 裁出窗口、以像素面积 0.25 m^2（impervious.tif 为 EPSG:2246、0.5 m 分辨率、nodata=255、取值 {0,1}）统计 value>0 的像元数并乘像素面积，再按 Parcel_ID 回连地块；流程确定，但 canonical 产物 parcels_impervious_join.geojson 未随仓库发布，参考值无法核对。",
+   "inputs_resolvable": true
+  },
+  {
+   "id": "38",
+   "short_description": "Your task is to analyze how location impacts interest rates. First, select and copy the tracts with at least 30 loans. Find interest rate hot spots on the selec",
+   "gabench_domain": "Geostatistical Analysis",
+   "family": "vector",
+   "expected_result_spec": "loan_hot_spots.png",
+   "reference_layers": [
+    "hot_spots_result.geojson"
+   ],
+   "toolchain_length": 5,
+   "inputs": [
+    {
+     "path": "dataset/loan_data.shp",
+     "present_in_repo": true,
+     "size_bytes": 2261744,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/loan_data.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（loan_hot_spots.png）；参考实现未发布",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "39",
+   "short_description": "Your task is to analyze homelessness trends in North Dakota during the 2013 oil boom. Join the homelessness tabular data to the U.S. states spatial layer using ",
+   "gabench_domain": "Spatial Data Management",
+   "family": "vector",
+   "expected_result_spec": "us_homeless_2013.png",
+   "reference_layers": [
+    "joined_USA_States_Rate.geojson"
+   ],
+   "toolchain_length": 4,
+   "inputs": [
+    {
+     "path": "dataset/USA_States.shp",
+     "present_in_repo": true,
+     "size_bytes": 224536,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/USA_States.shp"
+    },
+    {
+     "path": "dataset/homeless_data.xlsx",
+     "present_in_repo": true,
+     "size_bytes": 13998,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/homeless_data.xlsx"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（us_homeless_2013.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "40",
+   "short_description": "Your task is to predict seagrass habitats with machine learning methods. First, dissolve the USA seagrass layer and generate 5,000 random points within the diss",
+   "gabench_domain": "Geostatistical Analysis",
+   "family": "other",
+   "expected_result_spec": "seagrass_prediction.png",
+   "reference_layers": [
+    "seagrass_predict2.tif"
+   ],
+   "toolchain_length": 11,
+   "inputs": [
+    {
+     "path": "dataset/Global_ocean_measurements.shp",
+     "present_in_repo": true,
+     "size_bytes": 1460724,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/Global_ocean_measurements.shp"
+    },
+    {
+     "path": "dataset/Global_shallow_waters.shp",
+     "present_in_repo": true,
+     "size_bytes": 9440524,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/Global_shallow_waters.shp"
+    },
+    {
+     "path": "dataset/USA_seagrass.shp",
+     "present_in_repo": true,
+     "size_bytes": 14845152,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/USA_seagrass.shp"
+    },
+    {
+     "path": "dataset/USA_shallow_waters.shp",
+     "present_in_repo": true,
+     "size_bytes": 272440,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/USA_shallow_waters.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（seagrass_prediction.png）；随机森林/平衡抽样参数未完全固定，参考值不唯一",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "41",
+   "short_description": "Your task is standardizing protected status datasets for consistency in analysis for mountain lion habitat. Reclassify this categorical dataset to a common scal",
+   "gabench_domain": "Raster Spatial Analysis",
+   "family": "raster",
+   "expected_result_spec": "reclassified_protectedStatus.png",
+   "reference_layers": [
+    "Protected_Status_reclassified.tif"
+   ],
+   "toolchain_length": 3,
+   "inputs": [
+    {
+     "path": "dataset/Protected_Status.tif",
+     "present_in_repo": true,
+     "size_bytes": 7876571,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/Protected_Status.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "输出类别冲突：Protected_Status.tif 中 255(nodata) 与 4(最高保护) 都被映射到 10，参考栅格 Protected_Status_reclassified.tif 中两类合并为 3979280 像元，无法区分，无法逐像元判定",
+   "retained": false,
+   "borderline_note": "近似命中：映射确定（0->1,1->3,2->6,3->9,4->10,255->10），输入 dataset/Protected_Status.tif 为 uint8、3062x2494、30 m、EPSG:26911、无 nodata；但 4 与 255 都映射到 10，已发布 dataset/Protected_Status_reclassified.tif 中类别 10 共 3979280 像元 = input 4(363658) + input 255(3615622)，两类被合并，无法区分。",
+   "inputs_resolvable": true
+  },
+  {
+   "id": "42",
+   "short_description": "This task performs a 3D line-of-sight (LOS) analysis between two specified points (Observer ID 0 and Target ID 2) from a 3D point shapefile, using 3D building d",
+   "gabench_domain": "3D Modeling and Analysis",
+   "family": "vector",
+   "expected_result_spec": "CHECK:JSON_VALUE:los_stats.json:visible:==True",
+   "reference_layers": [
+    "los_stats.json"
+   ],
+   "toolchain_length": 5,
+   "inputs": [
+    {
+     "path": "dataset/building.shp",
+     "present_in_repo": false,
+     "size_bytes": null,
+     "acquisition": "referenced-but-absent",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/building.shp"
+    },
+    {
+     "path": "dataset/buildings.shp",
+     "present_in_repo": true,
+     "size_bytes": 184100,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/buildings.shp"
+    },
+    {
+     "path": "dataset/point3d.shp",
+     "present_in_repo": true,
+     "size_bytes": 232,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/point3d.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": false,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": null,
+   "retained": true,
+   "independent_recomputation_method": "独立复算方法（确定性；控制算法与输入几何均已在本地核对）：(1) 从 dataset/point3d.shp（PointZ，3 个要素，FID/索引 0/1/2）取索引 0 与 2 的 (x,y,z)：observer=[-13278.191700000316, 6712896.986199997, 36.0]、target=[-13440.065900001675, 6712930.1426, 160.0]；(2) 从 dataset/buildings.shp（MultiPatch，56 个要素，5172 个顶点）取全部顶点作为障碍点；(3) 对每个障碍点：跳过与 observer 或 target 的 2D 距离 < 0.5 m 的点；计算该点到 observer-target 2D 线段的距离，> 2.0 m 则跳过；否则在线段参数 t（裁剪到 [0,1]）处求视线高度 sight_z = Az + t*(Bz-Az)，若 Pz >= sight_z - 1e-3 则判定被遮挡；(4) 无遮挡则 visible=true，写入 los_stats.json。已发布 dataset/result/los_stats.json 为 {\"visible\": true}。判定：读取提交的 los_stats.json 的 visible 布尔值做精确比较。重大语义缺陷：point3d.prj 为 WGS_1984_Web_Mercator_Auxiliary_Sphere（obs/target 在约 (-13.3 km, 6712.9 km)），buildings.prj 为 British_National_Grid（顶点在约 (530.7 km, 181.2 km)），两层 CRS 完全不同且流程从不重投影；本地实测：5172 个顶点中 1237 个坐标值等于 -1.797e308(DOUBLE 最小值哨兵)，其余顶点到该 2D 线段的最小距离为 6553765.20 m，位于 2 m 阈值内的顶点数为 0，因此 visible=true 由“无任何障碍点通过筛选”得出，与真实三维通视无关。结论：可复算，但该题不是有效的三维通视任务；如需使用必须重做数据（统一 CRS）并重新冻结版本。",
+   "missing_input_paths": [
+    "dataset/building.shp"
+   ],
+   "inputs_resolvable": true,
+   "input_name_defect": "题面/CSV 引用的 dataset/building.shp 在 pin 住的提交中不存在；实际文件是 dataset/buildings.shp（MultiPatch 建筑体块），参考工具链本身使用的就是 buildings.shp，因此执行不受阻，但题面路径名错误"
+  },
+  {
+   "id": "43",
+   "short_description": "Your task is processing 3D building data to create a unified 2D coverage map. First, flatten the 3D polygons to generate 2D footprints, then dissolve them into ",
+   "gabench_domain": "3D Modeling and Analysis",
+   "family": "vector",
+   "expected_result_spec": "buildings_viz.png",
+   "reference_layers": [
+    "buildings_merged.geojson"
+   ],
+   "toolchain_length": 4,
+   "inputs": [
+    {
+     "path": "dataset/building.shp",
+     "present_in_repo": false,
+     "size_bytes": null,
+     "acquisition": "referenced-but-absent",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/building.shp"
+    },
+    {
+     "path": "dataset/buildings.shp",
+     "present_in_repo": true,
+     "size_bytes": 184100,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/buildings.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": false,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（buildings_viz.png）；结果不可程序化判定；题面/CSV 引用的 dataset/building.shp 不存在（实际为 buildings.shp）",
+   "retained": false,
+   "missing_input_paths": [
+    "dataset/building.shp"
+   ],
+   "inputs_resolvable": true,
+   "input_name_defect": "题面/CSV 引用的 dataset/building.shp 在 pin 住的提交中不存在；实际文件是 dataset/buildings.shp（MultiPatch 建筑体块），参考工具链本身使用的就是 buildings.shp，因此执行不受阻，但题面路径名错误"
+  },
+  {
+   "id": "44",
+   "short_description": "Your task is generating a hydrologically corrected Digital Elevation Model (DEM) by removing surface depressions. Apply a depression-filling algorithm to the or",
+   "gabench_domain": "Hydrological Analysis",
+   "family": "raster",
+   "expected_result_spec": "dem_filled_viz.png",
+   "reference_layers": [
+    "dem_filled.tif"
+   ],
+   "toolchain_length": 3,
+   "inputs": [
+    {
+     "path": "dataset/dem.tif",
+     "present_in_repo": true,
+     "size_bytes": 1051330,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/dem.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（dem_filled_viz.png）；参考填洼实现未发布",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "45",
+   "short_description": "Your task is performing hydrological flow accumulation analysis. First, use the pre-processed filled DEM to compute the D8 flow direction raster. Next, calculat",
+   "gabench_domain": "Hydrological Analysis",
+   "family": "raster",
+   "expected_result_spec": "FlowAccumulation.png",
+   "reference_layers": [
+    "flow_accumulation.tif"
+   ],
+   "toolchain_length": 4,
+   "inputs": [
+    {
+     "path": "dataset/dem_filled.tif",
+     "present_in_repo": true,
+     "size_bytes": 1049324,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/dem_filled.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（FlowAccumulation.png）；参考流向/汇流算法未发布",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "46",
+   "short_description": "Your task is identifying and quantifying topographic depressions (sinks) in the study area. Starting with the raw Digital Elevation Model (DEM), first generate ",
+   "gabench_domain": "Hydrological Analysis",
+   "family": "raster",
+   "expected_result_spec": "Sink_Depth_Analysis.png",
+   "reference_layers": [
+    "sink_depth.tif"
+   ],
+   "toolchain_length": 4,
+   "inputs": [
+    {
+     "path": "dataset/dem.tif",
+     "present_in_repo": true,
+     "size_bytes": 1051330,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/dem.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（Sink_Depth_Analysis.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "47",
+   "short_description": "Your task is performing a downstream flow length analysis to determine the distance from each cell to the watershed outlet. Using the provided D8 flow direction",
+   "gabench_domain": "Hydrological Analysis",
+   "family": "raster",
+   "expected_result_spec": "FlowLength_Downstream.png",
+   "reference_layers": [
+    "flow_length_downstream.tif"
+   ],
+   "toolchain_length": 3,
+   "inputs": [
+    {
+     "path": "dataset/flow_direction.tif",
+     "present_in_repo": true,
+     "size_bytes": 524980,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/flow_direction.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（FlowLength_Downstream.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "48",
+   "short_description": "Your task is performing an upstream flow length analysis to determine the distance from each cell to its flow source. Using the provided D8 flow direction raste",
+   "gabench_domain": "Hydrological Analysis",
+   "family": "raster",
+   "expected_result_spec": "FlowLength_Upstream.png",
+   "reference_layers": [
+    "flow_length_upstream.tif"
+   ],
+   "toolchain_length": 3,
+   "inputs": [
+    {
+     "path": "dataset/flow_direction.tif",
+     "present_in_repo": true,
+     "size_bytes": 524980,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/flow_direction.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（FlowLength_Upstream.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "49",
+   "short_description": "Your task is extracting and vectorizing the stream network from a hydrologically corrected DEM. First, calculate flow direction and flow accumulation to identif",
+   "gabench_domain": "Hydrological Analysis",
+   "family": "raster",
+   "expected_result_spec": "Vector_Stream_Network.png",
+   "reference_layers": [
+    "streamfea.shp"
+   ],
+   "toolchain_length": 6,
+   "inputs": [
+    {
+     "path": "dataset/dem_filled.tif",
+     "present_in_repo": true,
+     "size_bytes": 1049324,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/dem_filled.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（Vector_Stream_Network.png）；提取阈值与参考实现未发布",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "50",
+   "short_description": "Your task is analyzing the hierarchical structure of the river network using the Strahler stream ordering method. Starting from a hydrologically corrected DEM, ",
+   "gabench_domain": "Hydrological Analysis",
+   "family": "raster",
+   "expected_result_spec": "Strahler_Order.png",
+   "reference_layers": [
+    "Stream_Order_Strahler.tif"
+   ],
+   "toolchain_length": 6,
+   "inputs": [
+    {
+     "path": "dataset/dem_filled.tif",
+     "present_in_repo": true,
+     "size_bytes": 1049324,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/dem_filled.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（Strahler_Order.png）；参考河网提取阈值未在题面固定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "51",
+   "short_description": "Your task is analyzing the discharge magnitude of the river network using the Shreve stream ordering method. Starting from a hydrologically corrected DEM, first",
+   "gabench_domain": "Hydrological Analysis",
+   "family": "raster",
+   "expected_result_spec": "Shreve_Order.png",
+   "reference_layers": [
+    "Stream_Order_Shreve.tif"
+   ],
+   "toolchain_length": 6,
+   "inputs": [
+    {
+     "path": "dataset/dem_filled.tif",
+     "present_in_repo": true,
+     "size_bytes": 1049324,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/dem_filled.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（Shreve_Order.png）；参考河网提取阈值未在题面固定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "52",
+   "short_description": "Your task is delineating watershed basins to identify independent catchment areas within the study region. Using the D8 flow direction raster, partition the lan",
+   "gabench_domain": "Hydrological Analysis",
+   "family": "combined",
+   "expected_result_spec": "Watershed_Basins.png",
+   "reference_layers": [
+    "basin.tif",
+    "streamfea.shp"
+   ],
+   "toolchain_length": 4,
+   "inputs": [
+    {
+     "path": "dataset/flow_direction.tif",
+     "present_in_repo": true,
+     "size_bytes": 524980,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/flow_direction.tif"
+    },
+    {
+     "path": "dataset/streamfea.shp",
+     "present_in_repo": true,
+     "size_bytes": 289644,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/streamfea.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（Watershed_Basins.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "53",
+   "short_description": "Your task is performing a random forest prospectivity analysis for tin-tungsten deposits in Tasmania. The analysis should focus on training and evaluating a mod",
+   "gabench_domain": "Raster Spatial Analysis",
+   "family": "raster",
+   "expected_result_spec": "CHECK:JSON_VALUE:*rf_auc_metrics.json:roc_auc:>=0.9",
+   "reference_layers": [
+    "data_rf_auc_metrics.json"
+   ],
+   "toolchain_length": 15,
+   "inputs": [
+    {
+     "path": "dataset/sn_w_minoccs.gpkg",
+     "present_in_repo": true,
+     "size_bytes": 299008,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/sn_w_minoccs.gpkg"
+    },
+    {
+     "path": "dataset/tasgrav_IR.tif",
+     "present_in_repo": true,
+     "size_bytes": 19774207,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/tasgrav_IR.tif"
+    },
+    {
+     "path": "dataset/tasgrav_IR_1VD.tif",
+     "present_in_repo": true,
+     "size_bytes": 19774207,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/tasgrav_IR_1VD.tif"
+    },
+    {
+     "path": "dataset/tasmag_TMI.tif",
+     "present_in_repo": true,
+     "size_bytes": 19774207,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/tasmag_TMI.tif"
+    },
+    {
+     "path": "dataset/tasmag_TMI_1VD.tif",
+     "present_in_repo": true,
+     "size_bytes": 19774207,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/tasmag_TMI_1VD.tif"
+    },
+    {
+     "path": "dataset/tasrad_K_pct.tif",
+     "present_in_repo": true,
+     "size_bytes": 19774372,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/tasrad_K_pct.tif"
+    },
+    {
+     "path": "dataset/tasrad_Th_ppm.tif",
+     "present_in_repo": true,
+     "size_bytes": 19774372,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/tasrad_Th_ppm.tif"
+    },
+    {
+     "path": "dataset/tasrad_U_ppm.tif",
+     "present_in_repo": true,
+     "size_bytes": 19774372,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/tasrad_U_ppm.tif"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付 data_rf_auc_metrics.json 的 roc_auc 可程序化读取（上游规则 >=0.9），但参考模型未发布（data.joblib 缺失）、tune 参数未定义，无法独立复算同一参考值",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "54",
+   "short_description": "Your task is to conduct an Origin-Destination (OD) mobility analysis on the urban road network to investigate the spatial interaction patterns between street in",
+   "gabench_domain": "Vector Spatial Analysis",
+   "family": "vector",
+   "expected_result_spec": "mobility_desire_lines.png",
+   "reference_layers": [
+    "net.shp",
+    "desire_lines.geojson",
+    "supermarkets.shp"
+   ],
+   "toolchain_length": 12,
+   "inputs": [
+    {
+     "path": "dataset/city_Net_Junctions.shp",
+     "present_in_repo": true,
+     "size_bytes": 8164,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/city_Net_Junctions.shp"
+    },
+    {
+     "path": "dataset/net.shp",
+     "present_in_repo": true,
+     "size_bytes": 39348,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/net.shp"
+    },
+    {
+     "path": "dataset/supermarkets.shp",
+     "present_in_repo": true,
+     "size_bytes": 492,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/supermarkets.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（mobility_desire_lines.png）；重力模型 beta=2.0 与可达性/生产约束的实现细节在 reference 中固定但参考产物未发布，Top-100 选取无法核对",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "55",
+   "short_description": "This task requires conducting a network-level Origin-Destination (OD) analysis to evaluate how predicted traffic flows are distributed across the urban road net",
+   "gabench_domain": "Vector Spatial Analysis",
+   "family": "vector",
+   "expected_result_spec": "network_traffic_assignment.png",
+   "reference_layers": [
+    "net.shp",
+    "roads_with_load.geojson",
+    "supermarkets.shp"
+   ],
+   "toolchain_length": 11,
+   "inputs": [
+    {
+     "path": "dataset/city_Net_Junctions.shp",
+     "present_in_repo": true,
+     "size_bytes": 8164,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/city_Net_Junctions.shp"
+    },
+    {
+     "path": "dataset/net.shp",
+     "present_in_repo": true,
+     "size_bytes": 39348,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/net.shp"
+    },
+    {
+     "path": "dataset/supermarkets.shp",
+     "present_in_repo": true,
+     "size_bytes": 492,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/supermarkets.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（network_traffic_assignment.png）；流量分配实现未发布，参考值不可核对",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "56",
+   "short_description": "请基于道路网络开展固定起终点最短路径分析。先将道路图层和点位图层转换为统一的 GeoJSON 中间数据，再基于道路网络构建有向图，并使用 MINUTES 字段作为通行成本。本次分析的起点固定为学校点位图层中的“附属中学”，终点固定为市场点位图层中的“康复路批发市场”。请求解两者之间的最短路径，输出最终路线总览图star",
+   "gabench_domain": "Vector Spatial Analysis",
+   "family": "vector",
+   "expected_result_spec": "start_end_overview_map.png",
+   "reference_layers": [
+    "network.geojson",
+    "Marketplace.geojson",
+    "marketplace_service_area_lines.geojson",
+    "selected_marketplaces.geojson",
+    "school.geojson"
+   ],
+   "toolchain_length": 11,
+   "inputs": [
+    {
+     "path": "dataset/Marketplace.shp",
+     "present_in_repo": true,
+     "size_bytes": 632,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/Marketplace.shp"
+    },
+    {
+     "path": "dataset/network.shp",
+     "present_in_repo": true,
+     "size_bytes": 60204,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/network.shp"
+    },
+    {
+     "path": "dataset/school.shp",
+     "present_in_repo": true,
+     "size_bytes": 464,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/school.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（start_end_overview_map.png）；最短路径方法确定，但发布产物只有地图",
+   "retained": false,
+   "inputs_resolvable": true
+  },
+  {
+   "id": "57",
+   "short_description": "请围绕固定目标点位开展道路网络服务范围分析。先将道路图层、目标点位图层和参考点位图层统一转换为 GeoJSON 中间数据，再基于道路网络构建有向图，并使用 MINUTES 字段作为通行成本。本次目标点位固定为市场点位图层中的“康复路批发市场”。请根据目标点位的 TYPE 字段确定服务时间阈值：一级为 8 分钟，二级为 ",
+   "gabench_domain": "Vector Spatial Analysis",
+   "family": "vector",
+   "expected_result_spec": "service_area_overview.png",
+   "reference_layers": [
+    "network.geojson",
+    "school.geojson",
+    "Marketplace.geojson",
+    "tart_end_shortest_route.geojson",
+    "selected_start_end_points.geojson"
+   ],
+   "toolchain_length": 12,
+   "inputs": [
+    {
+     "path": "dataset/Marketplace.shp",
+     "present_in_repo": true,
+     "size_bytes": 632,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/Marketplace.shp"
+    },
+    {
+     "path": "dataset/network.shp",
+     "present_in_repo": true,
+     "size_bytes": 60204,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/network.shp"
+    },
+    {
+     "path": "dataset/school.shp",
+     "present_in_repo": true,
+     "size_bytes": 464,
+     "acquisition": "fetched",
+     "source_url": "https://github.com/GeoX-Lab/GABench/blob/e8c64e883bbe45e2b94515c73941e7a0837320ae/dataset/school.shp"
+    }
+   ],
+   "all_inputs_present_in_pinned_commit": true,
+   "network_or_private_service_required": false,
+   "network_evidence": "工具链只调用本地 toolbox 工具并读取 dataset/ 本地文件；对全部 57 题的题面、数据说明与 Toolchain JSON 做过关键词（http/https/download/API/Earth Engine/token/key/...）扫描，未发现任何联网或私有服务调用",
+   "satellite_dependency": "not_satellite",
+   "satellite_evidence": "",
+   "acquisition_status": "fetched",
+   "exclusion_reason": "最终交付仅 PNG（service_area_overview.png）；结果不可程序化判定",
+   "retained": false,
+   "inputs_resolvable": true
+  }
+ ],
+ "family_counts": {
+  "vector": 16,
+  "raster": 19,
+  "combined": 12,
+  "satellite-dependent": 3,
+  "other": 7
+ }
+}

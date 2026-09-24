@@ -7,6 +7,7 @@ import uuid
 
 from PIL import Image
 
+from ...kernel.protocol import ToolPreconditionError
 from ...storage import AssetError
 
 
@@ -16,7 +17,14 @@ class ArtifactCapability:
     def _artifact(self, scope, path, asset_id):
         if scope == "asset":
             if not asset_id or asset_id not in self.allowed:
-                raise AssetError("An attached or generated asset_id is required")
+                raise ToolPreconditionError(
+                    "An attached or generated asset_id is required.",
+                    code="asset_not_available", reason="inapplicable",
+                    missing=[{"kind": "asset_id", "value": asset_id}],
+                    checked_scope={"scope": "chat_assets"},
+                    candidates=[{"asset_id": item["id"], "name": item["name"]}
+                                for item in self.attachment_context()[:10]],
+                )
             return self.store.path(asset_id, self.owner), self.store.get(asset_id, self.owner)
         target = self.workspaces.workspace_path(self.store, path, require_exists=True)
         if not target.is_file():

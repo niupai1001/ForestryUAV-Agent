@@ -7,7 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .base import Verdict, save_verdict
+from .base import Verdict, save_verdict, status_for_terminal
+from ..rules import SCORING_RULES_VERSION
 from .csv import compare_by_business_key
 from .provenance import artifact_links_to_action
 from .text import claims_match_table
@@ -16,6 +17,7 @@ from .text import claims_match_table
 
 def verify_trial(
     trial: Path, configuration: dict, repeat: int, *, gold: Path | None = None,
+    case_id: str = "core.csv",
 ) -> dict[str, Any]:
     gold = gold or Path(__file__).resolve().parents[1] / "fixtures" / "gold" / "core_csv.json"
     trace = json.loads((trial / "trace.json").read_text(encoding="utf-8"))
@@ -63,13 +65,18 @@ def verify_trial(
     run_id = str(trace.get("run_id") or "")
     return {
         "suite_version": "forestry-eval-0.1",
+        "scoring_rules_version": SCORING_RULES_VERSION,
         "case_id": "core.csv",
         "track": "agent",
         "execution": "real_model",
         "repeat": trace["repeat"],
         "trial_id": run_id,
         "configuration": trace["configuration"],
-        "status": "evaluated" if completed else "infra_error",
+        # Every other agent trial maps a non-completed Run through
+        # ``status_for_terminal``: a Run that failed or was canceled did not succeed,
+        # which is a crash, not an untested slot. Reporting it as ``infra_error`` kept
+        # a failed Run in the denominator as `unknown` and hid the failure.
+        "status": status_for_terminal(terminal["actual"], terminal["expected"]),
         "status_evidence": {
             "verifier": "termination-v1",
             "evidence": ["termination-verifier.json", "trace.json"],

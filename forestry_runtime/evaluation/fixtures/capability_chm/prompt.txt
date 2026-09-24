@@ -1,0 +1,21 @@
+附件 `dsm.tif` 与 `dtm.tif` 是同一网格的高程栅格，单位与垂直基准记录在文件里。
+
+请生成冠层高度模型（CHM）并交付：
+
+1. 一个与 DSM **同一网格、同一坐标系、同一仿射变换**的单波段 float32 GeoTIFF；
+2. 回答末尾的 JSON 代码块：
+```json
+{
+  "built": true,
+  "valid_pixel_count": 0,
+  "negative_height_pixel_count": 0,
+  "maximum_height_m": 0.0,
+  "crs": "<字符串>",
+  "vertical_reference": "<字符串>"
+}
+```
+
+要求：
+- 差值的负值必须保留并如实报告比例，不得静默截断为零；
+- NoData 像元在输出中必须仍然无效；
+- 报告的数字必须来自你实际生成的文件。

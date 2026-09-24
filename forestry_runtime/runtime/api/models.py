@@ -37,6 +37,15 @@ class KnowledgeSourceRequest(ApiModel):
     locator: str = Field(min_length=1, max_length=4000)
 
 
+class InstructionRequest(ApiModel):
+    content: str = Field(max_length=60000)
+    expected_revision: int | None = Field(default=None, ge=1)
+
+
+class InstructionPreviewRequest(ApiModel):
+    content: str | None = Field(default=None, max_length=60000)
+
+
 class GrantRequest(ApiModel):
     path: str = Field(min_length=3, max_length=2000)
     access: Literal["read", "write"] = "read"
@@ -107,6 +116,7 @@ class RunTurnsResponse(ApiModel):
 
 __all__ = [
     "AssetListResponse", "AssetResponse", "GrantRequest",
+    "InstructionPreviewRequest", "InstructionRequest",
     "KnowledgeSourceRequest", "MemoryRequest", "Message", "ProjectRequest",
     "ProjectSelection", "RunEventsResponse", "RunMessage", "RunRequest",
     "RunResponse", "RunTurnsResponse", "SessionRequest", "Sources",

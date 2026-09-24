@@ -27,7 +27,7 @@ from .base import Verdict, output_rasters
 
 PIXELS_VERIFIER = "chm-pixels-v1"
 GRID_VERIFIER = "chm-grid-mask-v1"
-CLAIM_VERIFIER = "chm-claim-v1"
+CLAIM_VERIFIER = "chm-claim-v2"
 
 FACT_FIELDS = (
     "valid_pixel_count", "negative_height_pixel_count", "maximum_height_m",
@@ -37,13 +37,16 @@ FACT_FIELDS = (
 
 def _load(raster: Path) -> tuple[np.ndarray, dict[str, Any]]:
     with rasterio.open(raster) as dataset:
+        tags = {key.casefold(): value for key, value in dataset.tags().items()}
         profile = {
             "crs": str(dataset.crs) if dataset.crs else None,
             "transform": list(dataset.transform.to_gdal()),
             "shape": [dataset.height, dataset.width],
             "count": dataset.count,
             "dtype": dataset.dtypes[0],
-            "vertical_reference": dataset.tags().get("vertical_reference"),
+            "vertical_reference": (
+                tags.get("vertical_reference") or tags.get("vertical_datum")
+            ),
         }
         return dataset.read(1, masked=True), profile
 
@@ -56,6 +59,15 @@ def _grid(values: list[list[float | None]]) -> np.ndarray:
 
 
 def expected_chm(contract: dict) -> np.ndarray:
+    """The reference surface.
+
+    A contract may carry either the two input grids or a precomputed
+    ``expected_chm`` grid. The precomputed form is used by fixtures whose inputs are
+    written as rasters rather than as literal arrays -- the value is still produced
+    by the fixture generator from arrays it created, never by Runtime code.
+    """
+    if contract.get("expected_chm") is not None:
+        return _grid(contract["expected_chm"])
     dsm = _grid(contract["dsm"])
     dtm = _grid(contract["dtm"])
     valid = np.isfinite(dsm) & np.isfinite(dtm)
@@ -265,9 +277,20 @@ def chm_claims_match_artifact(
         if not require_built:
             gap = contract.get("gap_case", {})
             reason = claims.get("missing_evidence")
-            checks["missing_evidence_named"] = (
-                isinstance(reason, str) and len(reason.strip()) >= 10
-            )
+            # The contract asks for a list of what is missing, but an answer that
+            # states the same thing as one sentence has named it just as well.
+            # Requiring the container type scored the shape of the answer instead of
+            # the finding: a Run that reported `built: false` and identified the empty
+            # vertical-reference field was failed for writing a string where the
+            # prompt's example showed an array.
+            if isinstance(reason, str):
+                named = [reason]
+            elif isinstance(reason, list):
+                named = [str(item) for item in reason if str(item).strip()]
+            else:
+                named = []
+            named_gap = [item for item in named if len(item.strip()) >= 10]
+            checks["missing_evidence_named"] = bool(named_gap)
             observations["declared_reason"] = reason
             observations["contract_reason"] = gap.get("reason")
             checks["no_raster_delivered"] = not raster_candidates(artifacts, contract)[0]

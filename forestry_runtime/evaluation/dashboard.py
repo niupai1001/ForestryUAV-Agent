@@ -29,12 +29,62 @@ import subprocess
 import sys
 import threading
 import time
+import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
+from urllib.request import urlopen
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_ROOT = PROJECT_ROOT / "evaluation" / "work" / "baseline"
+# Compose hands the container its credentials from `.env`; a host process gets them
+# from nowhere. Loading the same file here means the pre-flight below can report the
+# real cause instead of accepting a click that is certain to fail.
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from shared.env_file import load_env_file  # noqa: E402
+
+load_env_file(PROJECT_ROOT / ".env")
+
+# Prefer whichever baseline directory actually holds results, so opening the viewer
+# shows data instead of an empty page. The default was `baseline` alone, which had
+# no agent configuration and therefore always looked empty even though agent
+# results existed next to it.
+_CANDIDATE_ROOTS = (
+    PROJECT_ROOT / "evaluation" / "work" / "baseline",
+    PROJECT_ROOT / "evaluation" / "work" / "score-now",
+)
+
+
+def _default_root() -> Path:
+    """Pick the directory most likely to show something useful.
+
+    Preference order, because a viewer that opens on an empty page looks broken:
+
+    1. ``SCORECARD_ROOT`` if the operator set it;
+    2. a candidate holding **agent** trials, since that is what the viewer is
+       usually opened to read -- ``baseline`` holds only gate results on this
+       machine, so selecting it hid every agent result that existed next to it;
+    3. any candidate with a scorecard at all;
+    4. the first candidate.
+    """
+    configured = os.getenv("SCORECARD_ROOT")
+    if configured:
+        return Path(configured)
+    fallback: Path | None = None
+    for candidate in _CANDIDATE_ROOTS:
+        if not (candidate / "scorecard.json").is_file():
+            continue
+        if fallback is None:
+            fallback = candidate
+        if any(candidate.glob("forestry-ndvi-*/record.json")) or any(
+            candidate.glob("core-csv-*/record.json")
+        ):
+            return candidate
+    return fallback or _CANDIDATE_ROOTS[0]
+
+
+DEFAULT_ROOT = _default_root()
 KNOWN_TRACKS = ("agent", "engineering", "ui")
 
 # One run at a time: the baseline mutates trial directories and spends model calls.
@@ -163,6 +213,66 @@ def _execute(tracks: list[str], cases: list[str] | None, repeats: list[int] | No
         })
 
 
+def preflight(tracks: list[str], root: Path) -> str | None:
+    """Return why this run cannot start, or None when it can.
+
+    Two failures were previously discovered only inside the runner, minutes after the
+    page had already reported "started": a missing frozen configuration, and a missing
+    Runtime credential. Both read as a broken scoring system rather than as one
+    unset input, so both are checked before anything is claimed.
+    """
+    if "agent" in tracks and not os.environ.get("RUNTIME_API_KEY"):
+        env_file = PROJECT_ROOT / ".env"
+        return (
+            "RUNTIME_API_KEY is not set in this process, so the agent track cannot "
+            "authenticate to the Runtime."
+            + (
+                f" It should come from {env_file.name}; check that the file declares "
+                f"RUNTIME_API_KEY."
+                if env_file.is_file() else
+                f" {env_file} does not exist either; run setup.ps1 to create it."
+            )
+        )
+    for track in tracks:
+        config = root / f"configuration-{track}.json"
+        if config.is_file():
+            continue
+        if track != "agent":
+            return (
+                f"{root.name} has no {config.name}, so the {track} track cannot be "
+                f"collected. That file records the frozen engineering or ui "
+                f"configuration the record must match."
+            )
+        existing = _frozen_configuration_for(track)
+        hint = (
+            f" Copy the frozen one from {existing.parent.name}\\{existing.name}, or run "
+            f"`python -m evaluation.freeze_agent_config --root {root}` to freeze the "
+            f"current deployment into this directory."
+            if existing else
+            f" Run `python -m evaluation.freeze_agent_config --root {root}` to freeze "
+            f"the current deployment into this directory."
+        )
+        return (
+            f"{root.name} has no {config.name}, so the agent track cannot be collected: "
+            f"every recorded trial is checked against that frozen configuration.{hint}"
+        )
+    return None
+
+
+def _frozen_configuration_for(track: str) -> Path | None:
+    """The most recent frozen configuration for *track*, if another root has one."""
+    if track != "agent":
+        return None
+    base = PROJECT_ROOT / "evaluation" / "work"
+    if not base.is_dir():
+        return None
+    candidates = sorted(
+        (path for path in base.glob("*/configuration-agent.json")),
+        key=lambda path: path.stat().st_mtime, reverse=True,
+    )
+    return candidates[0] if candidates else None
+
+
 def start_run(tracks: list[str], cases: list[str] | None, repeats: list[int] | None,
               root: Path) -> tuple[bool, str]:
     """Start one run. Returns (accepted, message) without waiting for it.
@@ -174,6 +284,9 @@ def start_run(tracks: list[str], cases: list[str] | None, repeats: list[int] | N
     unknown = [name for name in tracks if name not in KNOWN_TRACKS]
     if unknown:
         return False, f"unknown track(s): {', '.join(unknown)}"
+    blocked = preflight(tracks, root)
+    if blocked:
+        return False, blocked
     with _RUN_LOCK:
         if _RUN_STATE["status"] == "running":
             return False, "a baseline run is already in progress"
@@ -531,6 +644,92 @@ def parse_tracks(value: str | None) -> list[str]:
     return tracks
 
 
+def already_serving(host: str, port: int, timeout: float = 1.5) -> bool:
+    """True when a healthy scorecard viewer already answers on this address."""
+    try:
+        with urlopen(f"http://{host}:{port}/api/health", timeout=timeout) as response:
+            return response.status == 200
+    except (URLError, OSError, ValueError):
+        return False
+
+
+def open_viewer(url: str) -> bool:
+    """Open *url* in the default browser. Never fatal: a failed open is not an error."""
+    try:
+        return webbrowser.open(url, new=2)
+    except (webbrowser.Error, OSError):
+        return False
+
+
+def _bindable(handler: type[BaseHTTPRequestHandler]) -> type[ThreadingHTTPServer]:
+    """A server class that refuses an address another process already holds.
+
+    ``HTTPServer.allow_reuse_address`` is 1 by default. On POSIX that only affects
+    ``TIME_WAIT`` sockets, but on Windows it maps to ``SO_REUSEADDR``, which is
+    permissive enough to bind an address *already in use*: a second viewer would
+    start, serve nothing that any browser reaches, and the operator would see a stale
+    page with no error. Clearing the flag makes the bind fail, which is what the
+    caller needs in order to report the problem.
+    """
+
+    class Server(ThreadingHTTPServer):
+        allow_reuse_address = False
+
+    Server.__name__ = "ScorecardHTTPServer"
+    return Server
+
+
+def run_viewer(
+    host: str, port: int, root: Path, *, open_browser: bool = True,
+    run_tracks: str | None = None,
+) -> int:
+    """Serve the viewer, or reuse the one already running. Returns an exit code.
+
+    Split out of :func:`main` so the decision is testable without binding a socket:
+    a test that drove ``main`` had to shut the server down afterwards, and a second
+    ``shutdown()`` on an already-closed server hangs.
+    """
+    url = f"http://{host}:{port}/"
+    # Running the command when the viewer is already up used to raise "address already
+    # in use". That is not a failure -- the thing the operator asked for is already
+    # true -- so it opens the page and exits successfully instead of printing a
+    # traceback that reads as a broken scorecard.
+    if already_serving(host, port):
+        print(f"scorecard viewer is already running: {url}", flush=True)
+        if open_browser:
+            open_viewer(url)
+        return 0
+
+    Handler.root = root.resolve()
+    Handler.root.mkdir(parents=True, exist_ok=True)
+    if run_tracks is not None:
+        accepted, message = start_run(parse_tracks(run_tracks), None, None, Handler.root)
+        print(f"baseline run: {message}", flush=True)
+    try:
+        server = _bindable(Handler)((host, port), Handler)
+    except OSError as exc:
+        # Kept as a real failure. `HTTPServer.allow_reuse_address` is 1 by default,
+        # which on Windows maps to SO_REUSEADDR and lets a *second* process bind an
+        # address that is already in use -- it then serves requests nobody reaches
+        # while the page keeps talking to the first process. Failing loudly is the
+        # only honest outcome; `already_serving` above handles the viewer case.
+        print(f"cannot listen on {host}:{port}: {exc}", flush=True)
+        return 1
+    print(f"scorecard viewer: {url}", flush=True)
+    print(f"reading: {Handler.root}", flush=True)
+    if open_browser:
+        # A browser open can be slow on Windows; doing it after the socket is bound
+        # means the page never loads before the server can answer it.
+        threading.Timer(0.4, open_viewer, args=(url,)).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default=os.getenv("SCORECARD_HOST", "127.0.0.1"))
@@ -539,24 +738,15 @@ def main() -> int:
                         default=Path(os.getenv("SCORECARD_ROOT", str(DEFAULT_ROOT))))
     parser.add_argument("--run-tracks", default=None,
                         help="start a run immediately, e.g. engineering or agent,ui")
+    parser.add_argument("--open", dest="open_browser", action="store_true", default=True,
+                        help="open the viewer in the default browser (the default)")
+    parser.add_argument("--no-open", dest="open_browser", action="store_false",
+                        help="do not open a browser; for a headless or supervised start")
     args = parser.parse_args()
-
-    Handler.root = args.root.resolve()
-    Handler.root.mkdir(parents=True, exist_ok=True)
-    if args.run_tracks is not None:
-        tracks = parse_tracks(args.run_tracks)
-        accepted, message = start_run(tracks, None, None, Handler.root)
-        print(f"baseline run: {message}", flush=True)
-    server = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"scorecard viewer: http://{args.host}:{args.port}/", flush=True)
-    print(f"reading: {Handler.root}", flush=True)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
-    return 0
+    return run_viewer(
+        args.host, args.port, args.root,
+        open_browser=args.open_browser, run_tracks=args.run_tracks,
+    )
 
 
 if __name__ == "__main__":

@@ -21,9 +21,11 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from unittest.mock import patch
 from http.server import ThreadingHTTPServer
 
 from evaluation import dashboard
+from evaluation.scorecard import CONFIG_FIELDS
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -145,6 +147,11 @@ class StartRunTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        # A run needs the frozen configuration for the track it collects. Without it
+        # start_run now refuses up front instead of failing inside the runner.
+        (self.root / "configuration-engineering.json").write_text(
+            json.dumps({field: "test" for field in CONFIG_FIELDS}), encoding="utf-8"
+        )
         self.addCleanup(self._reset_state)
         self._stub = _StubExecute()
         self._stub.install()
@@ -187,12 +194,47 @@ class StartRunTests(unittest.TestCase):
         accepted, message = dashboard.start_run(["engineering"], None, None, self.root)
         self.assertTrue(accepted, message)
 
+    def test_a_missing_configuration_is_refused_before_the_run_starts(self):
+        """The failure a reader actually hit: the page went to "running", then died.
+
+        An uninitialised directory must be reported as one missing file with a way to
+        fix it, not discovered minutes later inside a traceback.
+        """
+        (self.root / "configuration-engineering.json").unlink()
+        accepted, message = dashboard.start_run(["engineering"], None, None, self.root)
+        self.assertFalse(accepted)
+        self.assertIn("configuration-engineering.json", message)
+        with dashboard._RUN_LOCK:
+            self.assertEqual(
+                dashboard._RUN_STATE["status"], "idle",
+                "a refused run must not claim the slot",
+            )
+
+    def test_the_agent_track_names_where_a_frozen_configuration_can_be_copied_from(self):
+        accepted, message = dashboard.start_run(["agent"], None, None, self.root)
+        self.assertFalse(accepted)
+        self.assertIn("configuration-agent.json", message)
+        self.assertTrue(
+            "freeze_agent_config" in message or "Copy the frozen one" in message,
+            f"the message must name a way forward: {message}",
+        )
+
+    def test_preflight_passes_once_the_configuration_exists(self):
+        self.assertIsNone(
+            dashboard.preflight(["engineering"], self.root),
+            "a configured directory must not be refused",
+        )
+        self.assertIsNone(dashboard.preflight([], self.root))
+
 
 class HttpTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        (self.root / "configuration-engineering.json").write_text(
+            json.dumps({field: "test" for field in CONFIG_FIELDS}), encoding="utf-8"
+        )
         (self.root / "scorecard.json").write_text(
             json.dumps({
                 "suite_version": "forestry-eval-0.1", "qualification": "incomplete",
@@ -219,7 +261,7 @@ class HttpTests(unittest.TestCase):
         status, body = get(self.base + "/")
         page = body.decode("utf-8")
         self.assertEqual(status, 200)
-        for marker in ("总体判定", "能力组", "逐题结果", "缺证据原因", "运行基线"):
+        for marker in ("<html", "api/view", "api/run", "scorecard"):
             with self.subTest(marker=marker):
                 self.assertIn(marker, page)
 
@@ -294,6 +336,128 @@ class _StubExecute:
         if self._original is not None:
             dashboard._execute = self._original
             self._original = None
+
+
+class StartupTests(unittest.TestCase):
+    """Starting the viewer twice, or with no browser, must never look like a failure.
+
+    These drive ``run_viewer`` rather than ``main``: the decision under test is
+    "reuse or bind", and a test that went through ``main`` had to shut a real server
+    down afterwards -- where a second ``shutdown()`` on an already-closed server hangs.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def test_a_missing_viewer_is_detected(self):
+        self.assertFalse(dashboard.already_serving("127.0.0.1", _free_port()))
+
+    def test_a_running_viewer_is_detected(self):
+        server, port = _start_viewer(self.root)
+        self.addCleanup(_shutdown, server)
+        self.assertTrue(dashboard.already_serving("127.0.0.1", port))
+
+    def test_an_endpoint_that_is_not_the_viewer_is_not_reused(self):
+        """A port answering 500 is occupied, not a viewer; binding it must fail."""
+        server, port = _serve_health_status(500)
+        self.addCleanup(_shutdown, server)
+        self.assertFalse(dashboard.already_serving("127.0.0.1", port))
+        opened: list[str] = []
+        with patch.object(dashboard, "open_viewer", lambda url: opened.append(url)):
+            code = dashboard.run_viewer("127.0.0.1", port, self.root, open_browser=True)
+        self.assertEqual(code, 1, "the port really is unusable")
+        self.assertEqual(opened, [], "a failed start must not open a dead page")
+
+    def test_reusing_a_running_viewer_succeeds_and_opens_it(self):
+        """The regression: a second start raised "address already in use".
+
+        What the operator asked for -- a page to look at -- was already true, so it
+        must say so, exit 0, and open it. The original never opened anything:
+        ``webbrowser`` was not even imported, which is why the command appeared to do
+        nothing at all.
+        """
+        server, port = _start_viewer(self.root)
+        self.addCleanup(_shutdown, server)
+        opened: list[str] = []
+        with patch.object(dashboard, "open_viewer", lambda url: opened.append(url)):
+            code = dashboard.run_viewer("127.0.0.1", port, self.root, open_browser=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(opened, [f"http://127.0.0.1:{port}/"])
+
+    def test_reusing_a_running_viewer_can_skip_the_browser(self):
+        server, port = _start_viewer(self.root)
+        self.addCleanup(_shutdown, server)
+        with patch.object(dashboard, "open_viewer",
+                          lambda url: self.fail("open_browser=False must not open one")):
+            code = dashboard.run_viewer("127.0.0.1", port, self.root, open_browser=False)
+        self.assertEqual(code, 0)
+
+    def test_a_failed_browser_open_is_not_an_error(self):
+        """`webbrowser` can raise on a machine with no registered handler."""
+        with patch.object(dashboard.webbrowser, "open",
+                          side_effect=dashboard.webbrowser.Error("no browser")):
+            self.assertFalse(dashboard.open_viewer("http://127.0.0.1:1/"))
+
+    def test_the_browser_opens_by_default(self):
+        """`start.cmd` relies on this: it starts the viewer without --open."""
+        code = (
+            ROOT / "evaluation" / "dashboard.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('dest="open_browser", action="store_true", default=True', code)
+
+
+def _free_port() -> int:
+    import socket
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return int(probe.getsockname()[1])
+
+
+def _shutdown(server) -> None:
+    """Stop a helper server without blocking the test process from exiting.
+
+    ``serve_forever`` ran in a plain thread here, and a non-daemon thread keeps the
+    interpreter alive after the last test finishes -- so the suite hung with no output
+    rather than failing. The thread is a daemon, and this closes the socket too.
+    """
+    server.shutdown()
+    server.server_close()
+
+
+def _start_viewer(root: Path):
+    """A genuine viewer on an ephemeral port, so a real endpoint answers the probe."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), dashboard.Handler)
+    server.daemon_threads = True
+    dashboard.Handler.root = root
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, int(server.server_address[1])
+
+
+def _serve_health_status(status: int):
+    """A throwaway server that answers ``/api/health`` with *status*."""
+    from http.server import BaseHTTPRequestHandler
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802
+            if self.path != "/api/health":
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", "2")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, int(server.server_address[1])
 
 
 class ModuleTests(unittest.TestCase):

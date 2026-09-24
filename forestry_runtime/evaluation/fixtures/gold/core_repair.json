@@ -1,0 +1,36 @@
+{
+  "version": "core_repair-v1",
+  "fixture_files": [
+    "samples.csv",
+    "broken.py"
+  ],
+  "observed_error": "ZeroDivisionError",
+  "samples_sha256": "d6a0f21a7c6b123804fb93450abd3b225bba4b0214851c317578e60c78ec7ec7",
+  "graded_samples_sha256": "d6a0f21a7c6b123804fb93450abd3b225bba4b0214851c317578e60c78ec7ec7",
+  "graded_samples": "plot_id,tree_id,height_m\nP-01,T-001,10.0\nP-01,T-002,\nP-01,T-003,12.0\nP-02,T-004,8.5\nP-02,T-005,9.5\nP-03,T-006,\n",
+  "plot_count": 3,
+  "expected_summary": {
+    "P-01": {
+      "tree_records": 3,
+      "observed_heights": 2,
+      "missing_heights": 1,
+      "mean_height_m": 11.0
+    },
+    "P-02": {
+      "tree_records": 2,
+      "observed_heights": 2,
+      "missing_heights": 0,
+      "mean_height_m": 9.0
+    },
+    "P-03": {
+      "tree_records": 1,
+      "observed_heights": 0,
+      "missing_heights": 1,
+      "mean_height_m": null
+    }
+  },
+  "answer_claims": {
+    "plot_count": 3,
+    "fixed": true
+  }
+}

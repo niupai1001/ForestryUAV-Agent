@@ -1,0 +1,20 @@
+# Experiment overlay: run both A/B arms on the package-complete image.
+#
+# The capability task set asks the Agent to compute NDVI, build a CHM and train a
+# classifier. The `core` image ships no array or raster library, so an Agent cannot
+# even inspect the fixtures there -- the run fails in the coordinator before any
+# capability is exercised, which measures the image rather than the Agent.
+#
+# The two arms still differ in exactly one thing: the domain layer. The image is the
+# same on both sides, so the comparison isolates the domain tools and guides.
+#
+#   docker compose -f compose.yaml -f compose.eval.yaml up -d --build runtime
+services:
+  runtime:
+    build:
+      target: remote-sensing
+    environment:
+      # Per-arm values are set when the arm's collection runs; these are only the
+      # defaults for interactive use.
+      REMOTE_SENSING_PLUGINS_ENABLED: ${REMOTE_SENSING_PLUGINS_ENABLED:-true}
+      DOMAIN_GUIDES_ENABLED: ${DOMAIN_GUIDES_ENABLED:-true}

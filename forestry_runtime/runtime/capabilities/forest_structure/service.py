@@ -22,6 +22,7 @@ from scipy.spatial import cKDTree
 from scipy.stats import qmc
 from scipy import ndimage as ndi
 
+from ...kernel.protocol import ToolPreconditionError
 from ...storage import AssetError
 from ..uav_audit.audit import GEOSPATIAL_SUFFIXES, IMAGE_SUFFIXES
 
@@ -94,10 +95,38 @@ class ForestStructureCapability:
                 dsm_reference = self._vertical_reference(dsm, 'DSM')
                 dtm_reference = self._vertical_reference(dtm, 'DTM')
                 if dsm_reference.casefold() != dtm_reference.casefold():
-                    raise AssetError('DSM与DTM的vertical_reference元数据不一致')
+                    raise ToolPreconditionError(
+                        'DSM与DTM的vertical_reference元数据不一致，'
+                        '两者之间不存在已建立的高程差',
+                        code='vertical_reference_conflict',
+                        dsm_vertical_reference=dsm_reference,
+                        dtm_vertical_reference=dtm_reference,
+                        retryable=False,
+                        guidance=(
+                            '两张栅格的垂直基准不同，任何差值都不是以米为单位的高差。'
+                            '不要重试：请报告该条件无法满足，并给出两份元数据。'
+                        ),
+                    )
                 if vertical_reference.strip().casefold() != dsm_reference.casefold():
-                    raise AssetError(
-                        'vertical_reference必须与DSM和DTM元数据中的垂直基准一致'
+                    # The refusal names the value the metadata actually carries.  A
+                    # caller that read the datum can retry in one step; a caller that
+                    # guessed gets told what to read, instead of being left to guess
+                    # again until its budget runs out.
+                    raise ToolPreconditionError(
+                        'vertical_reference必须与DSM和DTM元数据中的垂直基准一致',
+                        code='vertical_reference_mismatch',
+                        requested_vertical_reference=vertical_reference,
+                        observed_vertical_reference=dsm_reference,
+                        retryable=True,
+                        suggested_tool='build_canopy_height_model',
+                        suggested_arguments={
+                            'dsm_asset_id': dsm_asset_id,
+                            'dtm_asset_id': dtm_asset_id,
+                            'vertical_reference': dsm_reference,
+                        },
+                        guidance=(
+                            '用 suggested_arguments 重试即可；该值取自资产自身的元数据。'
+                        ),
                     )
                 total_pixels = self._structure_limit(dsm.width, dsm.height)
                 self._structure_limit(dtm.width, dtm.height)
@@ -255,7 +284,15 @@ class ForestStructureCapability:
                 )
                 analysis_mask = valid & (values >= float(minimum_height_m))
                 if not np.any(analysis_mask):
-                    raise AssetError('CHM中没有达到minimum_height_m的有效像元')
+                    return {
+                        'outcome': 'empty', 'code': 'no_pixels_above_height',
+                        'control_verified': None, 'chm_asset_id': chm_asset_id,
+                        'valid_pixels': int(np.count_nonzero(valid)),
+                        'pixels_above_height': 0,
+                        'minimum_height_m': float(minimum_height_m),
+                        'observed_max_m': float(np.max(values[valid])) if np.any(valid) else None,
+                        'interpretation': 'No candidates under these inputs; tree absence is unverified.',
+                    }
                 weighted = np.where(valid, values, 0.0)
                 weights = ndi.gaussian_filter(
                     valid.astype('float64'), sigma=sigma_pixels
@@ -273,7 +310,14 @@ class ForestStructureCapability:
                     exclude_border=False,
                 )
                 if not len(coordinates):
-                    raise AssetError('给定参数下未检测到局部峰值')
+                    return {
+                        'outcome': 'empty', 'code': 'no_local_peaks',
+                        'control_verified': None, 'chm_asset_id': chm_asset_id,
+                        'pixels_above_height': int(np.count_nonzero(analysis_mask)),
+                        'minimum_height_m': float(minimum_height_m),
+                        'minimum_peak_distance_m': float(minimum_peak_distance_m),
+                        'interpretation': 'Peak search returned no candidates; tree absence is unverified.',
+                    }
                 markers = np.zeros(values.shape, dtype='int32')
                 markers[tuple(coordinates.T)] = np.arange(
                     1, len(coordinates) + 1, dtype='int32'
@@ -289,7 +333,14 @@ class ForestStructureCapability:
                 old_ids = np.unique(labels)
                 old_ids = old_ids[old_ids > 0]
                 if not old_ids.size:
-                    raise AssetError('面积过滤后没有候选冠层')
+                    return {
+                        'outcome': 'empty', 'code': 'all_candidates_filtered_by_area',
+                        'control_verified': None, 'chm_asset_id': chm_asset_id,
+                        'peaks_found': int(len(coordinates)),
+                        'minimum_crown_area_m2': float(minimum_crown_area_m2),
+                        'maximum_crown_area_m2': maximum_crown_area_m2,
+                        'interpretation': 'Area filters removed all candidates; tree absence is unverified.',
+                    }
                 mapping = np.zeros(int(labels.max()) + 1, dtype='uint32')
                 mapping[old_ids] = np.arange(1, len(old_ids) + 1, dtype='uint32')
                 labels = mapping[labels]
@@ -464,7 +515,22 @@ class ForestStructureCapability:
                 chm.crs == label_src.crs and chm.transform == label_src.transform
                 and chm.width == label_src.width and chm.height == label_src.height
             ):
-                raise AssetError('CHM与候选标签的坐标系、网格和范围必须完全一致')
+                raise ToolPreconditionError(
+                    'CHM与候选标签的坐标系、网格和范围必须完全一致',
+                    code='raster_grid_mismatch', reason='inapplicable',
+                    missing=[{'kind': 'aligned_grid', 'chm_asset_id': chm_asset_id,
+                              'labels_asset_id': labels_asset_id}],
+                    mismatches=[field for field, same in {
+                        'crs': chm.crs == label_src.crs,
+                        'transform': chm.transform == label_src.transform,
+                        'width': chm.width == label_src.width,
+                        'height': chm.height == label_src.height,
+                    }.items() if not same],
+                    chm_grid={'crs': str(chm.crs), 'width': chm.width,
+                              'height': chm.height, 'transform': tuple(chm.transform)},
+                    labels_grid={'crs': str(label_src.crs), 'width': label_src.width,
+                                 'height': label_src.height, 'transform': tuple(label_src.transform)},
+                )
             if label_src.tags().get('algorithm') != 'CHM_LOCAL_MAXIMA_WATERSHED':
                 raise AssetError('标签必须由delineate_tree_candidates生成')
             heights = chm.read(1).astype('float64')

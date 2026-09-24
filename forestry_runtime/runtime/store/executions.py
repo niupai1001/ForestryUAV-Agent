@@ -49,6 +49,27 @@ class ExecutionRecords:
             raise AssetError("Code job is not registered in this workspace")
         return dict(row)
 
+    def recent(self, limit: int = 50) -> list[dict]:
+        """Most recent jobs in this workspace, newest first."""
+        with self.db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?",
+                (max(1, min(500, int(limit))),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def unsettled(self, kinds: tuple[str, ...] = ("install",)) -> list[dict]:
+        """Jobs of *kinds* whose terminal state has not been observed yet."""
+        placeholders = ",".join("?" for _ in kinds)
+        with self.db() as conn:
+            rows = conn.execute(
+                f"""SELECT * FROM jobs WHERE kind IN ({placeholders})
+                AND state IN ('submitting','running','submission_uncertain')
+                ORDER BY created_at""",
+                tuple(kinds),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def update(self, job_id: str, state: str, artifacts: list[dict] | None = None,
                after: dict[str, tuple[int, int]] | None = None) -> None:
         with self.db() as conn:

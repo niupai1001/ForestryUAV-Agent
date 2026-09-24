@@ -14,6 +14,8 @@ services:
       HOST_BRIDGE_KEY: ${HOST_BRIDGE_KEY}
       RUNTIME_DATA_HOST_ROOT: ${RUNTIME_DATA_HOST_ROOT}
       KNOWLEDGE_ROOTS: /knowledge
+      DOMAIN_GUIDE_ROOTS: /knowledge/guides
+      DOMAIN_GUIDE_VERIFICATION: /guide-verification/GUIDE_VERIFICATION.md
       REMOTE_SENSING_PLUGINS_ENABLED: ${REMOTE_SENSING_PLUGINS_ENABLED:-false}
       PYDANTIC_AI_NO_BANNER: "1"
       MAX_UPLOAD_BYTES: "536870912"
@@ -24,6 +26,10 @@ services:
       - type: bind
         source: ${KNOWLEDGE_HOST_ROOT:-./knowledge}
         target: /knowledge
+        read_only: true
+      - type: bind
+        source: ./evaluation/grounded_v1/GUIDE_VERIFICATION.md
+        target: /guide-verification/GUIDE_VERIFICATION.md
         read_only: true
     restart: unless-stopped
     healthcheck:

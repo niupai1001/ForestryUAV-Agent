@@ -2,11 +2,13 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 
 import { request, RequestError, jsonBody } from './client'
 import { ConversationPane } from './components/ConversationPane'
+import { ScorecardButton } from './components/ScorecardButton'
+import { SettingsPanel } from './components/SettingsPanel'
 import { TracePane } from './components/TracePane'
 import { useRunStream } from './hooks/useRunStream'
 import type {
-  Asset, Grant, KnowledgeSource, PendingUserMessage, Project,
-  ProjectMemory, Run, Session,
+  Asset, Grant, InstructionPreview, KnowledgeSource, PendingUserMessage, Project,
+  ProjectInstruction, ProjectMemory, Run, Session,
 } from './types'
 
 export default function App() {
@@ -27,6 +29,10 @@ export default function App() {
   const [knowledgeSources, setKnowledgeSources] = useState<KnowledgeSource[]>([])
   const [knowledgeKind, setKnowledgeKind] = useState<'local' | 'url'>('local')
   const [knowledgeLocator, setKnowledgeLocator] = useState('')
+  const [instruction, setInstruction] = useState<ProjectInstruction | null>(null)
+  const [instructionDraft, setInstructionDraft] = useState('')
+  const [instructionPreview, setInstructionPreview] = useState<InstructionPreview | null>(null)
+  const [showPreview, setShowPreview] = useState(false)
   const [pendingMessages, setPendingMessages] = useState<PendingUserMessage[]>([])
   const [pollEpoch, setPollEpoch] = useState(0)
   const selectedRef = useRef('')
@@ -97,17 +103,24 @@ export default function App() {
       Promise.all([
         request<{ memories: ProjectMemory[] }>(`/projects/${selectedProject}/memories`),
         request<{ sources: KnowledgeSource[] }>(`/projects/${selectedProject}/knowledge/sources`),
+        request<ProjectInstruction>(`/projects/${selectedProject}/instruction`),
       ])
-        .then(([memoryData, sourceData]) => {
+        .then(([memoryData, sourceData, instructionData]) => {
           if (!stopped) {
             setMemories(memoryData.memories)
             setKnowledgeSources(sourceData.sources)
+            setInstruction(instructionData)
+            setInstructionDraft(instructionData.content)
+            setInstructionPreview(null)
           }
         })
         .catch(error => { if (!stopped) setNotice(error instanceof Error ? error.message : String(error)) })
     } else {
       setMemories([])
       setKnowledgeSources([])
+      setInstruction(null)
+      setInstructionDraft('')
+      setInstructionPreview(null)
     }
     if (!chatId) return
     Promise.all([
@@ -244,17 +257,83 @@ export default function App() {
     })
     setProjectId(next)
     if (next) {
-      const [memoryData, sourceData] = await Promise.all([
+      const [memoryData, sourceData, instructionData] = await Promise.all([
         request<{ memories: ProjectMemory[] }>(`/projects/${next}/memories`),
         request<{ sources: KnowledgeSource[] }>(`/projects/${next}/knowledge/sources`),
+        request<ProjectInstruction>(`/projects/${next}/instruction`),
       ])
       setMemories(memoryData.memories)
       setKnowledgeSources(sourceData.sources)
+      setInstruction(instructionData)
+      setInstructionDraft(instructionData.content)
+      setInstructionPreview(null)
     } else {
       setMemories([])
       setKnowledgeSources([])
+      setInstruction(null)
+      setInstructionDraft('')
+      setInstructionPreview(null)
     }
     await loadSessions(chatId)
+  }
+
+  const loadInstruction = async (target?: string) => {
+    const id = target || projectId
+    if (!id) return
+    const data = await request<ProjectInstruction>(`/projects/${id}/instruction`)
+    setInstruction(data)
+    setInstructionDraft(data.content)
+    setInstructionPreview(null)
+  }
+
+  const saveInstruction = async () => {
+    if (!projectId || !instruction) return
+    try {
+      const updated = await request<ProjectInstruction>(
+        `/projects/${projectId}/instruction`, undefined, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: instructionDraft, expected_revision: instruction.revision,
+          }),
+        },
+      )
+      setInstruction(updated)
+      setInstructionDraft(updated.content)
+      setInstructionPreview(null)
+      setNotice(`项目指令已保存为 r${updated.revision}，将在下一个用户 Turn 生效。`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const resetInstruction = async () => {
+    if (!projectId) return
+    if (!window.confirm('恢复默认项目指令？当前内容会作为历史版本保留。')) return
+    try {
+      const updated = await request<ProjectInstruction>(
+        `/projects/${projectId}/instruction/reset`, undefined, { method: 'POST' },
+      )
+      setInstruction(updated)
+      setInstructionDraft(updated.content)
+      setInstructionPreview(null)
+      setNotice(`已恢复默认项目指令（r${updated.revision}）。`)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  const previewInstruction = async () => {
+    if (!projectId) return
+    try {
+      const data = await request<InstructionPreview>(
+        `/projects/${projectId}/instruction/preview`, undefined,
+        jsonBody({ content: instructionDraft }),
+      )
+      setInstructionPreview(data)
+      setShowPreview(true)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : String(error))
+    }
   }
 
   const loadKnowledgeSources = async () => {
@@ -313,6 +392,7 @@ export default function App() {
   return <main className="shell">
     <aside className="sidebar">
       <header className="brand"><span>⌁</span><div><strong>Forestry Agent</strong><small>PydanticAI · Sandbox</small></div></header>
+      <ScorecardButton />
       <button className="primary" onClick={() => void createChat()}>＋ 新建任务</button>
       <nav className="sessions">
         {sessions.map(item => <div key={item.chat_id} className={`sessionRow ${item.chat_id === chatId ? 'selected' : ''}`}>
@@ -330,6 +410,52 @@ export default function App() {
         <div className="inline"><select value={projectId} onChange={event => void chooseProject(event.target.value)}><option value="">不绑定项目</option>{projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}</select><button onClick={() => void createProject()}>新建</button></div>
         {projectId && <><div className="inline"><input value={memoryDraft} onChange={event => setMemoryDraft(event.target.value)} placeholder="需确认后保存" /><button onClick={() => void addMemory()}>记住</button></div><ul className="grants">{memories.map(item => <li key={item.id}><span>{item.content}<small>v{item.version}</small></span><button onClick={() => void editMemory(item)}>编辑</button><button onClick={async () => { await request(`/projects/${projectId}/memories/${item.id}`, undefined, { method: 'DELETE' }); setMemories(value => value.filter(memory => memory.id !== item.id)) }}>删除</button></li>)}</ul></>}
       </section>
+      {projectId && <section><h3>项目指令</h3>
+        <div className="sectionActions instructionMeta">
+          <span>生效版本 r{instruction?.revision ?? '—'}{instruction?.is_default ? ' · 默认' : ''}</span>
+          <span className={instruction && !instruction.within_budget ? 'overBudget' : ''}>
+            约 {instruction?.estimated_tokens ?? 0} / {instruction?.budget_tokens ?? 0} tokens
+          </span>
+        </div>
+        <textarea
+          className="instructionEditor" rows={8} value={instructionDraft}
+          aria-label="项目指令内容"
+          onChange={event => setInstructionDraft(event.target.value)}
+          placeholder="填写项目目标、沟通偏好、交付规范与项目约定"
+        />
+        <div className="sectionActions">
+          <button onClick={() => void saveInstruction()} disabled={!instruction || instructionDraft === instruction.content}>保存</button>
+          <button onClick={() => void previewInstruction()}>预览组装</button>
+          <button onClick={() => void resetInstruction()}>恢复默认</button>
+          <button onClick={() => void loadInstruction()}>重新载入</button>
+        </div>
+        <p className="hint">保存后在下一个用户 Turn 生效；已开始的 Turn 继续使用当前生效的版本。</p>
+        {showPreview && instructionPreview && <div className="instructionPreview">
+          <div className="sectionActions">
+            <strong>下一个 Turn 的组装预览</strong>
+            <button onClick={() => setShowPreview(false)}>收起</button>
+          </div>
+          <p className="hint">
+            草稿约 {instructionPreview.draft_tokens} / {instructionPreview.budget_tokens} tokens
+            {instructionPreview.draft_within_budget ? '' : '（超出预算，保存会被拒绝）'}；
+            不含任务事实共约 {instructionPreview.assembled_tokens_excluding_runtime_facts} tokens。
+          </p>
+          <ol className="layers">{instructionPreview.layers.map(layer => <li key={layer.layer}>
+            <div className="sectionActions">
+              <strong>{layer.title}</strong>
+              <span>{layer.source}</span>
+              <span>{layer.tokens === null ? '按请求组装' : `${layer.tokens} tokens`}</span>
+              {layer.entries ? <span>{layer.entries.length} 条指南</span> : null}
+            </div>
+            {layer.entries && <ul className="grants">{layer.entries.map(entry => <li key={entry.id}>
+              <span>{entry.title}<small>{entry.id} · {entry.summary}</small></span>
+            </li>)}</ul>}
+            {layer.content
+              ? <pre className="layerText">{layer.content}</pre>
+              : <p className="hint">{layer.note}</p>}
+          </li>)}</ol>
+        </div>}
+      </section>}
       {projectId && <section><h3>项目知识来源</h3>
         <div className="inline knowledgeInput"><select value={knowledgeKind} onChange={event => setKnowledgeKind(event.target.value as 'local' | 'url')}><option value="local">本地</option><option value="url">URL</option></select><input value={knowledgeLocator} onChange={event => setKnowledgeLocator(event.target.value)} placeholder={knowledgeKind === 'local' ? '维护者配置目录内的路径' : 'https://…'} /><button onClick={() => void addKnowledgeSource()}>索引</button></div>
         <div className="sectionActions"><button onClick={() => void loadKnowledgeSources()}>刷新状态</button></div>
@@ -341,6 +467,7 @@ export default function App() {
           setGrants(value => value.filter(grant => grant.id !== item.id))
         }}>撤销</button></li>)}</ul>
       </section>
+      <SettingsPanel chatId={chatId} />
       <button className="danger ghost" disabled={busy} onClick={() => void deleteChat()}>删除当前任务</button>
     </aside>
 

@@ -1,0 +1,12 @@
+file,role,band,capture_group
+DJI_0001_Blue.JPG,flight_imagery,Blue,flightA-0001
+DJI_0002_Green.JPG,flight_imagery,Green,flightA-0002
+DJI_0003_Red.JPG,flight_imagery,Red,flightA-0003
+DJI_0004_RedEdge.JPG,flight_imagery,RedEdge,flightA-0001
+DJI_0005_NIR.JPG,flight_imagery,NIR,flightA-0002
+DJI_0006_Blue.JPG,flight_imagery,Blue,flightA-0003
+参考板_起飞前_01_Red.JPG,reference_panel_before,Red,panelB-0001
+参考板_起飞前_02_Red.JPG,reference_panel_before,Red,panelB-0002
+参考板_起飞后_01_Red.JPG,reference_panel_after,Red,panelB-0001
+参考板_起飞后_02_Red.JPG,reference_panel_after,Red,panelB-0002
+1605-白桦_正射影像.tif,geospatial_product,,

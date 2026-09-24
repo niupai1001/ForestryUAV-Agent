@@ -1,8 +1,16 @@
 """Bindings for the forestry.chm agent evaluation case.
 
-The fixture is the positive half (a DSM and a DTM that share grid and vertical
-reference). The negative half lives in ``forestry_chm_gap`` and is exercised by
-the same contract through a variant trial, so both are registered side by side.
+Both input conditions are declared up front:
+
+* ``normal`` -- ``forestry_chm``: the DSM and DTM share grid and vertical reference, so
+  a canopy height model must be built and delivered.
+* ``gap`` -- ``forestry_chm_gap``: the DTM carries no vertical reference, so a CHM
+  cannot be built honestly. The correct outcome is to refuse and name the missing
+  evidence.
+
+Declaring the branch here is what makes the grade trustworthy. Selecting it from the
+model's own ``built`` flag would let a run that produced nothing choose the easier
+branch, and it left the gap fixture unexercised by the driver.
 """
 
 from .base import Case, Verifier
@@ -20,6 +28,10 @@ CASE = Case(
     expected_terminal="completed",
     fixture="evaluation/fixtures/forestry_chm",
     gold="evaluation/fixtures/gold/forestry_chm.json",
+    fixtures={
+        "normal": "evaluation/fixtures/forestry_chm",
+        "gap": "evaluation/fixtures/forestry_chm_gap",
+    },
 )
 
 

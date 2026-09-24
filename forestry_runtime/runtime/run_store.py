@@ -31,6 +31,9 @@ def _outcome_ok(result: dict, event: dict | None = None) -> bool:
         return bool(event["outcome_ok"])
     if "ok" in result:
         return bool(result["ok"])
+    # A refusal carries failure evidence without an explicit flag.
+    if isinstance(result, dict) and result.get("failure"):
+        return False
     return bool((event or {}).get("ok", False))
 
 
@@ -61,6 +64,11 @@ class RunStore:
     def _input_id(message: dict) -> str:
         value = str(message.get("input_id") or "").strip()
         return value or "input_" + uuid.uuid4().hex
+
+    # Settings accessors live on `Store` (runtime/storage.py), which both this store
+    # and the per-chat `SessionStore` inherit, so the settings panel works whichever
+    # store a request resolves to.
+
 
     def create(self, owner: str, chat_id: str, messages: list[dict], asset_ids: list[str], use_tools: bool) -> dict:
         run_id = "run_" + uuid.uuid4().hex
@@ -379,7 +387,12 @@ class RunStore:
         return list(latest.values())
 
     def context_facts(self, run_id: str) -> dict:
-        """Bounded execution facts for the next model request."""
+        """Bounded execution facts for the next model request.
+
+        ``unfinished_jobs`` exists because a submitted job is not a result: the
+        model needs to see, at the start of every request, which durable jobs
+        have not reached a terminal state yet.
+        """
         with self.db() as conn:
             actions = conn.execute(
                 """SELECT id,tool_name,state,result_json FROM actions
@@ -403,11 +416,27 @@ class RunStore:
                 if isinstance(data, dict) and data.get("job_id"):
                     item["job_id"] = data["job_id"]
             (completed if row["state"] == "succeeded" else unresolved).append(item)
-        return {
+        job_rows = [dict(row) for row in jobs[:30]]
+        unfinished = [
+            row for row in job_rows
+            if str(row.get("state") or "").casefold() not in {
+                "succeeded", "failed", "canceled", "cancelled", "timed_out",
+                "backend_removed", "submission_uncertain", "not_started",
+            }
+        ]
+        facts = {
             "completed_actions": list(reversed(completed[:12])),
             "unresolved_actions": list(reversed(unresolved[:12])),
-            "jobs": [dict(row) for row in jobs[:30]],
+            "jobs": job_rows,
+            "unfinished_jobs": unfinished,
         }
+        if unfinished:
+            facts["notice"] = (
+                "The following durable jobs have not reached a terminal state. They are "
+                "not finished results: call job_wait on each before reporting its output, "
+                "and do not end this Run claiming success while they are still running."
+            )
+        return facts
 
     def latest_for_chat(self, owner: str, chat_id: str) -> dict | None:
         with self.db() as conn:
@@ -689,7 +718,7 @@ class RunStore:
                 "INSERT INTO events(run_id,seq,event_json,created_at,turn_id) VALUES(?,?,?,?,?)",
                 (run_id, seq, encoded, now, turn_id),
             )
-            if event.get("type") == "model_call":
+            if event.get("type") in {"model_call", "review_model_call"}:
                 conn.execute("UPDATE runs SET model_calls=model_calls+1, updated_at=? WHERE id=?", (now, run_id))
             if project and event.get("type") == "tool_end":
                 result = event.get("result") or {}

@@ -1,0 +1,7 @@
+plot_id,tree_id,species,height_m,dbh_cm
+P-01,T-001,Pinus,12.4,18.2
+P-01,T-002,Pinus,11.8,
+P-01,T-003,Quercus,9.6,14.0
+P-02,T-004,Pinus,10.2,15.5
+P-02,T-005,Quercus,8.9,12.7
+P-03,T-006,Pinus,,

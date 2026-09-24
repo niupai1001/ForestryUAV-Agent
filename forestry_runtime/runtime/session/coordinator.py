@@ -39,19 +39,26 @@ class RunCoordinator(RecoveryCoordinatorMixin):
             str(item.get("content") or "") for item in reversed(run["messages"])
             if item.get("role") == "user"
         ), "")
+        run_id = run["id"]
         return RuntimeTools(
             session_store, run["owner"], [], self.workspaces, latest_user,
             self.memory,
+            cancelled=lambda: self.store.is_cancelled(run_id),
+            pause_requested=lambda: self.store.is_pause_requested(run_id),
         )
 
     async def _job_operation(
         self, run: dict, operation: str, job_id: str, session_store=None,
-        offset: int = 0,
+        offset: int = 0, user_initiated: bool = False,
     ) -> dict:
         tools = self._job_tools(run, session_store)
         arguments = {"job_id": job_id}
         if operation == "job_status":
             arguments.update(offset=offset, wait_seconds=0)
+        elif operation == "job_cancel":
+            # Run cancellation converges by stopping durable work, but only an
+            # explicit user decision may kill a healthy installation.
+            arguments.update(user_initiated=bool(user_initiated))
         result = await asyncio.to_thread(tools.execute, operation, arguments)
         if not result.get("ok"):
             legacy_code_job = (
@@ -92,6 +99,34 @@ class RunCoordinator(RecoveryCoordinatorMixin):
             })
         self.start(run["id"], session_store)
         return self.public(run)
+
+    def _project_context(self, owner: str, chat_id: str, revision: int | None = None):
+        """Pin one instruction revision for the whole Turn.
+
+        The snapshot is resolved once, when the Turn starts, and reused for every
+        model request in that Turn -- including automatic recovery of a running
+        tool chain.  A later edit therefore takes effect from the next user Turn.
+        """
+        if self.memory is None:
+            return None
+        try:
+            snapshot = self.memory.instruction_snapshot(owner, chat_id, revision)
+        except Exception:
+            return None
+        if not snapshot:
+            return None
+        base = self.memory.context(owner, chat_id)
+        tokens = snapshot.get("estimated_tokens")
+        budget = snapshot.get("budget_tokens")
+        return lambda: base | {
+            "content": snapshot.get("content"),
+            "instruction_revision": snapshot.get("revision"),
+            "instruction_source": (
+                "project" if not snapshot.get("is_default") else "default"
+            ),
+            "instruction_tokens": tokens,
+            "instruction_budget_tokens": budget,
+        }
 
     def start(self, run_id: str, session_store=None) -> None:
         if run_id in self.tasks and not self.tasks[run_id].done():
@@ -188,10 +223,8 @@ class RunCoordinator(RecoveryCoordinatorMixin):
                     ),
                     finish_step=self.store.finish_step,
                     run_facts=lambda: self.store.context_facts(run_id),
-                    project_context=(
-                        (lambda: self.memory.context(
-                            run["owner"], run["chat_id"]
-                        )) if self.memory else None
+                    project_context=self._project_context(
+                        run["owner"], run["chat_id"]
                     ),
                     memory_manager=self.memory,
                 ):
@@ -256,11 +289,33 @@ class RunCoordinator(RecoveryCoordinatorMixin):
                             "state": "unknown", "terminal": False,
                         })
                         continue
+                    # Observe first, then settle: settling the cursor before reading
+                    # would make a crash between the two lose the job's final output.
                     self.store.append(run_id, {"type": "job_reconciled", **status}, turn_id)
                     if not status.get("terminal") and not status.get("needs_finalization"):
                         active.append(status)
                 if active:
+                    # A live job means the Runtime cannot confirm the task is done.
+                    # The Agent's own "completed" answer is downgraded and the Run
+                    # waits; the monitor resumes it exactly once per terminal state.
                     final_state = "waiting"
+                    self.store.append(run_id, {
+                        "type": "completion_withheld",
+                        "state": "waiting",
+                        "content": (
+                            "本次回答结束时仍有后台作业未到达终态；Runtime 未以成功状态结束，"
+                            "而是进入等待，并在作业结束后自动续接。"
+                        ),
+                        "active_jobs": [
+                            {key: item.get(key) for key in
+                             ("job_id", "job_type", "state", "terminal")}
+                            for item in active[:10]
+                        ],
+                    }, turn_id)
+                    if final_event is not None:
+                        final_event = dict(
+                            final_event, state="waiting", completion_withheld=True
+                        )
             queued_turn = (
                 self.store.has_queued_turn(run_id)
                 and final_state != "canceled"
@@ -367,7 +422,7 @@ class RunCoordinator(RecoveryCoordinatorMixin):
         for ref in self.store.jobs(run_id):
             try:
                 status = await self._job_operation(
-                    run, "job_cancel", ref["job_id"]
+                    run, "job_cancel", ref["job_id"], user_initiated=True
                 )
                 self.store.append(run_id, {
                     "type": "job_reconciled", **status,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import closing
+import importlib
 import json
 from pathlib import Path
 import sqlite3
@@ -13,10 +14,10 @@ import unittest
 from unittest.mock import patch
 
 import evaluation.run_baseline as run_baseline
-from evaluation.cases.core_csv import CASE
 from evaluation.collect.engineering import inspect_idempotency
 from evaluation.collect.records import assemble
 from evaluation.collect.trace import failure_category, normalize_trace
+from evaluation.rules import SCORING_RULES_VERSION
 from evaluation.scorecard import CONFIG_FIELDS
 from evaluation.verify.csv import compare_by_business_key
 from evaluation.verify.gates import exactly_once
@@ -66,6 +67,29 @@ class EvaluationPipelineTests(unittest.TestCase):
         self.assertEqual(trace["steps"][0]["failure_category"], "path_grounding")
         self.assertEqual(failure_category({"stage": "unmapped", "code": "x"}), "unknown")
 
+    def test_trace_keeps_empty_control_and_job_failure_as_distinct_observations(self):
+        trace = normalize_trace(
+            events=[
+                {"type": "tool_start", "action_id": "empty", "name": "inspect_uav_source"},
+                {"type": "tool_end", "action_id": "empty", "result": {
+                    "ok": True, "outcome": "empty", "control_verified": None,
+                    "data": {"code": "no_matching_images", "control_verified": None},
+                }},
+                {"type": "tool_start", "action_id": "job", "name": "job_status"},
+                {"type": "tool_end", "action_id": "job", "result": {
+                    "ok": True, "data": {"state": "failed", "job_failure": {
+                        "reason": "missing_env", "code": "missing_shared_library",
+                    }},
+                }},
+            ],
+            run={"id": "r1", "state": "completed"}, case_id="test", repeat=1,
+            configuration={},
+        )
+        self.assertEqual(trace["steps"][0]["outcome"], "empty")
+        self.assertIsNone(trace["steps"][0]["control_verified"])
+        self.assertEqual(trace["steps"][1]["job_failure_reason"], "missing_env")
+        self.assertEqual(trace["steps"][1]["status"], "success")
+
     def test_csv_verifier_checks_keys_types_nulls_and_values(self):
         actual = self.root / "plot_summary.csv"
         actual.write_text(
@@ -90,10 +114,35 @@ class EvaluationPipelineTests(unittest.TestCase):
         self.assertEqual(claims_match_table(answer=answer, gold=GOLD, report=report).verdict, "pass")
         self.assertEqual(claims_match_table(answer="完成", gold=GOLD, report=report).verdict, "unknown")
 
-    def test_case_declaration_exactly_matches_suite_checks(self):
+    def test_case_declarations_exactly_match_suite_checks(self):
+        """Every registered case, not just the first one.
+
+        Checking a single case meant a new case could ship with check names that no
+        verifier implements -- the declaration looked fine and every Run of that case
+        scored ``unknown``.
+        """
+        from evaluation.cases.registry import AGENT_TRIALS, CASES
+
         suite = json.loads((ROOT / "evaluation" / "suite.json").read_text(encoding="utf-8"))
-        contract = next(item for item in suite["cases"] if item["id"] == CASE.id)
-        self.assertEqual(set(CASE.checks), set(contract["checks"]))
+        contracts = {item["id"]: item for item in suite["cases"]}
+        self.assertTrue(CASES, "no case is registered")
+        for case_id, case in sorted(CASES.items()):
+            with self.subTest(case=case_id):
+                contract = contracts.get(case_id)
+                self.assertIsNotNone(contract, f"{case_id} is absent from suite.json")
+                self.assertEqual(set(case.checks), set(contract["checks"]))
+                self.assertIn(case_id, AGENT_TRIALS, "an agent case needs a trial verifier")
+                self.assertTrue(
+                    (ROOT / case.fixture).is_dir(), f"{case_id}'s fixture is missing"
+                )
+                self.assertTrue((ROOT / case.gold).is_file(), f"{case_id}'s gold is missing")
+                for check, verifier in case.checks.items():
+                    with self.subTest(case=case_id, check=check):
+                        module = importlib.import_module(verifier.module)
+                        self.assertTrue(
+                            callable(getattr(module, verifier.function, None)),
+                            f"{verifier.module}.{verifier.function} is missing",
+                        )
 
     def test_sqlite_snapshot_and_gate_verifier(self):
         database = self.root / "probe.sqlite3"
@@ -186,6 +235,7 @@ class EvaluationPipelineTests(unittest.TestCase):
         (trial / "proof.json").write_text("{}", encoding="utf-8")
         record = {
             "suite_version": "forestry-eval-0.1",
+            "scoring_rules_version": SCORING_RULES_VERSION,
             "case_id": "gate.idempotency", "track": "engineering",
             "execution": "engineering", "repeat": 1,
             "trial_id": "resume-test", "configuration": configuration,
@@ -239,6 +289,7 @@ class EvaluationPipelineTests(unittest.TestCase):
             (trial / "raw" / "permissions.json").write_text("{}", encoding="utf-8")
             return {
                 "suite_version": "forestry-eval-0.1", "case_id": case_id,
+                "scoring_rules_version": SCORING_RULES_VERSION,
                 "track": "engineering", "execution": "engineering", "repeat": repeat,
                 "trial_id": f"{case_id}-{repeat}", "configuration": configuration,
                 "status": "evaluated",

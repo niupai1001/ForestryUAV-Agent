@@ -41,33 +41,46 @@ def _run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
 
 
 def code_snapshot() -> str:
-    """The commit plus a hash of the working tree, so an uncommitted edit counts."""
+    """The commit plus a hash of the working tree, so an uncommitted edit counts.
+
+    Scoped to the paths the measurement actually depends on: the Runtime, the shared
+    package, the tests and the evaluation harness. Hashing the whole tree made the
+    snapshot differ between the two arms for a reason that has nothing to do with the
+    measurement -- collecting arm B writes evidence under ``evaluation/work`` while
+    arm A has not been collected yet -- and the comparison then reported drift and
+    refused to be a comparison. Evidence is described by the slots themselves, not by
+    the source snapshot.
+    """
     revision = _run(["git", "rev-parse", "HEAD"]).stdout.strip()
     if not revision:
         raise RuntimeError("not a git checkout; cannot record code_snapshot")
-    status = _run(["git", "status", "--short"]).stdout
-    dirty = hashlib.sha256(status.encode("utf-8")).hexdigest()[:16]
+    status = _run([
+        "git", "status", "--short", "--",
+        "runtime", "shared", "tests", "evaluation",
+        ":(exclude)evaluation/work",
+        ":(exclude)evaluation/fixtures",
+        ":(exclude)**/__pycache__",
+        ":(exclude)**/*.pyc",
+    ]).stdout
+    relevant = [
+        line for line in status.splitlines()
+        if line.strip() and "evaluation/work" not in line
+    ]
+    dirty = hashlib.sha256("\n".join(relevant).encode("utf-8")).hexdigest()[:16]
     return f"{revision}+status-{dirty}"
 
 
 def tools_snapshot() -> str:
-    """Hash the contract each tool publishes, not just its name."""
-    from runtime.kernel.registry import runtime_registry
+    """Hash the frozen tool contract, not the Runtime's live registry.
 
-    specs = runtime_registry()
-    payload = json.dumps(
-        [
-            {
-                "name": spec.name,
-                "side_effect": spec.side_effect.value,
-                "equivalent": spec.equivalence_group,
-                "returns": spec.returns,
-            }
-            for spec in sorted(specs, key=lambda item: item.name)
-        ],
-        sort_keys=True,
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+    Reading the registry here made the measured system its own reference: editing a
+    tool changed the "frozen" snapshot in the same edit, so a configuration mismatch
+    was undetectable. The contract lives in ``evaluation/tool_contract.json`` and is
+    updated deliberately.
+    """
+    from .tool_contract import tools_snapshot as frozen_tools_snapshot
+
+    return frozen_tools_snapshot()
 
 
 def ollama_digest(base_url: str, model: str) -> str:
@@ -82,10 +95,29 @@ def ollama_digest(base_url: str, model: str) -> str:
 
 
 def container_image(container: str) -> str | None:
-    """The running image id, so a rebuilt image cannot pass as the same one."""
-    probe = _run(["docker", "inspect", container, "--format", "{{.Image}}"])
-    image = probe.stdout.strip()
-    return image or None
+    """Which image the Runtime runs, by the *tag this repository builds*.
+
+    Not the image id and not the repo digest. Both change on every rebuild of an
+    unchanged Dockerfile, so the routine rebuild between arms -- or a restart halfway
+    through a collection -- makes the field differ while the code is identical, and
+    the comparison then reports configuration drift that did not happen. Chasing that
+    costs the one thing this experiment cannot buy back: the collection time.
+
+    What is worth comparing is which code ran, and that is already recorded
+    separately: ``code_snapshot`` for the Runtime's source and ``tools_snapshot`` for
+    the tools. This field records *where* it ran, at the granularity a reader can
+    reproduce: the platform, the interpreter, and the image tag that ``compose.yaml``
+    builds from this checkout.
+    """
+    configured = os.getenv("AGENT_JOB_IMAGE") or os.getenv("RUNTIME_IMAGE")
+    if configured:
+        return f"image-tag:{configured}"
+    probe = _run([
+        "docker", "inspect", container,
+        "--format", "{{.Config.Image}}",
+    ])
+    tag = probe.stdout.strip()
+    return f"image-tag:{tag}" if tag else None
 
 
 def prompt_snapshot() -> str:
@@ -101,7 +133,10 @@ def prompt_snapshot() -> str:
     return f"system+{len(prompts)}-case-prompts@{digest.hexdigest()[:16]}"
 
 
-def build(ollama_url: str, model: str, container: str) -> dict:
+def build(
+    ollama_url: str, model: str, container: str,
+    *, container_image_override: str | None = None,
+) -> dict:
     configuration = {
         "code_snapshot": code_snapshot(),
         "model_digest": ollama_digest(ollama_url, model),
@@ -112,7 +147,7 @@ def build(ollama_url: str, model: str, container: str) -> dict:
         )["version"],
         "environment_snapshot": (
             f"{platform.platform()} Python-{platform.python_version()} "
-            f"image-{container_image(container) or 'unknown'}"
+            f"{container_image_override or container_image(container) or 'image-unknown'}"
         ),
         "evaluator_version": "forestry-eval-0.1",
         "sampling": {
@@ -138,6 +173,16 @@ def main() -> int:
     parser.add_argument("--ollama-url", default=os.getenv("OLLAMA_URL_HOST", "http://127.0.0.1:11434"))
     parser.add_argument("--model", default=os.getenv("OLLAMA_MODEL", "qwen3.5:4b"))
     parser.add_argument("--container", default="forestry-runtime")
+    parser.add_argument(
+        "--container-image",
+        help=(
+            "freeze the container-image field to this exact string instead of reading "
+            "the deployed image. Used to make an evidence root's configuration match "
+            "the `environment_snapshot` its traces actually recorded, which is the only "
+            "value that can be true for evidence already collected under a different "
+            "deployment string."
+        ),
+    )
     parser.add_argument("--force", action="store_true",
                         help="overwrite an existing frozen configuration")
     args = parser.parse_args()
@@ -152,7 +197,10 @@ def main() -> int:
         }, ensure_ascii=False))
         return 0
     try:
-        configuration = build(args.ollama_url, args.model, args.container)
+        configuration = build(
+            args.ollama_url, args.model, args.container,
+            container_image_override=args.container_image,
+        )
     except Exception as exc:
         print(json.dumps({"written": False, "error": f"{type(exc).__name__}: {exc}"},
                          ensure_ascii=False))

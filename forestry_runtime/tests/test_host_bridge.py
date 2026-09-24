@@ -58,7 +58,27 @@ class HostBridgeTests(unittest.TestCase):
         command = dependency_install_command(["pandas==2.3.2"])
         self.assertEqual(command[:2], ["python", "-c"])
         self.assertIn("installed-packages.json", command[2])
-        self.assertEqual(command[-1], "pandas==2.3.2")
+        # The packages travel as JSON now, because the same command also carries the
+        # system packages: a wheel can need a shared library pip cannot supply, and
+        # both kinds have to be installed in one job so one failure leaves one record.
+        self.assertEqual(json.loads(command[3]), [])
+        self.assertEqual(json.loads(command[4]), ["pandas==2.3.2"])
+
+    def test_install_command_installs_system_packages_before_python_ones(self):
+        command = dependency_install_command(["rasterio"], ["libexpat1"])
+        script = command[2]
+        self.assertEqual(json.loads(command[3]), ["libexpat1"])
+        self.assertIn("apt-get", script)
+        self.assertIn("--no-install-recommends", script)
+        # Order matters: the shared library has to be present before pip resolves a
+        # wheel that links against it.
+        self.assertLess(script.index("apt-get"), script.index("pip"))
+        self.assertIn("SYSTEM_PACKAGES=", script)
+
+    def test_install_command_accepts_a_system_only_request(self):
+        command = dependency_install_command([], ["libexpat1"])
+        self.assertIn("apt-get", command[2])
+        self.assertEqual(json.loads(command[4]), [])
 
     def test_watchdog_stops_expired_managed_container_without_client_poll(self):
         calls = []

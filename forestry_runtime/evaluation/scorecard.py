@@ -10,7 +10,13 @@ from collections import Counter
 import json
 import math
 from pathlib import Path
+import sys
 from statistics import mean
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from evaluation.rules import SCORING_RULES_VERSION  # noqa: E402
 
 
 CONFIG_FIELDS = (
@@ -53,15 +59,24 @@ def _proof(check: dict, root: Path) -> bool:
 
 
 def _summary(verdicts: list[str]) -> dict:
-    counts = Counter(verdicts)
-    total = len(verdicts)
+    """Aggregate trial verdicts over the *applicable* denominator.
+
+    ``not_applicable`` is a satisfied check that this declared condition does not
+    exercise, so it counts neither as a pass nor as an unknown: folding it into
+    either would misstate coverage. The count is reported alongside.
+    """
+    applicable = [item for item in verdicts if item != "not_applicable"]
+    counts = Counter(applicable)
+    total = len(applicable)
     if not total:
         raise ValueError("An empty denominator cannot be scored")
     lower = 100 * counts["pass"] / total
     upper = 100 * (counts["pass"] + counts["unknown"]) / total
     return {
-        "planned": total, "passed": counts["pass"], "failed": counts["fail"],
+        "planned": len(verdicts), "applicable": total,
+        "passed": counts["pass"], "failed": counts["fail"],
         "unknown": counts["unknown"],
+        "not_applicable": len(verdicts) - total,
         "evidence_coverage": (counts["pass"] + counts["fail"]) / total,
         "score": lower if not counts["unknown"] else None,
         "missing_evidence_bounds": [lower, upper],
@@ -90,6 +105,23 @@ def scorecard(suite: dict, records: list[dict], evidence_root: Path) -> dict:
         case = cases[case_id]
         if record.get("suite_version") != suite["version"]:
             raise ValueError("Suite version mismatch")
+        rules_version = record.get("scoring_rules_version")
+        if not isinstance(rules_version, str) or not rules_version.strip():
+            raise ValueError(
+                f"Record for {case_id} repeat {record.get('repeat')} carries no "
+                "scoring_rules_version.\n"
+                "  Evidence whose rules identity is unknown cannot be scored, because "
+                "re-scoring it under changed rules would silently rewrite history.\n"
+                "  It must live in its own evidence root, or be re-verified."
+            )
+        if rules_version != SCORING_RULES_VERSION:
+            raise ValueError(
+                f"Record for {case_id} repeat {record.get('repeat')} was produced under "
+                f"scoring rules {rules_version!r}, but the current rules are "
+                f"{SCORING_RULES_VERSION!r}.\n"
+                "  Historical scores stay attached to the version that produced them: "
+                "score them in their own evidence root, or re-verify them."
+            )
         if record.get("track") != case["track"]:
             raise ValueError("Evidence track mismatch")
         if case["track"] == "agent" and record.get("execution") != "real_model":
@@ -132,28 +164,45 @@ def scorecard(suite: dict, records: list[dict], evidence_root: Path) -> dict:
         if set(checks) - set(case["checks"]):
             raise ValueError("Unexpected checks: cannot silently change the contract")
         for check in checks.values():
-            if check.get("verdict") not in {"pass", "fail", "unknown"}:
-                raise ValueError("Check verdict must be pass, fail or unknown")
+            if check.get("verdict") not in {"pass", "fail", "unknown", "not_applicable"}:
+                raise ValueError(
+                    "Check verdict must be pass, fail, unknown or not_applicable"
+                )
+            if check.get("verdict") != "pass" and not str(check.get("detail") or "").strip():
+                raise ValueError("Every non-pass verdict must carry a reason")
         index[key] = record
 
     case_reports = []
     missing = []
     for case_id, case in cases.items():
+        # A case may declare extra input conditions; each contributes its own slots,
+        # which the runner lays out as consecutive trial indices.
+        conditions = max(1, len(case.get("conditions") or ["normal"]))
+        slots = suite["repeats"][case["track"]] * conditions
         trials = []
-        for repeat in range(1, suite["repeats"][case["track"]] + 1):
+        for repeat in range(1, slots + 1):
             record = index.get((case_id, repeat))
             verdict = "unknown"
             reasons = []
             if record is None:
                 reasons.append("not_run")
             else:
+                condition = record.get("condition")
                 checks = record.get("checks", {})
                 verified = {}
                 for name in case["checks"]:
                     check = checks.get(name, {})
-                    verified[name] = check.get("verdict", "unknown") if _proof(check, root) else "unknown"
+                    if not _proof(check, root):
+                        verified[name] = "unknown"
+                    else:
+                        verified[name] = check.get("verdict", "unknown")
+                    if verified[name] == "not_applicable":
+                        continue
                     if verified[name] != "pass":
-                        reasons.append(f"{name}:{verified[name]}")
+                        reasons.append(
+                            f"{name}:{verified[name]}"
+                            + (f"@{condition}" if condition else "")
+                        )
                 status = record["status"]
                 if "fail" in verified.values():
                     verdict = "fail"
@@ -162,16 +211,23 @@ def scorecard(suite: dict, records: list[dict], evidence_root: Path) -> dict:
                     reasons.append(status)
                 elif (status == "evaluated"
                       and _proof(record.get("status_evidence", {}), root)
-                      and all(value == "pass" for value in verified.values())):
+                      and all(
+                          value in {"pass", "not_applicable"}
+                          for value in verified.values()
+                      )):
                     verdict = "pass"
                 else:
                     reasons.append(status)
-            trials.append({"repeat": repeat, "verdict": verdict, "reasons": reasons})
+            entry = {"repeat": repeat, "verdict": verdict, "reasons": reasons}
+            if record is not None and record.get("condition"):
+                entry["condition"] = record["condition"]
+            trials.append(entry)
             if verdict == "unknown":
                 missing.append({"case_id": case_id, "repeat": repeat, "reasons": reasons})
         case_reports.append({
             "id": case_id, "track": case["track"], "group": case["group"],
-            "gate": bool(case.get("gate")), "trials": trials,
+            "gate": bool(case.get("gate")), "conditions": conditions,
+            "trials": trials,
             **_summary([trial["verdict"] for trial in trials]),
         })
 

@@ -104,6 +104,16 @@
 
 已落地：本协议、suite.json 的 18 个任务契约、scorecard.py 的确定性聚合/容差比较、计分器反例测试。计分器拒绝错误轨道、配置混杂、重复运行槽位、额外次数以及无证据 pass；未提供记录时报告 incomplete。它不自动验证语义/视觉，也不把旧烟测结果导入新分数。
 
+当前 verifier 覆盖（2026 年本轮）：agent 轨道 8/12 个 case 的 24 项检查已实现并各自有反例测试——core.paths、core.csv、core.repair、core.changed_input、forestry.inventory、forestry.product_qa、forestry.chm、forestry.ndvi；engineering 与 ui 轨道的 6 个 case 共 8 项检查此前已实现。合计 32/43 项检查。`tests/test_evaluation_pipeline.py` 会逐 case 断言「声明 = suite 检查 = 可导入的 verifier」，因此新增 case 若检查名无人实现会立即失败，而不再表现为整题 unknown。
+
+尚未实现的是 knowledge_context 组的 4 个 case 共 11 项检查。它们不是普通的单轮采集，需要先补三样基础设施：
+
+1. **项目与知识源播种**：`POST /projects`、`POST /projects/{id}/knowledge/sources`（202 异步索引）、`PUT /sessions/{chat_id}/project` 已经存在，但 collector 只做「上传附件 + 一次 POST /runs」。需要一段可复用的播种步骤，并且轮询索引完成后再提问。
+2. **多轮采集驱动**：knowledge.memory 要求在保存/更新/删除记忆后继续同一 Run（`POST /runs/{run_id}/messages`），knowledge.context 要求长历史触发真实压缩后继续未完成目标。现有 `collect_trial` 只发一条消息，`evaluation/collect/` 需要增加多轮版本。
+3. **压缩证据**：compact `Step/checkpoint` 证明实际触发压缩。`normalize_trace` 已记录 `checkpoint_state`，但需要确认事件流里有可判定的压缩标记；没有就只能记 unknown，不能凭回答长度推断。
+
+在这些就绪之前，`python evaluation/scorecard.py` 会把 knowledge_context 组报为 incomplete 并保留在分母里，这是预期行为，不是回归。
+
 接入顺序：①按 case 冻结 fixture/gold 与独立 verifier；②真实部署 API 采集全量事件和选定产物；③真实浏览器采集 UI；④运行 12×3 次 Qwen pilot，输出第一版分组基线；⑤根据失败分布补 holdout 并做 A/B。suite 中的 acceptance 是待实现/复核的具体判据，不表示全部已自动运行。
 
 离线查看当前覆盖：`python evaluation/scorecard.py`。使用证据包：`python evaluation/scorecard.py --records evaluation/work/baseline/records.json`。标准输出为 JSON，可由调用方保存。缺少记录返回退出码 2；门禁失败 1；完整测量返回 0（仅表示测量完成，不代表发布合格）。

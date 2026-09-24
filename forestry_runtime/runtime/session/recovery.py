@@ -42,10 +42,17 @@ class RecoveryCoordinatorMixin:
                     "count": uncertain,
                 }, turn_id)
             observations = []
+            observation_budget = max(
+                5.0, float(os.getenv("JOB_OBSERVATION_SECONDS", "45"))
+            )
             for ref in self.store.jobs(run["id"]):
                 try:
-                    status = await self._job_operation(
-                        run, "job_status", ref["job_id"]
+                    # Bounded per job: one unresponsive reference must not hold the
+                    # whole reconciliation pass, and reconciliation must not hold
+                    # service startup.
+                    status = await self._job_observation(
+                        run, "job_status", ref["job_id"],
+                        budget=observation_budget,
                     )
                 except Exception as exc:
                     status = {
@@ -74,6 +81,27 @@ class RecoveryCoordinatorMixin:
             else:
                 self.store.set_state(run["id"], "paused")
 
+    async def _job_observation(
+        self, run: dict, operation: str, job_id: str, *, budget: float, **kwargs,
+    ) -> dict:
+        """One job observation that cannot stall the caller.
+
+        Recovery iterates every durable job reference. A single unresponsive probe
+        used to block the whole pass -- and, at startup, the whole service. A
+        timed-out probe is reported as an unknown, non-terminal observation, which
+        keeps the Run in ``waiting`` (the honest state) instead of failing it.
+        """
+        try:
+            return await asyncio.wait_for(
+                self._job_operation(run, operation, job_id, **kwargs), timeout=budget,
+            )
+        except asyncio.TimeoutError:
+            return {
+                "job_id": job_id, "state": "unknown", "terminal": False,
+                "observation_error": True, "observation_timeout": True,
+                "error": f"job observation exceeded {budget:.0f}s",
+            }
+
     async def _monitor_recovered(
         self, run_id: str, owner: str, chat_id: str, active: list[dict],
         turn_id: str | None = None,
@@ -81,15 +109,16 @@ class RecoveryCoordinatorMixin:
         offsets = {item["job_id"]: int(item.get("offset", 0)) for item in active}
         states = {item["job_id"]: item.get("state") for item in active}
         interval = max(1, int(os.getenv("RECOVERY_POLL_SECONDS", "5")))
+        budget = max(5.0, float(os.getenv("JOB_OBSERVATION_SECONDS", "45")))
         try:
             with self.sessions.hold(chat_id):
                 while offsets and not self.store.is_cancelled(run_id):
                     for job_id in list(offsets):
                         try:
                             run = self.store.get(run_id, owner)
-                            status = await self._job_operation(
+                            status = await self._job_observation(
                                 run, "job_status", job_id,
-                                offset=offsets[job_id],
+                                budget=budget, offset=offsets[job_id],
                             )
                         except Exception as exc:
                             status = {
@@ -127,8 +156,12 @@ class RecoveryCoordinatorMixin:
                                 run, "job_status", ref["job_id"]
                             )
                             if not status.get("terminal"):
+                                # The user asked for cancellation, so installations
+                                # may be stopped too; the refusal only applies to
+                                # Runtime-initiated slot housekeeping.
                                 status = await self._job_operation(
-                                    run, "job_cancel", ref["job_id"]
+                                    run, "job_cancel", ref["job_id"],
+                                    user_initiated=True,
                                 )
                             self.store.append(run_id, {
                                 "type": "job_reconciled", **status,

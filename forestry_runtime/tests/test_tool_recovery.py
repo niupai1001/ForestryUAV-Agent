@@ -10,7 +10,7 @@ import uuid
 from pydantic_ai.messages import ToolReturnPart
 from pydantic_ai.models.function import DeltaThinkingPart, DeltaToolCall, FunctionModel
 
-from runtime.agent import _report_only_requested, _tools, stream_agent
+from runtime.agent import _tools, stream_agent
 from runtime.storage import Store
 from runtime.capabilities.domain_runtime import DEFINITIONS, RemoteSensingTools
 from runtime.capabilities.runtime import GENERIC_DEFINITIONS
@@ -23,10 +23,22 @@ def tool_call(name, arguments, call_id):
 
 
 class ToolRecoveryTests(unittest.TestCase):
-    def test_complete_report_lock_distinguishes_inspection_from_requested_action(self):
-        self.assertTrue(_report_only_requested("检查已有成果并判断是否可生成CHM"))
-        self.assertFalse(_report_only_requested("检查已有成果，然后生成CHM"))
-        self.assertFalse(_report_only_requested("检查影像并计算NDVI"))
+    def test_tools_stay_available_after_a_complete_inspection_report(self):
+        """A finished sub-task must never remove the model's ability to keep acting.
+
+        The Runtime used to inject a `prepare` gate that returned `None` for every
+        tool once an inventory reported `observation_complete`, which removed the
+        next request's entire tool set. Subtask completion is not user-goal
+        completion, so no tool may be withdrawn for that reason.
+        """
+        with patch.dict("os.environ", {"REMOTE_SENSING_PLUGINS_ENABLED": "true"}):
+            tools = _tools(True, "检查已有成果并判断是否可生成CHM")[0]
+        self.assertTrue(tools)
+        for tool in tools:
+            self.assertFalse(
+                hasattr(tool, "prepare") and getattr(tool, "prepare") is not None,
+                f"{tool.name} carries a completeness gate that can withdraw tool definitions",
+            )
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -163,6 +175,40 @@ class ToolRecoveryTests(unittest.TestCase):
         )
         self.assertEqual(events[-2]["content"], "已读取实际存在的文件")
 
+    def test_unavailable_named_input_gets_one_final_answer_turn(self):
+        requested = "data/oam_tcd/grounded_v1_1_public/oam-01.tif"
+        calls = 0
+
+        async def model(messages, info):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                yield {0: tool_call("artifacts_inspect", {
+                    "scope": "workspace", "path": requested,
+                }, "call_input")}
+            else:
+                self.assertEqual(info.function_tools, [])
+                yield "请上传 oam-01.tif，或提供其完整本地路径以供读取。"
+
+        async def run():
+            return [event async for event in stream_agent(
+                self.store, "alice", [],
+                [{"role": "user", "content": requested + "，帮我提取树冠分布。"}],
+                model=FunctionModel(stream_function=model),
+                workspace_registry=self.registry,
+            )]
+
+        events = asyncio.run(run())
+        failures = [event["result"] for event in events if event["type"] == "tool_end"]
+        self.assertEqual(calls, 2)
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0]["failure"]["code"], "requested_input_unavailable")
+        self.assertEqual(failures[0]["failure"]["requested_path"], requested)
+        self.assertIn("请上传", events[-2]["content"])
+        self.assertEqual(events[-1]["type"], "done")
+        self.assertEqual(events[-1]["state"], "paused")
+        self.assertEqual(events[-1]["blocked_by"], "missing_input")
+
     def test_thinking_is_forwarded_by_pydantic_events(self):
         async def model(messages, info):
             yield {0: DeltaThinkingPart(content="inspect")}
@@ -195,16 +241,19 @@ class ToolRecoveryTests(unittest.TestCase):
         async def model(messages, info):
             nonlocal turn
             turn += 1
-            yield {0: tool_call("fs_read", {"path": "missing.txt"}, f"call_{turn}")}
+            if turn <= 3:
+                yield {0: tool_call("fs_read", {"path": "missing.txt"}, f"call_{turn}")}
+            else:
+                yield "该文件未找到，当前没有新的路径证据。"
 
         events = self.run_with(model)
         failures = [event for event in events if event["type"] == "tool_end"]
         self.assertEqual(len(failures), 3)
         self.assertEqual(failures[-1]["result"]["failure"]["code"], "duplicate_failed_call")
         self.assertEqual(events[-1]["state"], "paused")
-        self.assertIn("连续三次", events[-2]["content"])
+        self.assertIn("没有新的路径证据", events[-2]["content"])
 
-    def test_known_invalid_source_path_is_not_retried_through_another_tool(self):
+    def test_source_path_failure_allows_different_tool_to_gather_evidence(self):
         turn = 0
 
         async def model(messages, info):
@@ -237,8 +286,8 @@ class ToolRecoveryTests(unittest.TestCase):
             events = self.run_with(model)
 
         failures = [event["result"] for event in events if event["type"] == "tool_end"]
-        self.assertEqual(execute.call_count, 1)
-        self.assertEqual(failures[1]["failure"]["code"], "known_invalid_source_path")
+        self.assertEqual(execute.call_count, 2)
+        self.assertEqual(failures[1]["failure"]["reason"], "not_found")
         self.assertEqual(failures[1]["failure"]["suggested_path"], "1605白桦")
 
     def test_domain_retry_requires_model_to_use_exact_observed_path(self):

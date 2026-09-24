@@ -1,0 +1,114 @@
+{
+  "_comment": "Frozen, evaluation-side reference for tools_snapshot. Authored independently of runtime.kernel.registry at freeze time; update deliberately alongside a new evidence root. See evaluation/tool_contract.py.",
+  "version": "tool-contract-1",
+  "tools": [
+    {
+      "name": "artifacts_inspect",
+      "side_effect": "none",
+      "equivalent": "inspect_artifact",
+      "returns": "EvidenceArtifact"
+    },
+    {
+      "name": "artifacts_preview",
+      "side_effect": "file_write",
+      "equivalent": "preview_artifact",
+      "returns": "ImageArtifact"
+    },
+    {
+      "name": "code_run",
+      "side_effect": "durable_job",
+      "equivalent": "execute_code",
+      "returns": "EvidenceArtifact"
+    },
+    {
+      "name": "dependency_install",
+      "side_effect": "durable_job",
+      "equivalent": "install_dependency",
+      "returns": "EvidenceArtifact"
+    },
+    {
+      "name": "domain_guide",
+      "side_effect": "none",
+      "equivalent": "read_guide",
+      "returns": "TextArtifact"
+    },
+    {
+      "name": "environment_check",
+      "side_effect": "none",
+      "equivalent": "check_environment",
+      "returns": "EvidenceArtifact"
+    },
+    {
+      "name": "fs_edit",
+      "side_effect": "file_write",
+      "equivalent": "edit_file",
+      "returns": "TextArtifact"
+    },
+    {
+      "name": "fs_list",
+      "side_effect": "none",
+      "equivalent": "inspect_filesystem",
+      "returns": "EvidenceArtifact"
+    },
+    {
+      "name": "fs_read",
+      "side_effect": "none",
+      "equivalent": "read_text",
+      "returns": "TextArtifact"
+    },
+    {
+      "name": "fs_search",
+      "side_effect": "none",
+      "equivalent": "search_text",
+      "returns": "EvidenceArtifact"
+    },
+    {
+      "name": "fs_write",
+      "side_effect": "file_write",
+      "equivalent": "write_file",
+      "returns": "TextArtifact"
+    },
+    {
+      "name": "job_cancel",
+      "side_effect": "durable_job",
+      "equivalent": "cancel_job",
+      "returns": "EvidenceArtifact"
+    },
+    {
+      "name": "job_log",
+      "side_effect": "file_write",
+      "equivalent": "observe_job",
+      "returns": "TextArtifact"
+    },
+    {
+      "name": "job_status",
+      "side_effect": "none",
+      "equivalent": "observe_job",
+      "returns": "EvidenceArtifact"
+    },
+    {
+      "name": "job_wait",
+      "side_effect": "none",
+      "equivalent": "observe_job",
+      "returns": "EvidenceArtifact"
+    },
+    {
+      "name": "knowledge_read",
+      "side_effect": "none",
+      "equivalent": "read_knowledge",
+      "returns": "TextArtifact"
+    },
+    {
+      "name": "knowledge_search",
+      "side_effect": "none",
+      "equivalent": "search_knowledge",
+      "returns": "EvidenceArtifact"
+    },
+    {
+      "name": "tool_result_read",
+      "side_effect": "none",
+      "equivalent": "read_tool_result",
+      "returns": "EvidenceArtifact"
+    }
+  ]
+}

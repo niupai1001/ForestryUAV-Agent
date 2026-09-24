@@ -24,6 +24,7 @@ from scipy.spatial import cKDTree
 from scipy.stats import qmc
 from scipy import ndimage as ndi
 
+from ...kernel.protocol import ToolPreconditionError
 from ...storage import AssetError
 from ..uav_audit.audit import GEOSPATIAL_SUFFIXES, IMAGE_SUFFIXES
 
@@ -556,6 +557,19 @@ class RasterCapability:
                 })
 
             projected = bool(src.crs and src.crs.is_projected)
+            dataset_tags = {str(key): str(value) for key, value in src.tags().items()}
+            vertical_reference = next((
+                dataset_tags[key] for key in (
+                    'vertical_reference', 'vertical_datum', 'vert_datum',
+                    'VERTICAL_DATUM', 'VERTICAL_REFERENCE',
+                ) if dataset_tags.get(key)
+            ), None)
+            elevation_units = next((
+                dataset_tags[key] for key in (
+                    'vertical_units', 'elevation_units',
+                    'ELEVATION_UNITS', 'VERTICAL_UNITS',
+                ) if dataset_tags.get(key)
+            ), None)
             pixel_area = (
                 abs(
                     src.transform.a * src.transform.e
@@ -586,6 +600,16 @@ class RasterCapability:
                     src.crs.linear_units + '^2' if projected else None
                 ),
                 'roles_from_metadata': roles,
+                # The recorded geospatial metadata, verbatim.  Downstream tools
+                # (the CHM builder in particular) require values that only exist
+                # here -- a vertical datum, an elevation unit -- and a mismatch is
+                # reported as a refusal.  Without this block the Agent can see that
+                # its call was rejected but has no way to learn the value the
+                # environment will accept, which turns a data-quality check into a
+                # guessing game.
+                'dataset_tags': dataset_tags,
+                'vertical_reference': vertical_reference,
+                'elevation_units': elevation_units,
                 'band_statistics': band_statistics,
                 'red_nir_pair': pair if pair_available else None,
                 'alpha_analysis': (
@@ -669,7 +693,14 @@ class RasterCapability:
                             observed.size - within.size
                         )
                 if valid_count == 0:
-                    raise AssetError('NDVI raster contains no valid pixels')
+                    raise ToolPreconditionError(
+                        'NDVI raster contains no valid pixels; canopy segmentation cannot run.',
+                        code='no_valid_ndvi_pixels', reason='inapplicable',
+                        missing=[{'kind': 'valid_ndvi_pixels', 'asset_id': asset_id}],
+                        checked_scope={'asset_id': asset_id, 'bands': [1],
+                                       'windows_scanned': 'all'},
+                        valid_pixels=0, width=src.width, height=src.height,
+                    )
 
                 if threshold is None:
                     selected_threshold = self._otsu_threshold(histogram, edges)

@@ -86,6 +86,23 @@ def _relative(value: str) -> Path:
     return Path(*[part for part in pure.parts if part not in ("", ".")])
 
 
+class BridgeRequestError(AssetError):
+    """Host-bridge rejection that preserves the machine-readable reason.
+
+    A full execution slot is a retryable condition, while an invalid grant is
+    not.  Keeping the code lets a caller return ``resource_busy`` instead of
+    reporting an unknown submission outcome.
+    """
+
+    def __init__(self, message: str, *, status_code: int = 0, code: str | None = None,
+                 retryable: bool = False, details: dict | None = None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
+        self.retryable = retryable
+        self.details = details or {}
+
+
 class BridgeClient:
     def __init__(self):
         self.url = os.getenv("HOST_BRIDGE_URL", "http://host.docker.internal:8011").rstrip("/")
@@ -109,11 +126,20 @@ class BridgeClient:
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as exc:
+            detail = exc.response.text
+            payload: dict = {}
             try:
-                detail = exc.response.json().get("error") or exc.response.text
+                payload = exc.response.json()
+                detail = payload.get("error") or detail
             except Exception:
-                detail = exc.response.text
-            raise AssetError(f"Host bridge rejected the request: {detail}") from exc
+                payload = {}
+            raise BridgeRequestError(
+                f"Host bridge rejected the request: {detail}",
+                status_code=exc.response.status_code,
+                code=payload.get("code"),
+                retryable=bool(payload.get("retryable")),
+                details=payload,
+            ) from exc
         except httpx.HTTPError as exc:
             raise AssetError("Host bridge is unavailable") from exc
 
@@ -128,7 +154,9 @@ class BridgeClient:
 
 
 class SourcePathError(AssetError):
-    def __init__(self, message: str, *, source_id: str, requested_path: str, suggested_path: str):
+    def __init__(self, message: str, *, source_id: str, requested_path: str,
+                 suggested_path: str | None = None, argument_key: str = "folder_path",
+                 kind: str = "directory"):
         super().__init__(message)
         self.failure_details = {
             "code": "source_path_not_found",
@@ -136,11 +164,13 @@ class SourcePathError(AssetError):
             "side_effects": "none",
             "source_id": source_id,
             "requested_path": requested_path,
+            "checked_scope": {"source_id": source_id, "path": requested_path},
+            "missing": [{"kind": kind, "path": requested_path}],
+            "candidates": ([{"source_id": source_id, "path": suggested_path}]
+                           if suggested_path else []),
             "suggested_path": suggested_path,
-            "suggested_arguments": {
-                "source_id": source_id,
-                "folder_path": suggested_path,
-            },
+            "suggested_arguments": ({"source_id": source_id, argument_key: suggested_path}
+                                    if suggested_path else None),
         }
 
 
@@ -206,7 +236,21 @@ class WorkspaceRegistry:
         if not is_within(target, root):
             raise AssetError("Path leaves the managed workspace")
         if require_exists and not target.exists():
-            raise AssetError("Workspace path does not exist")
+            # A bare AssetError is a generic class name, which the reason vocabulary
+            # rightly refuses to read as a diagnosis -- so this failure had no
+            # identity, and repeated attempts at it could not be recognised as one
+            # obstacle. Naming the reason and the path makes the same failure
+            # comparable across attempts. Observed against a real Run, where five
+            # such failures in a row counted as five fresh situations.
+            error = AssetError("Workspace path does not exist")
+            error.failure_details = {
+                "reason": "not_found",
+                "requested_path": raw,
+                "checked_scope": {"scope": "workspace", "path": raw},
+                "operation_started": False,
+                "side_effects": "none",
+            }
+            raise error
         return target
 
     def host_workspace(self, store):
@@ -281,7 +325,9 @@ class WorkspaceRegistry:
             ])
         try:
             resolved = self.bridge.resolve(str(candidate))
-        except AssetError:
+        except BridgeRequestError as exc:
+            if exc.code != "path_not_found":
+                raise
             suggestion = self.suggest_grant_directory(grant, value)
             if suggestion:
                 raise SourcePathError(
@@ -289,7 +335,11 @@ class WorkspaceRegistry:
                     source_id=grant["id"], requested_path=value,
                     suggested_path=suggestion,
                 )
-            raise
+            raise SourcePathError(
+                "Source directory was not found under the authorized grant.",
+                requested_path=value,
+                source_id=grant["id"],
+            ) from exc
         if resolved.get("type") != "directory":
             suggestion = self.suggest_grant_directory(grant, value)
             if suggestion:

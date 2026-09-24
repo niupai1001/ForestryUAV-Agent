@@ -1,4 +1,4 @@
-"""Verify one collected forestry.ndvi evidence package and emit a scorecard record."""
+﻿"""Verify one collected forestry.ndvi evidence package and emit a scorecard record."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import Verdict, save_verdict, status_for_terminal
+from ..rules import SCORING_RULES_VERSION
 from .ndvi import (
     compare_ndvi_grid_mask, compare_ndvi_pixels, reported_facts_match_artifact,
 )
@@ -16,6 +17,7 @@ from .ndvi import (
 
 def verify_trial(
     trial: Path, configuration: dict, repeat: int, *, gold: Path | None = None,
+    case_id: str = "forestry.ndvi",
 ) -> dict[str, Any]:
     gold = gold or (
         Path(__file__).resolve().parents[1] / "fixtures" / "gold" / "forestry_ndvi.json"
@@ -54,6 +56,7 @@ def verify_trial(
     }
     return {
         "suite_version": "forestry-eval-0.1",
+        "scoring_rules_version": SCORING_RULES_VERSION,
         "case_id": "forestry.ndvi",
         "track": "agent",
         "execution": "real_model",

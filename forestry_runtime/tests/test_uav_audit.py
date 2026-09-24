@@ -27,6 +27,23 @@ def image_with_xmp(path: Path, capture: str, band: str) -> None:
 
 
 class UavAuditTests(unittest.TestCase):
+    def test_nonrecursive_empty_audit_names_the_unchecked_child_scope(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            child = root / "1605白桦"
+            child.mkdir()
+            image_with_xmp(child / "image.jpg", "capture-1", "Red")
+            service = UavInspectionService(
+                mapper=InputPathMapper(root, str(root)), temp_root=root,
+            )
+            result = service.inspect_folder(str(root), recursive=False)
+            self.assertEqual(result["outcome"], "empty")
+            self.assertIsNone(result["control_verified"])
+            self.assertEqual(result["child_directories"], ["1605白桦"])
+            self.assertFalse(result["checked_scope"]["recursive"])
+            recursive = service.inspect_folder(str(root), recursive=True)
+            self.assertEqual(recursive["image_file_count"], 1)
+
     def test_multispectral_audit_uses_metadata_without_starting_a_backend(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

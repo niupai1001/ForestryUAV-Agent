@@ -5,27 +5,9 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from shared.outcome import failure_category, normalize_result
 
-FAILURE_TAXONOMY = {
-    ("arguments", "invalid_arguments"): "tool_protocol",
-    ("preconditions", "invalid_arguments"): "tool_protocol",
-    ("preconditions", "source_path_not_found"): "path_grounding",
-    ("preconditions", "known_invalid_source_path"): "path_grounding",
-    ("agent_control", "duplicate_failed_call"): "premature_stop",
-    ("recovery", "action_outcome_unsettled"): "input_checkpoint",
-    ("preconditions", "not_ready"): "data_semantics",
-}
-
-
-def failure_category(failure: dict[str, Any] | None) -> str | None:
-    if not failure:
-        return None
-    stage = str(failure.get("stage") or "")
-    code = str(failure.get("code") or "")
-    return FAILURE_TAXONOMY.get(
-        (stage, code),
-        "algorithm_numeric" if stage == "execution" else "unknown",
-    )
+MAX_RESULT_CHARS = 4000
 
 
 def _artifact_ids(result: Any) -> list[str]:
@@ -44,6 +26,25 @@ def _artifact_ids(result: Any) -> list[str]:
 
     visit(result)
     return list(dict.fromkeys(found))
+
+
+def _excerpt(result: Any, *, limit: int) -> Any:
+    """Bound a tool result so the trace record stays reviewable.
+
+    JSON is preserved rather than stringified so a verifier can still read fields
+    such as ``exit_code`` or ``stderr``; only the leaf strings are truncated.
+    """
+    if result is None:
+        return None
+    if isinstance(result, str):
+        return result[:limit] + ("\u2026<truncated>" if len(result) > limit else "")
+    if isinstance(result, dict):
+        return {str(key): _excerpt(value, limit=limit) for key, value in result.items()}
+    if isinstance(result, list):
+        return [_excerpt(value, limit=limit) for value in result[:200]]
+    if isinstance(result, (int, float, bool)):
+        return result
+    return _excerpt(str(result), limit=limit)
 
 
 def normalize_trace(
@@ -91,6 +92,8 @@ def normalize_trace(
             if action is None:
                 continue
             result = event.get("result")
+            if isinstance(result, dict):
+                result = normalize_result(result)
             failure = event.get("failure")
             if failure is None and isinstance(result, dict):
                 failure = result.get("failure")
@@ -99,6 +102,7 @@ def normalize_trace(
                 outcome_ok = result.get("outcome_ok", result.get("ok"))
             action.update({
                 "status": "success" if outcome_ok is not False else "failure",
+                "outcome": result.get("outcome") if isinstance(result, dict) else None,
                 "latency_ms": (
                     event.get("duration_ms")
                     if event.get("duration_ms") is not None
@@ -109,7 +113,23 @@ def normalize_trace(
                 ),
                 "artifact_ids": _artifact_ids(result),
                 "failure": failure,
+                "failure_reason": failure.get("reason") if isinstance(failure, dict) else None,
+                "job_failure_reason": (
+                    ((result.get("data") or {}).get("job_failure") or {}).get("reason")
+                    if isinstance(result, dict) and isinstance(result.get("data"), dict)
+                    else None
+                ),
+                "control_verified": (
+                    result.get("control_verified", (result.get("data") or {}).get("control_verified"))
+                    if isinstance(result, dict) and isinstance(result.get("data"), dict)
+                    else None
+                ),
                 "failure_category": failure_category(failure),
+                # Bounded, because a single fs_read result can be tens of kilobytes.
+                # Without any of the result the trace cannot show what a tool actually
+                # reported: a sandboxed snippet that raises still completes the call,
+                # so the error text is the only record that the failure happened.
+                "result_excerpt": _excerpt(result, limit=MAX_RESULT_CHARS),
             })
         elif kind == "done":
             for artifact in event.get("artifacts") or []:
@@ -141,4 +161,4 @@ def normalize_trace(
     }
 
 
-__all__ = ["FAILURE_TAXONOMY", "failure_category", "normalize_trace"]
+__all__ = ["failure_category", "normalize_trace"]

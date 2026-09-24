@@ -1,0 +1,131 @@
+{
+  "version": "capability_ndvi-gap-v1",
+  "condition": "gap",
+  "source": "scene.tif",
+  "fixture_files": [
+    "scene.tif"
+  ],
+  "band_roles": null,
+  "band_descriptions_present": false,
+  "scale": 0.0001,
+  "offset": 0.0,
+  "crs": "EPSG:32650",
+  "transform": [
+    500000.0,
+    0.5,
+    0.0,
+    3100000.0,
+    0.0,
+    -0.5
+  ],
+  "shape": [
+    4,
+    4
+  ],
+  "red": [
+    [
+      120,
+      240,
+      0,
+      60
+    ],
+    [
+      300,
+      0,
+      150,
+      90
+    ],
+    [
+      210,
+      330,
+      30,
+      180
+    ],
+    [
+      45,
+      255,
+      105,
+      195
+    ]
+  ],
+  "nir": [
+    [
+      480,
+      240,
+      0,
+      300
+    ],
+    [
+      300,
+      0,
+      450,
+      210
+    ],
+    [
+      30,
+      330,
+      390,
+      180
+    ],
+    [
+      255,
+      45,
+      315,
+      195
+    ]
+  ],
+  "nodata_index_cell": [
+    2,
+    3
+  ],
+  "expected_ndvi": [
+    [
+      0.6,
+      0.0,
+      null,
+      0.6666666667
+    ],
+    [
+      0.0,
+      null,
+      0.5,
+      0.4
+    ],
+    [
+      -0.75,
+      0.0,
+      0.8571428571,
+      null
+    ],
+    [
+      0.7,
+      -0.7,
+      0.5,
+      0.0
+    ]
+  ],
+  "numeric_tolerance": {
+    "abs": 1e-06,
+    "rel": 1e-06
+  },
+  "expected_facts": {
+    "valid_pixel_count": 13,
+    "zero_denominator_pixel_count": 2,
+    "mean": 0.2133699634,
+    "output_shape": [
+      4,
+      4
+    ]
+  },
+  "gap_keywords": [
+    "波段",
+    "band",
+    "描述",
+    "description",
+    "元数据",
+    "metadata"
+  ],
+  "file_sha256": {
+    "scene.tif": "79ec71bbf1add451f270a4f032e381ef3ab23003560759cb81507108bffbd0ba"
+  }
+}

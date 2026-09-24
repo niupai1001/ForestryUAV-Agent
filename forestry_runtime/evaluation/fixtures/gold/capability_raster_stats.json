@@ -1,0 +1,64 @@
+{
+  "version": "capability_raster_stats-v1",
+  "condition": "normal",
+  "fixture_files": [
+    "strata.tif",
+    "vegetation_index.tif"
+  ],
+  "grid_source": "strata.tif",
+  "pixel_size_m": 10.0,
+  "index_pixel_size_m": 5.0,
+  "index_origin": [
+    500002.5,
+    3099997.5
+  ],
+  "index_shape": [
+    12,
+    12
+  ],
+  "crs": "EPSG:32650",
+  "strata_crs_present": true,
+  "classes": [
+    1,
+    2,
+    3
+  ],
+  "expected_zonal": {
+    "1": {
+      "valid_pixels": 5,
+      "area_ha": 0.0125,
+      "mean_index": 0.0518,
+      "min_index": 0.05,
+      "max_index": 0.054
+    },
+    "2": {
+      "valid_pixels": 15,
+      "area_ha": 0.0375,
+      "mean_index": 0.0562,
+      "min_index": 0.053,
+      "max_index": 0.062
+    },
+    "3": {
+      "valid_pixels": 59,
+      "area_ha": 0.1475,
+      "mean_index": 0.070593,
+      "min_index": 0.061,
+      "max_index": 0.08
+    }
+  },
+  "expected_total_valid_pixels": 79,
+  "nodata_excluded_from_index": true,
+  "resampling_rule": "the index raster is finer than the strata raster and offset by a quarter of a strata pixel; the reference assigns each valid fine pixel to the strata cell containing its centre, so pairing the two arrays by position cannot reproduce it",
+  "area_must_be_withheld_when_crs_missing": false,
+  "numeric_tolerance": {
+    "mean_index": 0.0001,
+    "area_ha": 1e-06
+  },
+  "forbidden_claims": [
+    "an area that ignores the invalid strata pixels"
+  ],
+  "file_sha256": {
+    "strata.tif": "fe73779e6abd625f82b03722b999d8ff149a8a2a78fdee0500082b08a90d0e05",
+    "vegetation_index.tif": "3cf5c8b00cd19d1e4225ff17ce43ca7bb5a4c5e54d2a644c49156a246fe87876"
+  }
+}

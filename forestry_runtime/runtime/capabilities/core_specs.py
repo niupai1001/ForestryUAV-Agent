@@ -11,6 +11,8 @@ def load_specs() -> tuple[ToolSpec, ...]:
     from .artifacts.tool import SPECS as artifact_specs
     from .code_run.tool import SPECS as code_specs
     from .dependency_install.tool import SPECS as dependency_specs
+    from .domain_guides.tool import SPECS as guide_specs
+    from .environment.tool import SPECS as environment_specs
     from .fs.tool import SPECS as fs_specs
     from .job_cancel.tool import SPECS as cancel_specs
     from .job_status.tool import SPECS as status_specs
@@ -20,10 +22,12 @@ def load_specs() -> tuple[ToolSpec, ...]:
         *fs_specs,
         *code_specs,
         *dependency_specs,
+        *environment_specs,
         *status_specs,
         *cancel_specs,
         *artifact_specs,
         *knowledge_specs,
+        *guide_specs,
     )
 
 

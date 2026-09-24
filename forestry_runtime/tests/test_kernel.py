@@ -19,14 +19,22 @@ from runtime.capabilities.runtime import GENERIC_DEFINITIONS, _REGISTRY, _SPECS
 
 EXPECTED_CORE_NAMES = (
     "fs_list", "fs_read", "fs_search", "fs_write", "fs_edit",
-    "code_run", "dependency_install", "job_status", "job_cancel",
+    "code_run", "dependency_install", "environment_check",
+    "job_status", "job_wait", "job_log", "job_cancel",
     "tool_result_read", "artifacts_inspect", "artifacts_preview",
-    "knowledge_search", "knowledge_read",
+    "knowledge_search", "knowledge_read", "domain_guide",
 )
 EXPECTED_LEGACY_CONTRACT_SHA256 = (
-    "3f13edae22f3d0edf3f22863a5bf19621edb34ffde47ef29453e1d18e5213cd2"
+    # Updated deliberately, twice: `dependency_install` gained a `system_packages`
+    # field (a wheel can need a shared library pip cannot supply), and `domain_guide`
+    # gained wording that a guide id is a document name rather than a tool name -- a
+    # Run once called it 124 times treating the id as a capability.
+    "fb48a10cfb708cdcaa8fb28f8b551f2b983fbb8e4767a4e255dff6ee15a18313"
 )
-EXPECTED_VISIBLE_SCHEMA_CHARS = 7506
+# Raised by the `system_packages` field on `dependency_install` and the `guide_id`
+# wording on `domain_guide`, which are the only contract changes here; the visible
+# tool count is unchanged.
+EXPECTED_VISIBLE_SCHEMA_CHARS = 10384
 
 
 class KernelContractTests(unittest.TestCase):
@@ -48,7 +56,7 @@ class KernelContractTests(unittest.TestCase):
         self.assertIs(compatibility_inline_schema, kernel_inline_schema)
         self.assertEqual(tuple(GENERIC_DEFINITIONS), EXPECTED_CORE_NAMES)
         self.assertEqual(_REGISTRY.as_legacy_definitions(), GENERIC_DEFINITIONS)
-        self.assertEqual(len(_SPECS), 14)
+        self.assertEqual(len(_SPECS), 18)
         self.assertTrue(all(isinstance(spec, ToolSpec) for spec in _SPECS))
 
         payload = [
@@ -67,7 +75,7 @@ class KernelContractTests(unittest.TestCase):
         self.assertEqual(digest, EXPECTED_LEGACY_CONTRACT_SHA256)
 
         _, visible_count, visible_schema_chars = _tools(True)
-        self.assertEqual(visible_count, 14)
+        self.assertEqual(visible_count, 18)
         self.assertEqual(visible_schema_chars, EXPECTED_VISIBLE_SCHEMA_CHARS)
 
     def test_failure_taxonomy_only_maps_observable_categories(self):
@@ -77,7 +85,7 @@ class KernelContractTests(unittest.TestCase):
         )
         self.assertEqual(
             failure_category({"stage": "execution", "code": "ValueError"}),
-            "algorithm_numeric",
+            "unknown",
         )
         self.assertEqual(
             failure_category({"stage": "unexpected", "code": "mystery"}),

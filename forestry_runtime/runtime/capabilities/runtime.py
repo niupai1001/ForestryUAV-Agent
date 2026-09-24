@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ..kernel.protocol import execution_failure, parse_arguments
+from ..kernel.protocol import ToolPreconditionError, execution_failure, normalize_result, parse_arguments
 from ..kernel.registry import build_registry, install_runtime_registry
 from ..storage import AssetError
 from ..store.executions import ExecutionRecords
@@ -13,6 +13,8 @@ from .artifacts.service import ArtifactCapability
 from .code_run.service import CodeRunCapability
 from .core_specs import load_specs
 from .dependency_install.service import DependencyInstallCapability
+from .domain_guides.service import DomainGuideCapability
+from .environment.service import EnvironmentCapability
 from .fs.service import FilesystemCapability
 from .job_cancel.service import JobCancelCapability
 from .job_status.service import JobStatusCapability
@@ -27,12 +29,12 @@ GENERIC_DEFINITIONS = _REGISTRY.as_legacy_definitions()
 
 class RuntimeTools(
     FilesystemCapability, ArtifactCapability, KnowledgeCapability,
-    CodeRunCapability, DependencyInstallCapability, JobStatusCapability,
-    JobCancelCapability,
+    DomainGuideCapability, CodeRunCapability, DependencyInstallCapability,
+    EnvironmentCapability, JobStatusCapability, JobCancelCapability,
 ):
     def __init__(self, store, owner: str, asset_ids: list[str],
                  workspace_registry: WorkspaceRegistry, latest_user: str = "",
-                 memory=None):
+                 memory=None, cancelled=None, pause_requested=None):
         self.store = store
         self.owner = owner
         self.chat_id = store.chat_id
@@ -44,6 +46,11 @@ class RuntimeTools(
         self.records = ExecutionRecords(self.workspace)
         self.latest_user = latest_user
         self.memory = memory
+        # Durable-job waiting must observe the Run's own lifecycle so a paused or
+        # cancelled Run stops waiting instead of blocking a worker thread.
+        self.cancelled = cancelled
+        self.pause_requested = pause_requested
+        self.publish_job_status = None
         self.created: list[dict] = []
         self._domain = None
         self._observations: dict[str, str | None] = {}
@@ -115,8 +122,8 @@ class RuntimeTools(
     def execute(self, name: str, arguments: dict | None, progress=None) -> dict:
         definition = GENERIC_DEFINITIONS.get(name)
         if definition is None:
-            return {"ok": False, "error": "Unknown or unavailable tool.",
-                    "available_tools": sorted(GENERIC_DEFINITIONS)}
+            return normalize_result({"ok": False, "error": "Unknown or unavailable tool.",
+                    "available_tools": sorted(GENERIC_DEFINITIONS)})
         args, changes, failure = parse_arguments(definition[0], arguments)
         if failure:
             return failure
@@ -129,7 +136,44 @@ class RuntimeTools(
                 self._observations[self._call_key(name, values)] = self.observation_key(name, values)
             if changes:
                 result["argument_normalization"] = changes
-            return result
+            return normalize_result(result)
+        except AssetError as exc:
+            path = str(args.path) if hasattr(args, "path") else ""
+            scope = str(args.scope) if hasattr(args, "scope") else "workspace"
+            if (
+                str(exc) == "Workspace path does not exist"
+                and scope == "workspace"
+                and path not in ("", ".")
+                and not is_host_path(path)
+                and path.replace("\\", "/").casefold()
+                in self.latest_user.replace("\\", "/").casefold()
+            ):
+                return execution_failure(ToolPreconditionError(
+                    "The requested file is not in this chat's Workspace. A path in the message does not upload or mount a file.",
+                    code="requested_input_unavailable",
+                    requested_path=path,
+                    checked_scope={"scope": "workspace", "path": path},
+                    missing=[{"kind": "workspace_file", "path": path}],
+                    available_assets=[
+                        {"asset_id": item["id"], "name": item["name"]}
+                        for item in self.attachment_context()
+                    ],
+                    source_grant_count=len(self.workspaces.list_grants(self.owner, self.chat_id)),
+                    suggested_user_action=(
+                        "Upload the file to this chat, or explicitly ask to use "
+                        "the absolute Windows path of the directory containing it."
+                    ),
+                ))
+            if str(exc) == "Workspace path does not exist" and scope == "workspace":
+                return execution_failure(ToolPreconditionError(
+                    "Workspace path does not exist.",
+                    code="workspace_path_not_found", reason="not_found",
+                    requested_path=path,
+                    checked_scope={"scope": "workspace", "path": path},
+                    missing=[{"kind": "workspace_path", "path": path}],
+                    candidates=[], control_verified=None,
+                ))
+            return execution_failure(exc)
         except Exception as exc:
             return execution_failure(exc)
 

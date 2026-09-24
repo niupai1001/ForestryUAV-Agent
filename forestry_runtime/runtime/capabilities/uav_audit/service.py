@@ -231,7 +231,14 @@ class UavAuditCapability:
                     f'匹配成果超过单次检查上限 {max_products}；请使用name_filter缩小范围'
                 )
         if not candidates:
-            raise AssetError('目录中没有匹配的 GeoTIFF 或 VRT 成果')
+            return {
+                'outcome': 'empty', 'code': 'no_matching_geospatial_products',
+                'control_verified': None,
+                'checked_scope': {'folder_path': folder_path, 'recursive': True,
+                                  'name_filter': name_filter},
+                'matching_product_count': 0,
+                'interpretation': 'No matching products in the checked scope; data absence is unverified.',
+            }
 
         products = []
         for path in candidates:

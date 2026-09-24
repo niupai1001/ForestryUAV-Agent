@@ -1,5 +1,6 @@
 from ..storage import AssetError
 from ..tool_protocol import execution_failure, parse_arguments
+from shared.outcome import normalize_result
 from ..workspace import WorkspaceRegistry
 from .uav_audit.audit import UavInspectionService
 
@@ -90,6 +91,9 @@ class RemoteSensingTools(
                 values = args.model_dump()
                 data = getattr(self, name)(**values)
             result = {'ok': True, 'data': data}
+            if isinstance(data, dict) and data.get('outcome') == 'empty':
+                result['outcome'] = 'empty'
+                result['control_verified'] = data.get('control_verified')
             if isinstance(data, dict) and data.get('failure'):
                 result.update(outcome_ok=False, failure=data['failure'])
             elif isinstance(data, dict) and data.get('ready') is False:
@@ -101,7 +105,7 @@ class RemoteSensingTools(
                 result['argument_normalization'] = changes
             if source_id and isinstance(result.get('data'), dict):
                 result['data']['source_id'] = source_id
-            return result
+            return normalize_result(result)
         except Exception as exc:
             return execution_failure(exc)
 

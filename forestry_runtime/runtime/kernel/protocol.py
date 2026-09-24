@@ -5,28 +5,7 @@ import json
 from pydantic import ValidationError
 
 from ..storage import AssetError
-
-
-FAILURE_TAXONOMY = {
-    ("arguments", "invalid_arguments"): "tool_protocol",
-    ("preconditions", "invalid_arguments"): "tool_protocol",
-    ("preconditions", "source_path_not_found"): "path_grounding",
-    ("preconditions", "known_invalid_source_path"): "path_grounding",
-    ("agent_control", "duplicate_failed_call"): "premature_stop",
-    ("recovery", "action_outcome_unsettled"): "input_checkpoint",
-    ("preconditions", "not_ready"): "data_semantics",
-}
-
-
-def failure_category(failure):
-    """Map observable failure evidence without inferring an unknown root cause."""
-    if not failure:
-        return None
-    stage = str(failure.get("stage") or "")
-    code = str(failure.get("code") or "")
-    return FAILURE_TAXONOMY.get(
-        (stage, code), "algorithm_numeric" if stage == "execution" else "unknown"
-    )
+from shared.outcome import failure_category, missing_shared_library, normalize_failure, normalize_result
 
 
 class ToolPreconditionError(AssetError):
@@ -34,6 +13,24 @@ class ToolPreconditionError(AssetError):
         super().__init__(message)
         self.failure_details = {
             "operation_started": False, "side_effects": "none", **details
+        }
+
+
+class SubmissionRefused(AssetError):
+    """A submission that was deliberately not started.
+
+    Raising rather than returning is deliberate: the tool dispatcher wraps a
+    returned value in ``{"ok": True, "data": ...}``, so a refusal that must be
+    reported as ``outcome_ok: false`` has to travel the exception path.
+    """
+
+    def __init__(self, reason: str, *, data: dict | None = None, **details):
+        super().__init__(reason)
+        self.data = data or {}
+        self.failure_details = {
+            "operation_started": False,
+            "side_effects": "none",
+            **details,
         }
 
 
@@ -103,14 +100,14 @@ def validation_failure(exc: ValidationError, schema):
             "received_type": type(error.get("input")).__name__,
             "expected": schema_at(schema, location),
         })
-    return {
+    return normalize_result({
         "ok": False,
         "error": "工具参数校验失败，业务函数尚未执行。",
         "failure": {
             "stage": "arguments", "code": "invalid_arguments",
             "operation_started": False, "issues": issues,
         },
-    }
+    })
 
 
 def parse_arguments(model, arguments):
@@ -125,19 +122,41 @@ def parse_arguments(model, arguments):
 def execution_failure(exc):
     details = getattr(exc, "failure_details", None)
     if isinstance(details, dict):
-        return {"ok": False, "error": str(exc), "failure": {"stage": "preconditions", **details}}
+        result = {
+            "ok": False,
+            "error": str(exc),
+            "failure": {"stage": "preconditions", **details},
+        }
+        # A deliberate refusal still carries the identifiers the caller needs to
+        # continue (a job id, a suggested tool), so keep them on the result.
+        data = getattr(exc, "data", None)
+        if isinstance(data, dict) and data:
+            result["data"] = data
+        return normalize_result(result)
     if isinstance(exc, AssetError):
-        return {
+        return normalize_result({
             "ok": False, "error": str(exc),
             "failure": {
                 "stage": "preconditions", "code": type(exc).__name__,
                 "operation_started": False, "side_effects": "none",
             },
-        }
-    return {
+        })
+    if isinstance(exc, (ImportError, OSError)):
+        missing_library = missing_shared_library(str(exc))
+        if missing_library:
+            return normalize_result({
+                "ok": False, "error": f"{type(exc).__name__}: {exc}",
+                "failure": {
+                    "stage": "environment", "code": "missing_shared_library",
+                    "reason": "missing_env",
+                    "missing": [{"kind": "shared_library", "name": missing_library}],
+                    "operation_started": True, "side_effects": "unknown",
+                },
+            })
+    return normalize_result({
         "ok": False, "error": f"{type(exc).__name__}: {exc}",
         "failure": {
             "stage": "execution", "code": type(exc).__name__,
             "operation_started": True, "side_effects": "unknown",
         },
-    }
+    })

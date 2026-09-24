@@ -30,6 +30,33 @@ def write_elevation(path: Path, values: np.ndarray, description: str) -> None:
         )
 
 
+class RasterMetadataVisibilityTests(unittest.TestCase):
+    """Geospatial metadata a downstream tool demands must be readable upstream.
+
+    The CHM builder refuses a call whose ``vertical_reference`` disagrees with the
+    asset metadata.  That refusal is only fair if the Agent can read that metadata
+    first; otherwise the environment is asking for a value it never published.
+    """
+
+    def test_inspect_raster_publishes_the_vertical_datum(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            path = root / "dsm.tif"
+            write_elevation(path, np.ones((4, 4), dtype="float32"), "dsm")
+
+            store = Store(root / "assets")
+            with path.open("rb") as stream:
+                asset = store.put(stream, "dsm.tif", "alice", "image/tiff")
+            tools = RemoteSensingTools(store, "alice", [asset["id"]])
+
+            report = tools.execute("inspect_raster", {"asset_id": asset["id"]})
+            self.assertTrue(report["ok"], report)
+            data = report["data"]
+            self.assertEqual(data["vertical_reference"], "synthetic_datum")
+            self.assertEqual(data["elevation_units"], "m")
+            self.assertEqual(data["dataset_tags"]["vertical_reference"], "synthetic_datum")
+
+
 class ForestStructureTests(unittest.TestCase):
     def test_chm_candidates_and_summary_keep_scientific_boundaries(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -66,6 +93,26 @@ class ForestStructureTests(unittest.TestCase):
                 "vertical_reference": "unverified_datum",
             })
             self.assertFalse(mismatched_reference["ok"])
+            # A refusal must be resolvable inside the environment.  The caller
+            # supplied a datum that does not match the metadata; the metadata holds
+            # the value the tool will accept, so the refusal names it.  Without this
+            # the Agent can see the rejection but cannot learn what to send, and
+            # spends its budget re-sending variants of a wrong guess -- observed in
+            # the first capability baseline run.
+            refusal = mismatched_reference["failure"]
+            self.assertEqual(refusal["code"], "vertical_reference_mismatch")
+            self.assertEqual(refusal["observed_vertical_reference"], "synthetic_datum")
+            self.assertEqual(refusal["requested_vertical_reference"], "unverified_datum")
+            self.assertTrue(refusal["retryable"])
+            self.assertEqual(
+                refusal["suggested_arguments"]["vertical_reference"], "synthetic_datum"
+            )
+
+            # The suggested arguments are the whole remedy: retrying with them works.
+            retried = tools.execute(
+                "build_canopy_height_model", refusal["suggested_arguments"]
+            )
+            self.assertTrue(retried["ok"], retried)
 
             built = tools.execute("build_canopy_height_model", {
                 "dsm_asset_id": dsm_asset["id"],
@@ -77,6 +124,20 @@ class ForestStructureTests(unittest.TestCase):
                 built["data"]["statistics"]["negative_height_pixel_count"], 1
             )
             chm_id = built["data"]["chm"]["id"]
+
+            empty = tools.execute("delineate_tree_candidates", {
+                "chm_asset_id": chm_id,
+                "minimum_height_m": 50.0,
+                "smoothing_sigma_m": 1.0,
+                "minimum_peak_distance_m": 10.0,
+                "minimum_crown_area_m2": 4.0,
+                "parameter_source": "synthetic test configuration",
+            })
+            self.assertTrue(empty["ok"], empty)
+            self.assertEqual(empty["outcome"], "empty")
+            self.assertEqual(empty["data"]["code"], "no_pixels_above_height")
+            self.assertIsNone(empty["control_verified"])
+            self.assertNotIn("labels", empty["data"])
 
             candidates = tools.execute("delineate_tree_candidates", {
                 "chm_asset_id": chm_id,

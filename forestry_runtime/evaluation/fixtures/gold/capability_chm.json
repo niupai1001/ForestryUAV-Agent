@@ -1,0 +1,81 @@
+{
+  "version": "capability_chm-v1",
+  "condition": "normal",
+  "source": [
+    "dsm.tif",
+    "dtm.tif"
+  ],
+  "fixture_files": [
+    "dsm.tif",
+    "dtm.tif"
+  ],
+  "crs": "EPSG:32650",
+  "transform": [
+    400000.0,
+    1.0,
+    0.0,
+    3200000.0,
+    0.0,
+    -1.0
+  ],
+  "shape": [
+    5,
+    5
+  ],
+  "vertical_reference_present": true,
+  "expected_chm": [
+    [
+      2.800001,
+      2.699999,
+      4.099998,
+      3.800001,
+      1.9
+    ],
+    [
+      2.200001,
+      5.1,
+      4.499998,
+      3.4,
+      2.5
+    ],
+    [
+      1.9,
+      3.299999,
+      5.800001,
+      5.400002,
+      3.299999
+    ],
+    [
+      -0.4,
+      0.0,
+      3.900002,
+      4.599998,
+      2.9
+    ],
+    [
+      2.200001,
+      2.299999,
+      2.700001,
+      3.199999,
+      null
+    ]
+  ],
+  "numeric_tolerance": {
+    "abs": 1e-05,
+    "rel": 1e-06
+  },
+  "expected_facts": {
+    "valid_pixel_count": 24,
+    "negative_height_pixel_count": 1,
+    "maximum_height_m": 5.800001,
+    "crs": "EPSG:32650"
+  },
+  "files_exist_is_not_unit_evidence": true,
+  "gap_case": {
+    "reason": "neither surface records a vertical datum, so a difference between them is not established as a height difference"
+  },
+  "file_sha256": {
+    "dsm.tif": "89536be565c9e9f21cdd7d78544669629b10b114a749ff1cbd6621cba6a40fad",
+    "dtm.tif": "23e6287daad1cfebc35f6853c5497f5f1f92f7ce5bd9fb8307fe80ec1c249292"
+  }
+}
