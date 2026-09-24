@@ -100,8 +100,10 @@ def ui_index():
     else:
         response = HTMLResponse(
             '<h1>Forestry Agent UI is not built</h1>'
-            '<p>Run <code>npm run build</code> in <code>frontend</code>, '
-            'or use the Docker build.</p>',
+            '<p>The workbench is compiled from <code>frontend/</code> by the image\'s '
+            '<code>frontend</code> build stage. Rebuild with '
+            '<code>docker compose build runtime</code>, or run <code>.\setup.ps1</code> '
+            'in the project root.</p>',
             status_code=503,
         )
     response.set_cookie(

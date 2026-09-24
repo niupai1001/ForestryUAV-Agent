@@ -119,7 +119,7 @@ Run 状态和接口：
 
 ## 启动
 
-日常使用可直接双击仓库根目录的 `start-forestry-agent.cmd`，或本目录中的 `start.cmd`。它会确保 Host Bridge、Ollama、Docker Desktop 和 Runtime 可用，在宿主机以锁定的 npm 依赖构建 React 前端，再构建 Runtime 镜像，等待健康检查通过后打开工作台。Docker 镜像只复制 `frontend/dist`，不重复引入 Node 构建层。
+日常使用可直接双击本目录中的 `start.cmd`。它会确保 Host Bridge、Ollama、Docker Desktop 和 Runtime 可用，构建 Runtime 镜像，等待健康检查通过后打开工作台。React 前端由镜像内的 `frontend` 构建阶段编译，因此宿主机不再需要 Node/npm，`frontend/dist` 也不需要预先存在。
 
 命令行启动使用同一个底层入口：
 
@@ -127,7 +127,9 @@ Run 状态和接口：
 .\setup.ps1
 ```
 
-`setup.ps1` 会生成或保留 Runtime 与 Bridge 密钥，隐藏启动 Host Bridge，确保 Ollama 和 Docker Desktop 可用，构建并启动 Runtime，最后等待 `http://127.0.0.1:8010/health` 返回成功。需要自动打开浏览器时使用 `-OpenBrowser`；确认镜像无需重建时可使用 `-SkipBuild`。
+`setup.ps1` 会生成或保留 Runtime 与 Bridge 密钥，隐藏启动 Host Bridge，确保 Ollama 在运行并补齐缺失的 `OLLAMA_MODEL`，确保 Docker Desktop 可用，预拉代码作业镜像，构建并启动 Runtime，最后等待 `http://127.0.0.1:8010/health` 返回成功。需要自动打开浏览器时使用 `-OpenBrowser`；确认镜像无需重建时可使用 `-SkipBuild`；不想自动拉取模型时使用 `-SkipModelPull`。
+
+换一台电脑的完整步骤见 [DEPLOY.md](DEPLOY.md)：目标机器只需要 Docker Desktop、Ollama 和 Python 3。
 
 默认关闭遥感插件。启用时在 `.env` 设置：
 
@@ -139,7 +141,7 @@ KNOWLEDGE_HOST_ROOT=E:/Document/ChatGPT/林业无人机遥感agent开发/forestr
 
 此时 `setup.ps1` 合并 `compose.remote-sensing.yaml` 并使用遥感镜像；不会启动额外摄影测量容器。工作台本身只监听 `127.0.0.1`，当前版本按本机单用户设计。
 
-启动后先在工作台创建并选择项目，再把首轮本地知识源填写为 `/knowledge/forest_structure` 并点击“索引”。宿主路径由 `KNOWLEDGE_HOST_ROOT` 只读挂载，模型不会因此获得该目录的文件工具权限。
+启动后先在工作台创建并选择项目，再把首轮本地知识源填写为 `/knowledge/guides` 并点击“索引”。宿主路径由 `KNOWLEDGE_HOST_ROOT` 只读挂载，模型不会因此获得该目录的文件工具权限。
 
 ## 代码地图
 

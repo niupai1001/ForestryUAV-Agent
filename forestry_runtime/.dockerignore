@@ -1,7 +1,25 @@
+# Keep the build context to source only. Without this the context is the whole
+# working directory, which on a development machine is several gigabytes of
+# session data, virtual environments and evaluation output that the image never
+# reads.
 .env
+.env.*
+!.env.example
+.git
+.gitignore
+.idea
+.vscode
+__pycache__
+**/__pycache__
+*.pyc
+.pytest_cache
 data
 backups
 test-output
-__pycache__
+.venv-prosail
+evaluation/work
+evaluation/results
 frontend/node_modules
-.git
+frontend/dist
+frontend/test-results
+frontend/playwright-report
