@@ -5,6 +5,41 @@
 
 ## 变更记录
 
+**2026-09-26（收尾：步骤 5 / 7 / 8）**：四项未闭合项全部闭合，阶段 A 门禁达成。
+
+- **步骤 2**：`grading.py` 新增 `assert_portable()`，`specs.build_tasks` 冻结前对
+  `public_root` / `input_path` / 每个 `public_inputs` 断言——绝对路径与 `..` 逃逸
+  直接拒绝。`TaskSpec.input_path` 改为 `PurePosixPath`（永不 `resolve`），
+  需要落盘时用 `resolved_input_path` 锚定到本签出的 `RUNTIME_ROOT`。
+  **任务文件盘符出现次数：0**。
+- **步骤 5**：`grade_gis_analysis` 实现并按题分派——ID 12 逐像元比已发布
+  `ruggedness.tif`（先校验冻结副本 SHA-256，不一致则拒绝评分）；ID 9 读交付 CSV
+  的比值列。**正反用例 22 项**通过；真值端 ID 12 端到端复现 7,636,628 像元零差异
+  （测试内用真实 `Elevation.tif` 重算后交由评分器判定）。
+- **步骤 7**：三项 `unknown` 补齐判据，判据逐题写在冻结文件 `process_rubric` 内：
+  - `dependencies_satisfied` 读 `environment_check` / `dependency_install` 的
+    回执与 `No module named` 记录，**全部 14 题可判**；
+  - `method_fits_data`、`key_parameters_correct` 读实际执行的 `code_run` 源码，
+    按冻结标记组与参数值判定（数值按值比较，5500 与 5.5e3 等价）；
+  - 未冻结判据的题（12 道 OAM）**继续保持 `unknown`**，不默认 Pass。
+  - 顺带修掉一处真缺陷：过程检查原先只认 `action`/`tool_call`，而采集器实际写
+    `tool_start`/`tool_end`——真实证据下这些检查**恒为 unknown**。已按采集器词汇
+    修正（`tool_start` / `tool_end` / `ok` / `outcome_ok`）。
+  - `_process_checks` 移到 `_finish` 末尾：原先在 `outcome` 定稿前运行，
+    「失败后是否恢复」读到的是未定值。
+- **步骤 8**：规则版本冻结为 `grounded-rules-1.1`（GIS 评分器、过程判据、事件词汇
+  三项变更）；题库重新冻结并记录 `rules_version`。任何试点槽位尚未评分，
+  故无已出结果改变含义——`data/runs/` 下的开发运行仍标记为 1.0。
+  **同证据重复评分 3 次逐字节相同**（栅格题与矢量题各一，写入测试）。
+- **回归**：`tests/test_grounded_grading.py` **66 项全部通过**（原 29 + GIS 22 +
+  过程判据 13 + 可重复性 2）。全量套件 **353 通过 / 4 失败 / 26 收集错误**；
+  4 项失败位于 `runtime.settings` / `runtime.lifecycle`，与评分器无引用关系，
+  属既有问题；26 项收集错误源于本机缺 `pydantic`、`fastapi`、`pydantic_ai`
+  等运行时代理依赖，属既有环境缺口。
+- **门禁状态**：§4 五项硬性门禁**全部达成**（14 题皆有独立真值与可运行评分规则；
+  任务文件无绝对路径；重建真值与冻结 gold 逐项相等；反例全通过且重复评分确定性；
+  开发题已建立且来源不重叠）。阶段 A 收尾完成，可进入阶段 B。
+
 **2026-09-26（数据重建）**：按 §3 步骤 1/3/4/6 重建数据资产，步骤 5 的真值部分完成、评分器未实现。
 
 - 测试分片已重下并校验：334,303,139 B，SHA-256

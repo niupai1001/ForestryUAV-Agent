@@ -12,6 +12,7 @@ imported, and nothing here needs a model.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -21,10 +22,12 @@ import rasterio
 from rasterio.crs import CRS
 from rasterio.transform import from_origin
 
+from evaluation.grounded_v1 import grading
 from evaluation.grounded_v1 import metrics as M
+from evaluation.grounded_v1.gabench_gold import gold_entry
 from evaluation.grounded_v1.grading import (
-    Check, GradeReport, TaskSpec, TrialBundle, grade_canopy_extraction,
-    grade_canopy_statistics,
+    GROUNDED_RULES_VERSION, Check, GradeReport, TaskSpec, TrialBundle,
+    grade_canopy_extraction, grade_canopy_statistics, grade_gis_analysis,
 )
 
 HEIGHT, WIDTH = 64, 64
@@ -65,8 +68,11 @@ def _trial(tmp_path: Path, *, artifacts: list[Path], answer: str = "", terminal:
            usage: dict | None = None, events: list[dict] | None = None) -> Path:
     package = tmp_path / "trial"
     (package / "artifacts").mkdir(parents=True, exist_ok=True)
-    for artifact in artifacts:
-        target = package / "artifacts" / f"asset_{abs(hash(artifact.name)) % 1000}-{artifact.name}"
+    # Indexed, not hashed: ``hash()`` of a string is salted per process, so a
+    # hashed name would make these fixtures differ between two runs of the same
+    # test and hide the very non-determinism the reproducibility test looks for.
+    for index, artifact in enumerate(artifacts):
+        target = package / "artifacts" / f"asset_{index:03d}-{artifact.name}"
         target.write_bytes(artifact.read_bytes())
     (package / "trace.json").write_text(json.dumps({
         "run_id": "run-test", "case_id": "grounded", "repeat": 1,
@@ -554,6 +560,777 @@ def test_statistics_without_json_fails(tmp_path: Path) -> None:
                                      bundle, gold_mask=tmp_path / "private" / "oam-07-gold.tif")
     assert report.checks["task"].verdict == "fail"
     assert report.outcome["task_success"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# GIS family: ID 12 (ruggedness raster) and ID 9 (deforestation ratio)
+# --------------------------------------------------------------------------- #
+
+#: The two figures the published GABench task actually freezes. The second is the
+#: route through ``shapely.make_valid()``, which repairs the invalid polygon a
+#: different way; the frozen tolerance is deliberately wide enough to cover it.
+GOLD_RATE = 0.4793110356552816
+MAKE_VALID_RATE = 0.47930037874086123
+
+
+def _ruggedness_dem() -> np.ndarray:
+    """A deterministic 8-bit elevation surface standing in for Elevation.tif."""
+    rows = np.arange(HEIGHT, dtype=np.float64)[:, None]
+    cols = np.arange(WIDTH, dtype=np.float64)[None, :]
+    dem = 30.0 + 12.0 * np.sin(rows / 7.0) + 9.0 * np.cos(cols / 5.0) + (rows * cols) % 37
+    return np.clip(dem, 0, 255).astype(np.uint8)
+
+
+def _neighbourhood_range(dem: np.ndarray) -> np.ndarray:
+    """The 3x3 neighbourhood range the task asks for, edges by replication."""
+    padded = np.pad(dem.astype(np.float64), 1, mode="edge")
+    windows = np.stack([padded[i:i + HEIGHT, j:j + WIDTH] for i in range(3) for j in range(3)])
+    return windows.max(axis=0) - windows.min(axis=0)
+
+
+def _ruggedness_fixture(tmp_path: Path, monkeypatch) -> tuple[TaskSpec, dict, np.ndarray]:
+    """Freeze a synthetic truth beside a synthetic input, as the real task does.
+
+    The grader anchors every frozen path to ``RUNTIME_ROOT``, so the test points
+    that root at the temporary directory and freezes the truth as a relative
+    path with its digest, exactly as ``gabench_gold.py`` does.
+    """
+    dem = _ruggedness_dem()
+    _write_raster(tmp_path / "public" / "Elevation.tif", dem)
+    gold_array = _neighbourhood_range(dem)
+    gold_raster = _write_raster(tmp_path / "private" / "gold" / "ruggedness.tif",
+                                 gold_array.astype(np.float32))
+    monkeypatch.setattr(grading, "RUNTIME_ROOT", tmp_path)
+    spec = TaskSpec(
+        task_id="gabench-12-terrain-ruggedness", family="gis_analysis",
+        question="基于 Elevation.tif 计算地形起伏度",
+        public_root=str(tmp_path / "public"), public_inputs=["Elevation.tif"],
+        required_deliverables=["a GeoTIFF of terrain ruggedness on the input grid"],
+        grading_rule=["every pixel of the delivered raster equals the reference"],
+        condition="given-dem", budget={"wall_seconds": 900},
+        resources={"python": ["rasterio", "numpy", "scipy"], "network": "not required"},
+        tolerance={"pixels_absolute": 0.0},
+        process_rubric={
+            "method_markers": [
+                ["generic_filter", "maximum_filter", "minimum_filter", "uniform_filter",
+                 "neighborhood", "neighbourhood", "sliding_window", "rolling"],
+                ["range", "ptp", "maximum", "minimum", "max", "min", "amax", "amin"],
+            ],
+            "key_parameters": [
+                {"name": "neighbourhood_window_3x3",
+                 "tokens": ["3x3", "3×3", "(3, 3)", "(3,3)", "3, 3", "size=3"]},
+            ],
+        },
+    )
+    gold = {
+        "kind": "gis_raster", "gold_raster": "private/gold/ruggedness.tif",
+        "gold_raster_sha256": hashlib.sha256(gold_raster.read_bytes()).hexdigest(),
+    }
+    return spec, gold, gold_array
+
+
+def _ruggedness_trial(tmp_path: Path, artifacts: list[Path], *, answer: str = "完成",
+                      terminal: str = "completed", events: list[dict] | None = None) -> Path:
+    return _trial(tmp_path, artifacts=artifacts, answer=answer, terminal=terminal, events=events)
+
+
+def test_ruggedness_matching_the_reference_passes(tmp_path: Path, monkeypatch) -> None:
+    spec, gold, gold_array = _ruggedness_fixture(tmp_path, monkeypatch)
+    delivered = _write_raster(tmp_path / "out" / "ruggedness.tif", gold_array.astype(np.float32))
+
+    bundle = TrialBundle.load(_ruggedness_trial(tmp_path, [delivered]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=gold)
+
+    assert report.checks["artifact_present"].verdict == "pass"
+    assert report.checks["grid"].verdict == "pass"
+    assert report.checks["task"].verdict == "pass"
+    assert report.quality["mismatched_pixels"] == 0
+    assert report.quality["compared_pixels"] == HEIGHT * WIDTH
+    assert report.quality["max_abs_difference"] == pytest.approx(0.0)
+    assert report.validity["v"] == 1
+    assert report.outcome["end_to_end"] == 1
+    # The grader records which truth it graded against, digest included.
+    assert report.evidence["gold_raster_sha256"] == gold["gold_raster_sha256"]
+
+
+def test_ruggedness_with_wrong_pixels_fails_the_result_not_the_delivery(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """A wrong surface is a wrong answer; it is still a valid delivery."""
+    spec, gold, gold_array = _ruggedness_fixture(tmp_path, monkeypatch)
+    wrong = gold_array.astype(np.float32).copy()
+    wrong[0, 0] += 1.0
+    wrong[10, 10] += 4.0
+    wrong[63, 63] -= 2.0
+    delivered = _write_raster(tmp_path / "out" / "ruggedness.tif", wrong)
+
+    bundle = TrialBundle.load(_ruggedness_trial(tmp_path, [delivered]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=gold)
+
+    assert report.checks["task"].verdict == "fail"
+    assert report.quality["mismatched_pixels"] == 3
+    assert report.quality["max_abs_difference"] == pytest.approx(4.0)
+    assert report.validity["v"] == 1          # delivered properly, on the right grid
+    assert report.outcome["task_success"] == 0
+    assert report.outcome["end_to_end"] == 0
+
+
+def test_ruggedness_on_another_grid_fails_delivery(tmp_path: Path, monkeypatch) -> None:
+    """The raster is delivered; what fails is that it is not on the input grid."""
+    spec, gold, gold_array = _ruggedness_fixture(tmp_path, monkeypatch)
+    delivered = _write_raster(tmp_path / "out" / "ruggedness.tif", gold_array.astype(np.float32),
+                              transform=from_origin(500050.0, 6000000.0, 10.0, 10.0))
+
+    bundle = TrialBundle.load(_ruggedness_trial(tmp_path, [delivered]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=gold)
+
+    assert report.checks["artifact_present"].verdict == "pass"
+    assert report.checks["grid"].verdict == "fail"
+    assert report.validity["v"] == 0
+    # No pixel comparison is recorded: the raster was never placed on this grid.
+    assert report.quality == {}
+
+
+def test_ruggedness_in_another_crs_fails_delivery(tmp_path: Path, monkeypatch) -> None:
+    spec, gold, gold_array = _ruggedness_fixture(tmp_path, monkeypatch)
+    delivered = _write_raster(tmp_path / "out" / "ruggedness.tif", gold_array.astype(np.float32),
+                              crs=CRS.from_epsg(4326))
+
+    bundle = TrialBundle.load(_ruggedness_trial(tmp_path, [delivered]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=gold)
+
+    assert report.checks["artifact_present"].verdict == "pass"
+    assert report.checks["grid"].verdict == "fail"
+    assert "not equivalent" in report.checks["grid"].detail
+    assert report.validity["v"] == 0
+    assert report.quality == {}
+
+
+def test_ruggedness_may_declare_nodata(tmp_path: Path, monkeypatch) -> None:
+    """A continuous surface is not a 0/1 class raster, so nodata is allowed.
+
+    The canopy rule that rejects a nodata marker exists because a class answer
+    must account for every pixel. Applying it here would fail a correct
+    ruggedness delivery for a rule that never applied to it.
+    """
+    spec, gold, gold_array = _ruggedness_fixture(tmp_path, monkeypatch)
+    delivered = _write_raster(tmp_path / "out" / "ruggedness.tif", gold_array.astype(np.float32))
+    with rasterio.open(delivered, "r+") as destination:
+        destination.nodata = 0.0
+
+    bundle = TrialBundle.load(_ruggedness_trial(tmp_path, [delivered]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=gold)
+
+    assert report.checks["artifact_present"].verdict == "pass"
+    assert report.checks["grid"].verdict == "pass"
+    assert report.checks["task"].verdict == "pass"
+
+
+def test_missing_ruggedness_raster_fails_delivery(tmp_path: Path, monkeypatch) -> None:
+    spec, gold, _ = _ruggedness_fixture(tmp_path, monkeypatch)
+    notes = tmp_path / "out" / "notes.txt"
+    notes.parent.mkdir(parents=True, exist_ok=True)
+    notes.write_text("I decided not to deliver a raster", encoding="utf-8")
+
+    bundle = TrialBundle.load(_ruggedness_trial(tmp_path, [notes], answer="完成"),
+                              case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=gold)
+
+    assert report.validity["v"] == 0
+    assert "no GeoTIFF other than the input" in report.checks["artifact_present"].detail
+
+
+def test_dem_echo_is_not_a_ruggedness_delivery(tmp_path: Path, monkeypatch) -> None:
+    """Uploading Elevation.tif back is not an answer, even on the right grid."""
+    spec, gold, _ = _ruggedness_fixture(tmp_path, monkeypatch)
+    dem = _ruggedness_dem()
+    echo = _write_raster(tmp_path / "out" / "Elevation.tif", dem)
+
+    bundle = TrialBundle.load(_ruggedness_trial(tmp_path, [echo]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=gold)
+
+    assert report.validity["v"] == 0
+    assert "no GeoTIFF other than the input" in report.checks["artifact_present"].detail
+
+
+def test_two_ruggedness_rasters_are_ambiguous(tmp_path: Path, monkeypatch) -> None:
+    spec, gold, gold_array = _ruggedness_fixture(tmp_path, monkeypatch)
+    first = _write_raster(tmp_path / "out" / "ruggedness.tif", gold_array.astype(np.float32))
+    second = _write_raster(tmp_path / "out" / "ruggedness_v2.tif", gold_array.astype(np.float32))
+
+    bundle = TrialBundle.load(_ruggedness_trial(tmp_path, [first, second]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=gold)
+
+    assert report.checks["artifact_present"].verdict == "fail"
+    assert "exactly one" in report.checks["artifact_present"].detail
+    assert report.validity["v"] == 0
+
+
+def test_tampered_gold_raster_refuses_to_grade(tmp_path: Path, monkeypatch) -> None:
+    """Truth that no longer hashes to the frozen digest is not truth."""
+    spec, gold, gold_array = _ruggedness_fixture(tmp_path, monkeypatch)
+    # Freeze the digest, then change the file it belongs to.
+    _write_raster(tmp_path / "private" / "gold" / "ruggedness.tif",
+                  (gold_array + 1.0).astype(np.float32))
+    delivered = _write_raster(tmp_path / "out" / "ruggedness.tif", gold_array.astype(np.float32))
+
+    bundle = TrialBundle.load(_ruggedness_trial(tmp_path, [delivered]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=gold)
+
+    assert report.validity["v"] is None            # unmeasured, not the agent's fault
+    assert report.outcome["task_success"] is None
+    assert "does not match" in report.failure_reasons[0]
+
+
+def test_missing_gold_raster_refuses_to_grade(tmp_path: Path, monkeypatch) -> None:
+    """The frozen truth names a file that is not there: the grader must not guess.
+
+    The path is simply never written, rather than written and deleted, because a
+    deletion inside a test is indistinguishable from a real one and trips the
+    sandbox's bulk-delete guard when the suite is run in full.
+    """
+    spec, gold, gold_array = _ruggedness_fixture(tmp_path, monkeypatch)
+    gold = dict(gold, gold_raster="private/gold/never-written.tif")
+    delivered = _write_raster(tmp_path / "out" / "ruggedness.tif", gold_array.astype(np.float32))
+
+    bundle = TrialBundle.load(_ruggedness_trial(tmp_path, [delivered]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=gold)
+
+    assert report.validity["v"] is None
+    assert "missing" in report.failure_reasons[0]
+
+
+#: The published GABench inputs. ``data/`` is gitignored, so these are absent on a
+#: fresh checkout and the test that needs them skips instead of failing.
+REAL_DATASET = Path(__file__).resolve().parents[1] / "data" / "gabench" / "repo" / "dataset"
+REAL_GOLD_RASTER = (Path(__file__).resolve().parents[1] / "data" / "gabench" / "private"
+                    / "gold" / "ruggedness-Elevation.tif")
+
+
+@pytest.mark.skipif(
+    not (REAL_DATASET / "Elevation.tif").is_file() or not REAL_GOLD_RASTER.is_file(),
+    reason="the published GABench inputs are gitignored and not present on this checkout",
+)
+def test_ruggedness_matches_the_published_reference_pixel_for_pixel(tmp_path: Path) -> None:
+    """The acceptance criterion for ID 12, run against the real frozen truth.
+
+    ``recompute_gabench.py`` already proves the *value*; this proves the *grader*
+    reproduces it end to end: the delivered raster is recomputed here from
+    Elevation.tif, handed to the grader as an ordinary artifact, and judged
+    against the frozen copy of the published ruggedness.tif.
+    """
+    from scipy.ndimage import maximum_filter, minimum_filter
+
+    with rasterio.open(REAL_DATASET / "Elevation.tif") as source:
+        elevation = source.read(1).astype("float64")
+        profile = source.profile
+    # Identical to the generic_filter route the recomputation script used, only
+    # fast enough to run inside the suite (checked equal on random input).
+    rugged = maximum_filter(elevation, size=3) - minimum_filter(elevation, size=3)
+
+    delivered = tmp_path / "out" / "ruggedness.tif"
+    delivered.parent.mkdir(parents=True, exist_ok=True)
+    profile.update(dtype="float32", count=1)
+    with rasterio.open(delivered, "w", **profile) as destination:
+        destination.write(rugged.astype("float32"), 1)
+
+    spec = TaskSpec(
+        task_id="gabench-12-terrain-ruggedness", family="gis_analysis",
+        question="用高程数据计算地形起伏度",
+        public_root=(REAL_DATASET.relative_to(Path(__file__).resolve().parents[1])).as_posix(),
+        public_inputs=["Elevation.tif"],
+        required_deliverables=["a GeoTIFF of terrain ruggedness on the input grid"],
+        grading_rule=["every pixel of the delivered raster equals the reference"],
+        condition="raster", budget={"wall_seconds": 900}, resources={},
+        tolerance={"pixels_absolute": 0.0},
+    )
+    gold = gold_entry("gabench-12-terrain-ruggedness")
+
+    bundle = TrialBundle.load(_ruggedness_trial(tmp_path, [delivered]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=gold)
+
+    assert report.checks["grid"].verdict == "pass"
+    assert report.quality["mismatched_pixels"] == 0
+    assert report.quality["compared_pixels"] == gold["valid_pixels"]
+    assert report.quality["max_abs_difference"] == pytest.approx(0.0)
+    assert report.checks["task"].verdict == "pass"
+    assert report.validity["v"] == 1
+    assert report.outcome["end_to_end"] == 1
+
+
+# --- ID 9 ------------------------------------------------------------------ #
+
+def _rate_spec(tmp_path: Path) -> TaskSpec:
+    return TaskSpec(
+        task_id="gabench-09-deforestation-buffer", family="gis_analysis",
+        question="道路 5.5 km 缓冲区内的砍伐率",
+        public_root=str(tmp_path / "public"),
+        public_inputs=["roads.geojson", "deforestedArea.geojson"],
+        required_deliverables=["deforestation_rate.csv holding the ratio"],
+        grading_rule=["the reported ratio is within the frozen tolerance of the reference"],
+        condition="given-vectors", budget={"wall_seconds": 900},
+        resources={"python": ["geopandas", "shapely", "pyproj"], "network": "not required"},
+        tolerance={"value_absolute": 1e-9, "value_relative": 1e-4},
+        process_rubric={
+            "method_markers": [
+                ["buffer"],
+                ["dissolve", "union_all", "unary_union"],
+                ["intersection", "intersect", "clip", "overlay"],
+            ],
+            "key_parameters": [
+                {"name": "buffer_distance_5500_m", "numeric": 5500},
+                {"name": "projected_crs_epsg_32723", "tokens": ["32723"]},
+            ],
+        },
+    )
+
+
+def _rate_gold() -> dict:
+    return {"kind": "gis_vector", "gold_value": GOLD_RATE,
+            "gold_field": "percentage_deforestation"}
+
+
+def _rate_csv(tmp_path: Path, text: str, *, name: str = "deforestation_rate.csv") -> Path:
+    path = tmp_path / "out" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def _rate_trial(tmp_path: Path, artifacts: list[Path], *, answer: str = "砍伐率 0.479") -> Path:
+    return _trial(tmp_path, artifacts=artifacts, answer=answer)
+
+
+def test_correct_deforestation_ratio_passes(tmp_path: Path) -> None:
+    spec = _rate_spec(tmp_path)
+    delivered = _rate_csv(tmp_path, f"percentage_deforestation\n{GOLD_RATE!r}\n")
+
+    bundle = TrialBundle.load(_rate_trial(tmp_path, [delivered]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=_rate_gold())
+
+    assert report.checks["artifact_present"].verdict == "pass"
+    assert report.checks["task"].verdict == "pass"
+    assert report.quality["absolute_error"] < 1e-12
+    assert report.validity["v"] == 1
+    assert report.outcome["end_to_end"] == 1
+
+
+def test_alternative_geometry_repair_is_inside_the_frozen_tolerance(tmp_path: Path) -> None:
+    """The ``make_valid`` route is a defensible reading and must not be punished.
+
+    The published polygon is invalid; repairing it with a zero-width buffer gives
+    the frozen value and ``make_valid`` gives a value 1.07e-05 away. The frozen
+    relative tolerance covers both, because which repair is "the" answer is not
+    decidable from the published task.
+    """
+    spec = _rate_spec(tmp_path)
+    delivered = _rate_csv(tmp_path, "percentage_deforestation\n0.47930037874086123\n")
+
+    bundle = TrialBundle.load(_rate_trial(tmp_path, [delivered]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=_rate_gold())
+
+    assert report.quality["reported"] == pytest.approx(MAKE_VALID_RATE)
+    assert report.checks["task"].verdict == "pass"
+
+
+def test_percentage_instead_of_ratio_is_rejected(tmp_path: Path) -> None:
+    """A percentage is a different quantity, not a rounding of the ratio."""
+    spec = _rate_spec(tmp_path)
+    delivered = _rate_csv(tmp_path, "percentage_deforestation\n47.93110356552816\n")
+
+    bundle = TrialBundle.load(_rate_trial(tmp_path, [delivered]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=_rate_gold())
+
+    assert report.checks["task"].verdict == "fail"
+    assert "percentage" in report.checks["task"].detail
+    assert report.outcome["task_success"] == 0
+
+
+def test_wrong_deforestation_ratio_fails_the_result_not_the_delivery(tmp_path: Path) -> None:
+    spec = _rate_spec(tmp_path)
+    delivered = _rate_csv(tmp_path, "percentage_deforestation\n0.5\n")
+
+    bundle = TrialBundle.load(_rate_trial(tmp_path, [delivered]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=_rate_gold())
+
+    assert report.checks["task"].verdict == "fail"
+    assert report.validity["v"] == 1
+    assert report.outcome["task_success"] == 0
+    assert report.outcome["end_to_end"] == 0
+
+
+def test_chinese_ratio_column_is_accepted(tmp_path: Path) -> None:
+    """The column the task names may be spelled in the task's own language."""
+    spec = _rate_spec(tmp_path)
+    delivered = _rate_csv(tmp_path, f"砍伐率\n{GOLD_RATE!r}\n")
+
+    bundle = TrialBundle.load(_rate_trial(tmp_path, [delivered]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=_rate_gold())
+
+    assert report.checks["artifact_present"].verdict == "pass"
+    assert report.checks["task"].verdict == "pass"
+
+
+def test_bare_number_without_a_header_is_not_guessed(tmp_path: Path) -> None:
+    """A right number in the wrong shape is still not an answer to this task."""
+    spec = _rate_spec(tmp_path)
+    delivered = _rate_csv(tmp_path, f"{GOLD_RATE!r}\n")
+
+    bundle = TrialBundle.load(_rate_trial(tmp_path, [delivered]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=_rate_gold())
+
+    assert report.checks["task"].verdict == "fail"
+    assert report.outcome["task_success"] == 0
+    assert "no ratio column" in report.checks["task"].detail
+
+
+def test_empty_csv_is_not_guessed(tmp_path: Path) -> None:
+    spec = _rate_spec(tmp_path)
+    delivered = _rate_csv(tmp_path, "")
+
+    bundle = TrialBundle.load(_rate_trial(tmp_path, [delivered]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=_rate_gold())
+
+    assert report.checks["task"].verdict == "fail"
+    assert "no header row" in report.checks["task"].detail
+
+
+def test_csv_without_a_ratio_column_is_caught(tmp_path: Path) -> None:
+    spec = _rate_spec(tmp_path)
+    delivered = _rate_csv(tmp_path, "buffer_area,clipped_area\n179792795540.4,86176671033.8\n")
+
+    bundle = TrialBundle.load(_rate_trial(tmp_path, [delivered]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=_rate_gold())
+
+    assert report.checks["task"].verdict == "fail"
+    assert "buffer_area" in report.checks["task"].detail
+
+
+def test_missing_ratio_csv_fails_delivery(tmp_path: Path) -> None:
+    spec = _rate_spec(tmp_path)
+    notes = tmp_path / "out" / "notes.txt"
+    notes.parent.mkdir(parents=True, exist_ok=True)
+    notes.write_text("about 48 percent", encoding="utf-8")
+
+    bundle = TrialBundle.load(_rate_trial(tmp_path, [notes]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=_rate_gold())
+
+    assert report.validity["v"] == 0
+    assert "no CSV was delivered" in report.checks["artifact_present"].detail
+
+
+def test_two_result_csvs_are_ambiguous(tmp_path: Path) -> None:
+    spec = _rate_spec(tmp_path)
+    first = _rate_csv(tmp_path, f"percentage_deforestation\n{GOLD_RATE!r}\n")
+    second = _rate_csv(tmp_path, f"deforestation_rate\n{GOLD_RATE!r}\n", name="result.csv")
+
+    bundle = TrialBundle.load(_rate_trial(tmp_path, [first, second]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold=_rate_gold())
+
+    assert report.checks["artifact_present"].verdict == "fail"
+    assert "exactly one" in report.checks["artifact_present"].detail
+    assert report.validity["v"] == 0
+
+
+def test_gis_trial_without_frozen_gold_is_unmeasured(tmp_path: Path) -> None:
+    spec = _rate_spec(tmp_path)
+    delivered = _rate_csv(tmp_path, f"percentage_deforestation\n{GOLD_RATE!r}\n")
+
+    bundle = TrialBundle.load(_rate_trial(tmp_path, [delivered]), case_id="grounded")
+    report = grade_gis_analysis(spec, bundle, gold={})
+
+    assert report.validity["v"] is None
+    assert report.outcome["task_success"] is None
+    assert "no frozen gold" in report.failure_reasons[0]
+
+
+def test_gis_incomplete_run_scores_zero(tmp_path: Path, monkeypatch) -> None:
+    spec, gold, gold_array = _ruggedness_fixture(tmp_path, monkeypatch)
+    delivered = _write_raster(tmp_path / "out" / "ruggedness.tif", gold_array.astype(np.float32))
+
+    bundle = TrialBundle.load(
+        _ruggedness_trial(tmp_path, [delivered], terminal="failed"), case_id="grounded"
+    )
+    report = grade_gis_analysis(spec, bundle, gold=gold)
+
+    assert report.validity["v"] == 0
+    assert report.outcome["task_success"] == 0
+    assert "terminal state" in report.failure_reasons[0]
+
+
+# --------------------------------------------------------------------------- #
+# Process checks: decided only from evidence the run itself recorded
+# --------------------------------------------------------------------------- #
+
+def _tool_event(name: str, *, ok: bool | None = None, result: dict | None = None,
+                arguments: dict | None = None) -> dict:
+    """One event in the vocabulary the collector actually writes."""
+    event: dict = {"type": "tool_start" if arguments else "tool_end", "name": name}
+    if arguments is not None:
+        event["arguments"] = arguments
+    if result is not None:
+        event["result"] = result
+    if ok is not None:
+        event["ok"] = ok
+        event["outcome_ok"] = ok
+    return event
+
+
+def _code_event(code: str) -> dict:
+    return _tool_event("code_run", arguments={"language": "python", "code": code})
+
+
+def _answer_event(text: str) -> dict:
+    """The agent's own closing message: the answer text the grader reads."""
+    return {"type": "message", "content": text}
+
+
+def _process_report(tmp_path: Path, events: list[dict]) -> GradeReport:
+    """Grade a correct ID 9 delivery carrying the given trajectory."""
+    spec = _rate_spec(tmp_path)
+    delivered = _rate_csv(tmp_path, f"percentage_deforestation\n{GOLD_RATE!r}\n")
+    bundle = TrialBundle.load(
+        _trial(tmp_path, artifacts=[delivered],
+               events=[_answer_event(f"砍伐率 {GOLD_RATE}")] + list(events)),
+        case_id="grounded",
+    )
+    return grade_gis_analysis(spec, bundle, gold=_rate_gold())
+
+
+def _module_result(modules: list[tuple[str, bool]]) -> dict:
+    return {
+        "ok": True,
+        "data": {"modules": [
+            {"module": name, "importable": importable,
+             "error": None if importable else f"ModuleNotFoundError: No module named '{name}'"}
+            for name, importable in modules
+        ]},
+    }
+
+
+def test_process_checks_read_the_event_vocabulary_the_collector_writes(tmp_path: Path) -> None:
+    """The collector emits ``tool_start``/``tool_end``, not ``action``.
+
+    Reading only the older vocabulary left every process check unmeasured on real
+    evidence, which is invisible in a synthetic fixture and total on a real run.
+    """
+    report = _process_report(tmp_path, [
+        _tool_event("inspect_file", ok=True, result={"ok": True}),
+        _tool_event("code_run", ok=True, result={"ok": True}),
+    ])
+
+    assert report.process["verified_product"]["verdict"] == "pass"
+    assert "inspect_file" in report.process["verified_product"]["evidence"]
+    assert report.process["recovered_from_errors"]["verdict"] == "pass"
+
+
+def test_missing_dependency_is_a_dependency_failure(tmp_path: Path) -> None:
+    report = _process_report(tmp_path, [
+        _tool_event("environment_check", ok=True,
+                    result=_module_result([("geopandas", False), ("shapely", True),
+                                           ("pyproj", True)])),
+    ])
+
+    check = report.process["dependencies_satisfied"]
+    assert check["verdict"] == "fail"
+    assert check["evidence"] == ["geopandas"]
+
+
+def test_dependency_installed_later_satisfies_the_task(tmp_path: Path) -> None:
+    """A package missing at probe time and installed afterwards is satisfied."""
+    report = _process_report(tmp_path, [
+        _tool_event("environment_check", ok=True,
+                    result=_module_result([("geopandas", False), ("shapely", True),
+                                           ("pyproj", True)])),
+        _tool_event("dependency_install", ok=True, result={
+            "ok": True,
+            "data": {"verification": {
+                "state": "succeeded", "requirements": ["geopandas"],
+                "installed_packages": [{"name": "geopandas", "version": "1.1.4"}],
+            }},
+        }),
+    ])
+
+    check = report.process["dependencies_satisfied"]
+    assert check["verdict"] == "pass"
+    assert set(check["evidence"]) == {"geopandas", "shapely", "pyproj"}
+
+
+def test_dependencies_stay_unknown_when_the_run_never_probed_them(tmp_path: Path) -> None:
+    report = _process_report(tmp_path, [_code_event("import geopandas as gpd\n")])
+
+    check = report.process["dependencies_satisfied"]
+    assert check["verdict"] == "unknown"
+    assert "no dependency probe" in check["detail"]
+
+
+def test_key_parameters_are_read_from_the_executed_code(tmp_path: Path) -> None:
+    report = _process_report(tmp_path, [_code_event(
+        "import geopandas as gpd\n"
+        "roads = gpd.read_file('roads.geojson').to_crs('EPSG:32723')\n"
+        "buffer = roads.buffer(5500).union_all()\n"
+        "clipped = buffer.intersection(deforested)\n"
+    )])
+
+    check = report.process["key_parameters_correct"]
+    assert check["verdict"] == "pass"
+    assert set(check["evidence"]) == {"buffer_distance_5500_m", "projected_crs_epsg_32723"}
+
+
+def test_another_buffer_distance_is_reported(tmp_path: Path) -> None:
+    """The frozen distance is 5500 m; a different one is a finding, not a guess."""
+    report = _process_report(tmp_path, [_code_event(
+        "roads = roads.to_crs('EPSG:32723')\nbuffer = roads.buffer(5000).union_all()\n"
+    )])
+
+    check = report.process["key_parameters_correct"]
+    assert check["verdict"] == "fail"
+    assert check["evidence"] == ["buffer_distance_5500_m"]
+
+
+def test_method_rubric_matched_from_the_executed_code(tmp_path: Path) -> None:
+    report = _process_report(tmp_path, [_code_event(
+        "buffer = roads.to_crs('EPSG:32723').buffer(5500).union_all()\n"
+        "clipped = buffer.intersection(deforested)\n"
+    )])
+
+    assert report.process["method_fits_data"]["verdict"] == "pass"
+
+
+def test_method_missing_a_required_step_is_reported(tmp_path: Path) -> None:
+    """Without a dissolve, overlapping buffers count shared ground twice."""
+    report = _process_report(tmp_path, [_code_event(
+        "buffer = roads.to_crs('EPSG:32723').buffer(5500)\n"
+        "clipped = buffer.intersection(deforested)\n"
+    )])
+
+    check = report.process["method_fits_data"]
+    assert check["verdict"] == "fail"
+    assert "dissolve" in check["detail"]
+
+
+def test_process_checks_stay_unknown_without_code_or_rubric(tmp_path: Path) -> None:
+    """No executed code means no method and no parameters can be read."""
+    report = _process_report(tmp_path, [_tool_event("artifacts_inspect", ok=True,
+                                                    result={"ok": True})])
+
+    assert report.process["method_fits_data"]["verdict"] == "unknown"
+    assert report.process["key_parameters_correct"]["verdict"] == "unknown"
+    assert "no executed code" in report.process["method_fits_data"]["detail"]
+
+
+def test_a_task_without_a_rubric_is_never_failed_for_its_method(tmp_path: Path) -> None:
+    """A correct alternative execution path must not be punished (step 5's rule).
+
+    The canopy tasks freeze no method rubric, because several segmentations are
+    equally defensible; the check must then stay unmeasured even though code
+    exists.
+    """
+    truth = _truth()
+    input_path = _input_stack(tmp_path / "public" / "oam-01.tif")
+    gold = _write_raster(tmp_path / "private" / "oam-01-gold.tif", truth.astype(np.uint8))
+    delivered = _write_raster(tmp_path / "out" / "canopy.tif", truth.astype(np.uint8))
+    coverage = 100.0 * truth.sum() / truth.size
+    bundle = TrialBundle.load(
+        _trial(tmp_path, artifacts=[delivered], answer=f"覆盖率 {coverage:.2f}%",
+               events=[_code_event("mask = (stack.max(axis=0) > 0).astype('uint8')\n")]),
+        case_id="grounded",
+    )
+    report = grade_canopy_extraction(_extraction_spec(tmp_path, input_path=input_path),
+                                     bundle, gold_mask=gold)
+
+    assert report.process["method_fits_data"]["verdict"] == "unknown"
+    assert "no method rubric" in report.process["method_fits_data"]["detail"]
+    assert report.checks["task" if "task" in report.checks else "quality"].verdict == "pass"
+
+
+def test_a_failed_process_check_does_not_change_the_result(tmp_path: Path) -> None:
+    """Process findings are reported alongside the score, never folded into it."""
+    report = _process_report(tmp_path, [_code_event(
+        "buffer = roads.buffer(5500).union_all()\nclipped = buffer.intersection(deforested)\n"
+    )])
+
+    assert report.process["key_parameters_correct"]["verdict"] == "fail"  # no 32723 anywhere
+    assert report.validity["v"] == 1
+    assert report.outcome["task_success"] == 1
+    assert report.outcome["end_to_end"] == 1
+
+
+def test_recovery_is_credited_when_a_failed_call_preceded_a_valid_delivery(tmp_path: Path) -> None:
+    truth = _truth()
+    input_path = _input_stack(tmp_path / "public" / "oam-01.tif")
+    gold = _write_raster(tmp_path / "private" / "oam-01-gold.tif", truth.astype(np.uint8))
+    delivered = _write_raster(tmp_path / "out" / "canopy.tif", truth.astype(np.uint8))
+    coverage = 100.0 * truth.sum() / truth.size
+    bundle = TrialBundle.load(
+        _trial(tmp_path, artifacts=[delivered], answer=f"覆盖率 {coverage:.2f}%", events=[
+            _answer_event(f"树冠覆盖率约为 {coverage:.2f}%"),
+            _tool_event("code_run", ok=False, result={"ok": False, "error": "boom"}),
+            _tool_event("code_run", ok=True, result={"ok": True}),
+            _tool_event("inspect_file", ok=True, result={"ok": True}),
+        ]),
+        case_id="grounded",
+    )
+    report = grade_canopy_extraction(_extraction_spec(tmp_path, input_path=input_path),
+                                     bundle, gold_mask=gold)
+
+    check = report.process["recovered_from_errors"]
+    assert check["verdict"] == "pass"
+    assert "1 tool call(s) failed" in check["detail"]
+
+
+# --------------------------------------------------------------------------- #
+# Reproducibility: the same evidence must always produce the same bytes
+# --------------------------------------------------------------------------- #
+
+def _three_times(spec: TaskSpec, package: Path, gold: dict) -> list[str]:
+    """Grade one package three times, reloading the evidence each time."""
+    encoded = []
+    for _ in range(3):
+        bundle = TrialBundle.load(package, case_id="grounded")
+        report = grade_gis_analysis(spec, bundle, gold=gold)
+        encoded.append(json.dumps(report.as_dict(), ensure_ascii=False, sort_keys=True))
+    return encoded
+
+
+def test_grading_the_same_evidence_three_times_is_byte_identical(tmp_path: Path) -> None:
+    """The plan's reproducibility gate, on both GIS tasks.
+
+    The report has to be byte-identical, not merely equal in its verdicts:
+    otherwise a later comparison between two trials could differ for reasons
+    that have nothing to do with the trials.
+    """
+    spec = _rate_spec(tmp_path)
+    delivered = _rate_csv(tmp_path, f"percentage_deforestation\n{GOLD_RATE!r}\n")
+    package = _trial(tmp_path, artifacts=[delivered], events=[
+        _answer_event(f"砍伐率 {GOLD_RATE}"),
+        _tool_event("environment_check", ok=True,
+                    result=_module_result([("geopandas", True), ("shapely", True),
+                                           ("pyproj", True)])),
+        _code_event("b = roads.to_crs('EPSG:32723').buffer(5500).union_all()\n"
+                    "c = b.intersection(deforested)\n"),
+    ])
+    encoded = _three_times(spec, package, _rate_gold())
+
+    assert encoded[0] == encoded[1] == encoded[2]
+    # The bytes carry the rules they were produced under, so a report can always
+    # be traced back to a rules version instead of to whatever is current.
+    assert json.loads(encoded[0])["rules_version"] == GROUNDED_RULES_VERSION
+
+
+def test_raster_grading_is_byte_identical_too(tmp_path: Path, monkeypatch) -> None:
+    """The pixel-exact task: the raster path must be reproducible as well."""
+    spec, gold, gold_array = _ruggedness_fixture(tmp_path, monkeypatch)
+    delivered = _write_raster(tmp_path / "out" / "ruggedness.tif", gold_array.astype(np.float32))
+    package = _ruggedness_trial(tmp_path, [delivered], events=[
+        _answer_event("已输出起伏度栅格"),
+        _code_event("r = maximum_filter(e, size=3) - minimum_filter(e, size=3)\n"),
+    ])
+
+    encoded = _three_times(spec, package, gold)
+
+    assert encoded[0] == encoded[1] == encoded[2]
+    assert json.loads(encoded[0])["quality"]["mismatched_pixels"] == 0
 
 
 # --------------------------------------------------------------------------- #

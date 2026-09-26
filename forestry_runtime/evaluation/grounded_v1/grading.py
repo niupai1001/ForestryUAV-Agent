@@ -32,10 +32,13 @@ agent failure, and the trial stays in the denominator as unmeasured.
 
 from __future__ import annotations
 
+import csv
+import hashlib
+import io
 import json
 import re
 from dataclasses import asdict, dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 import numpy as np
@@ -44,15 +47,21 @@ import rasterio
 from . import metrics as M
 from .evidence import (
     CANOPY_KEYS, COVERAGE_KEYS, VALID_KEYS, JsonDelivery, RasterDelivery,
-    align_to_grid, delivered_name, discover_artifacts, load_json_delivery,
-    reference_artifact_names,
+    _numeric, align_to_grid, delivered_name, discover_artifacts,
+    load_json_delivery, reference_artifact_names,
 )
 
 VERDICTS = ("pass", "fail", "unknown", "not_applicable")
 
 #: Bumped whenever a grading judgement changes. Old evidence stays attached to the
 #: rules version that produced its result.
-GROUNDED_RULES_VERSION = "grounded-rules-1.0"
+#:
+#: 1.0 -- canopy extraction and statistics, as frozen for grounded-v1.1.
+#: 1.1 -- adds the two GIS graders, the process rubric, and the collector's real
+#:        event vocabulary. Frozen before any pilot trial was scored, so no
+#:        completed result changes meaning: every trial graded so far is a
+#:        development run in ``data/runs/`` and stays tagged 1.0.
+GROUNDED_RULES_VERSION = "grounded-rules-1.1"
 SUITE_VERSION = "grounded-v1.2"
 
 #: Process checks the plan names. A trial reports each as pass/fail/unknown, and an
@@ -92,6 +101,31 @@ class Check:
         return asdict(self)
 
 
+#: The deployable root. Every path frozen into a task file is relative to this,
+#: so the bank can be copied to another machine and run unchanged.
+RUNTIME_ROOT = Path(__file__).resolve().parents[2]
+
+
+def assert_portable(spec_id: str, value: str) -> str:
+    """Reject any path that only resolves on the machine that froze the bank.
+
+    ``Path.resolve()`` used to be applied when the task file was written, which
+    baked the authoring machine's absolute path (``E:\\Document\\...``) into
+    every task. The bank then could not be opened anywhere else. A frozen path
+    must be relative, POSIX-spelled and inside the deployable root.
+    """
+    text = str(value)
+    if not text:
+        return text
+    if re.match(r"^[A-Za-z]:", text) or text.startswith(("/", "\\\\")):
+        raise ValueError(
+            f"{spec_id}: path {text!r} is absolute; the frozen bank must stay portable"
+        )
+    if ".." in Path(text).parts:
+        raise ValueError(f"{spec_id}: path {text!r} escapes the deployable root")
+    return text
+
+
 @dataclass(frozen=True)
 class TaskSpec:
     """A frozen task. ``grading_rule`` states how it is judged, never the answer."""
@@ -107,12 +141,41 @@ class TaskSpec:
     budget: dict
     resources: dict
     tolerance: dict = field(default_factory=dict)
+    #: The observable signature that would substantiate the process checks for
+    #: this task: which method primitive the code must use, and which frozen
+    #: parameter values must appear in it. Empty means "no criterion is frozen",
+    #: and the affected checks then stay ``unknown`` rather than defaulting.
+    process_rubric: dict = field(default_factory=dict)
 
     @property
     def input_path(self) -> Path:
+        """The frozen, portable path: relative to ``RUNTIME_ROOT``, never resolved.
+
+        Resolving here is what made the bank unportable. Callers that need to
+        open the file use ``resolved_input_path``, which anchors the same
+        relative path to this checkout's root.
+        """
         if not self.public_inputs:
             raise ValueError(f"{self.task_id} declares no public input")
-        return (Path(self.public_root) / self.public_inputs[0]).resolve()
+        return PurePosixPath(self.public_root.replace("\\", "/")) / self.public_inputs[0]
+
+    def _root(self) -> Path:
+        """The public root, anchored to this checkout when it is a relative path.
+
+        A frozen bank carries a relative root, which only means something next to
+        the deployable root. A caller that already holds an absolute root (a
+        temporary directory in a test, say) keeps using it unchanged.
+        """
+        root = Path(self.public_root)
+        return root if root.is_absolute() else RUNTIME_ROOT / root.as_posix()
+
+    @property
+    def resolved_input_path(self) -> Path:
+        return self._root() / self.public_inputs[0]
+
+    def resolved_inputs(self) -> list[Path]:
+        root = self._root()
+        return [root / name for name in self.public_inputs]
 
     def as_dict(self) -> dict:
         payload = asdict(self)
@@ -337,11 +400,15 @@ def grade_canopy_extraction(
         report.validity = {"v": 0, "reason": reason}
         report.failure_reasons = [reason]
         report.outcome = {"v": 0, "iou": None, "end_to_end": 0.0}
+        # Filled even here, so every report carries the same process section:
+        # a crashed run is not scored, but what it did before crashing is still
+        # evidence and belongs in the record.
+        report.process = _process_checks(report, trial, spec)
         return report
 
     # ---- frozen truth and grid ------------------------------------------------
     try:
-        with rasterio.open(spec.input_path) as source:
+        with rasterio.open(spec.resolved_input_path) as source:
             target_crs = source.crs
             target_shape = (source.height, source.width)
             target_transform = source.transform
@@ -506,6 +573,7 @@ def grade_canopy_statistics(
         report.validity = {"v": 0, "reason": reason}
         report.failure_reasons = [reason]
         report.outcome = {"v": 0, "task_success": 0}
+        report.process = _process_checks(report, trial, spec)
         return report
 
     try:
@@ -598,6 +666,281 @@ def grade_canopy_statistics(
     return _finish(report, spec, trial, budget_seconds)
 
 
+#: Column names accepted for the ID 9 deforestation ratio. The task asks for a
+#: ratio, and a header is required: an unlabelled number is a failure, not a guess.
+GIS_RATE_KEYS = (
+    "percentage_deforestation", "deforestation_rate", "deforestation_ratio",
+    "deforestation_percentage", "rate", "ratio", "percentage", "砍伐率",
+)
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _rate_from_csv(path: Path) -> tuple[float | None, str | None, list[str], str]:
+    """Read the deforestation ratio out of a delivered CSV.
+
+    Returns ``(value, column, columns, reason)``. A missing header is reported as
+    an unlabelled number rather than being guessed at, because the task names the
+    column it wants.
+    """
+    try:
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
+    except Exception as error:  # noqa: BLE001 - an unreadable delivery is a finding
+        return None, None, [], f"the CSV could not be read: {type(error).__name__}: {error}"
+    reader = csv.DictReader(io.StringIO(text))
+    columns = [str(name).strip() for name in (reader.fieldnames or []) if str(name).strip()]
+    if not columns:
+        return None, None, [], "the CSV has no header row, so its number is unlabelled"
+    wanted = [name for name in columns
+              if name.casefold().replace(" ", "_") in GIS_RATE_KEYS]
+    if not wanted:
+        return None, None, columns, (
+            f"the CSV has no ratio column (accepted: {', '.join(GIS_RATE_KEYS[:3])}); "
+            f"its columns are {columns}"
+        )
+    for row in reader:
+        value = _numeric(row.get(wanted[0]))
+        if value is not None:
+            return value, wanted[0], columns, ""
+    return None, None, columns, f"the column {wanted[0]!r} holds no numeric value"
+
+
+def _grade_ruggedness(report: GradeReport, spec: TaskSpec, trial: TrialBundle,
+                      gold: dict, budget_seconds: float | None) -> GradeReport:
+    """ID 12: every pixel of the delivered ruggedness must equal the reference."""
+    gold_raster = RUNTIME_ROOT / gold["gold_raster"]
+    try:
+        if not gold_raster.is_file():
+            return _unmeasured(report, f"the frozen gold raster is missing: {gold_raster}")
+        digest = _sha256(gold_raster)
+        if digest != gold["gold_raster_sha256"]:
+            return _unmeasured(
+                report,
+                f"the frozen gold raster digest {digest} does not match the frozen "
+                f"{gold['gold_raster_sha256']}; refusing to grade against unknown truth",
+            )
+        with rasterio.open(spec.resolved_input_path) as source:
+            target_crs = source.crs
+            target_shape = (source.height, source.width)
+            target_transform = source.transform
+        with rasterio.open(gold_raster) as source:
+            reference = source.read(1)
+    except Exception as error:  # noqa: BLE001
+        return _unmeasured(
+            report, f"the grader could not read the frozen input or truth: "
+                    f"{type(error).__name__}: {error}"
+        )
+
+    excluded_names = {Path(item).name for item in spec.public_inputs}
+    candidates = [
+        path for path in trial.artifacts
+        if path.suffix.casefold() in {".tif", ".tiff"}
+        and delivered_name(path) not in excluded_names
+        and path.name not in excluded_names
+    ]
+    deliveries = [
+        align_to_grid(path, target_crs=target_crs, target_shape=target_shape,
+                      target_transform=target_transform, value_domain="continuous")
+        for path in candidates
+    ]
+    report.delivered = [delivery.as_dict() for delivery in deliveries]
+    report.evidence = {
+        "method": gold.get("method", ""),
+        "gold_raster": gold["gold_raster"],
+        "gold_raster_sha256": digest,
+        "reference_pixels": int(reference.size),
+        "candidate_rasters": [path.name for path in candidates],
+        "input_raster": Path(spec.public_inputs[0]).name,
+    }
+
+    if not candidates:
+        reason = ("the task requires a ruggedness GeoTIFF; no GeoTIFF other than the "
+                  "input was delivered")
+        report.checks["artifact_present"] = _failed("gis-raster-artifact-present", reason)
+        report.checks["grid"] = _not_applicable(
+            "gis-raster-grid", "no raster was delivered, so the grid could not be checked"
+        )
+        report.checks["task"] = _failed("gis-raster-task", reason)
+        report.outcome = {"v": None, "task_success": 0}
+        return _finish(report, spec, trial, budget_seconds)
+    if len(candidates) > 1:
+        reason = (f"the task requires exactly one ruggedness GeoTIFF; {len(candidates)} "
+                  f"were delivered: {[path.name for path in candidates]}")
+        report.checks["artifact_present"] = _failed("gis-raster-artifact-present", reason)
+        report.checks["grid"] = _not_applicable(
+            "gis-raster-grid", "several rasters were delivered, so none can be treated as the answer"
+        )
+        report.checks["task"] = _failed("gis-raster-task", reason)
+        report.outcome = {"v": None, "task_success": 0}
+        return _finish(report, spec, trial, budget_seconds)
+
+    delivery = deliveries[0]
+    if delivery.reason:
+        # The file is there: what fails is that it cannot be placed on the frozen
+        # grid. Naming that an absent deliverable would misreport it, so the grid
+        # requirement carries the finding and presence stays a pass.
+        report.checks["artifact_present"] = _passed(
+            "gis-raster-artifact-present", "one ruggedness GeoTIFF was delivered",
+            evidence=[delivery.path],
+        )
+        report.checks["grid"] = _failed("gis-raster-grid", delivery.reason,
+                                        evidence=[delivery.path])
+        report.checks["task"] = _failed("gis-raster-task", delivery.reason)
+        report.outcome = {"v": None, "task_success": 0}
+        return _finish(report, spec, trial, budget_seconds)
+
+    report.checks["artifact_present"] = _passed(
+        "gis-raster-artifact-present", "one ruggedness GeoTIFF was delivered on the input grid",
+        evidence=[delivery.path],
+    )
+    produced = np.asarray(delivery.array)
+    if produced.shape != reference.shape:
+        reason = f"the delivered raster is {produced.shape}, the reference is {reference.shape}"
+        report.checks["grid"] = _failed("gis-raster-grid", reason)
+        report.checks["task"] = _failed("gis-raster-task", reason)
+        report.outcome = {"v": None, "task_success": 0}
+        return _finish(report, spec, trial, budget_seconds)
+
+    difference = np.abs(produced.astype("float64") - reference.astype("float64"))
+    tolerance = float(spec.tolerance.get("pixels_absolute", 0.0) or 0.0)
+    mismatched = int((difference > tolerance).sum())
+    report.quality = {
+        "mismatched_pixels": mismatched,
+        "compared_pixels": int(reference.size),
+        "max_abs_difference": float(difference.max()),
+        "tolerance": tolerance,
+    }
+    report.checks["grid"] = _passed(
+        "gis-raster-grid", "the delivered raster sits on the input grid", evidence=[delivery.path]
+    )
+    passed = mismatched == 0
+    report.checks["task"] = Check(
+        "pass" if passed else "fail", "gis-raster-task-v1", [delivery.path],
+        f"all {reference.size} pixels equal the reference within {tolerance:g}"
+        if passed else f"{mismatched} of {reference.size} pixels differ from the reference",
+    )
+    report.outcome = {"v": None, "task_success": 1 if passed else 0}
+    return _finish(report, spec, trial, budget_seconds)
+
+
+def _grade_deforestation_rate(report: GradeReport, spec: TaskSpec, trial: TrialBundle,
+                              gold: dict, budget_seconds: float | None) -> GradeReport:
+    """ID 9: the reported ratio must match the recomputed reference."""
+    excluded_names = {Path(item).name for item in spec.public_inputs}
+    candidates = [path for path in trial.artifacts
+                  if path.suffix.casefold() == ".csv"
+                  and delivered_name(path) not in excluded_names
+                  and path.name not in excluded_names]
+    reads = [(*_rate_from_csv(path), path.name) for path in candidates]
+    report.delivered = [
+        {"name": name, "value": value, "column": column, "columns": columns, "reason": reason}
+        for value, column, columns, reason, name in reads
+    ]
+    report.evidence = {
+        "method": gold.get("method", ""),
+        "gold_value": gold["gold_value"],
+        "gold_field": gold.get("gold_field", ""),
+        "candidate_csv": [name for *_, name in reads],
+    }
+
+    if not candidates:
+        reason = "the task requires deforestation_rate.csv; no CSV was delivered"
+        report.checks["artifact_present"] = _failed("gis-vector-artifact-present", reason)
+        report.checks["task"] = _failed("gis-vector-task", reason)
+        report.outcome = {"v": None, "task_success": 0}
+        return _finish(report, spec, trial, budget_seconds)
+    if len(candidates) > 1:
+        reason = (f"the task requires exactly one result CSV; {len(candidates)} were "
+                  f"delivered: {[name for *_, name in reads]}")
+        report.checks["artifact_present"] = _failed("gis-vector-artifact-present", reason)
+        report.checks["task"] = _failed("gis-vector-task", reason)
+        report.outcome = {"v": None, "task_success": 0}
+        return _finish(report, spec, trial, budget_seconds)
+
+    value, column, columns, reason = reads[0][:4]
+    if value is None:
+        report.checks["artifact_present"] = _failed("gis-vector-artifact-present", reason)
+        report.checks["task"] = _failed("gis-vector-task", reason)
+        report.outcome = {"v": None, "task_success": 0}
+        return _finish(report, spec, trial, budget_seconds)
+
+    report.checks["artifact_present"] = _passed(
+        "gis-vector-artifact-present",
+        f"one CSV was delivered carrying the {column} column", evidence=[reads[0][4]],
+    )
+    truth = float(gold["gold_value"])
+    if value > 1.0:
+        # The task asks for the ratio; a percentage-formatted answer is a different
+        # quantity and is reported as such rather than silently rescaled.
+        report.checks["task"] = _failed(
+            "gis-vector-task",
+            f"the reported value {value:g} is a percentage, but the task freezes the "
+            f"ratio ({truth:g})",
+        )
+        report.outcome = {"v": None, "task_success": 0}
+        return _finish(report, spec, trial, budget_seconds)
+
+    absolute = float(spec.tolerance.get("value_absolute", 0.0) or 0.0)
+    relative = float(spec.tolerance.get("value_relative", 0.0) or 0.0)
+    allowed = max(absolute, relative * abs(truth))
+    error = abs(value - truth)
+    passed = error <= allowed
+    report.quality = {
+        "reported": value, "truth": truth, "absolute_error": error, "allowed": allowed,
+        "relative_error": error / abs(truth) if truth else None,
+    }
+    report.checks["task"] = Check(
+        "pass" if passed else "fail", "gis-vector-task-v1", [reads[0][4]],
+        f"{value!r} is within {allowed:g} of the recomputed {truth!r}"
+        if passed else f"{value!r} differs from the recomputed {truth!r} by {error:g}, "
+                       f"beyond the frozen tolerance {allowed:g}",
+    )
+    report.outcome = {"v": None, "task_success": 1 if passed else 0}
+    return _finish(report, spec, trial, budget_seconds)
+
+
+def grade_gis_analysis(
+    spec: TaskSpec, trial: TrialBundle, *, gold: dict | None = None,
+    budget_seconds: float | None = None,
+) -> GradeReport:
+    """Grade one GIS trial: the ruggedness raster (ID 12) or the ratio (ID 9).
+
+    The truth comes from the frozen bank, not from the agent, and each value in it
+    was recomputed independently from the published inputs.
+    """
+    report = GradeReport(
+        task_id=spec.task_id, family=spec.family, trial_id=trial.trial_id,
+        repeat=trial.repeat, suite_version=SUITE_VERSION,
+        rules_version=GROUNDED_RULES_VERSION, status=trial.status, usage=trial.usage,
+    )
+    if trial.status != "evaluated":
+        reason = f"the run did not reach the expected terminal state: {trial.terminal_state!r}"
+        report.checks["artifact_present"] = _failed("gis-artifact-present", reason)
+        report.checks["task"] = _failed("gis-task", reason)
+        report.checks["leakage"] = _not_applicable("grounded-leakage", reason)
+        report.checks["budget"] = _not_applicable("grounded-budget", reason)
+        report.validity = {"v": 0, "reason": reason}
+        report.failure_reasons = [reason]
+        report.outcome = {"v": 0, "task_success": 0}
+        report.process = _process_checks(report, trial, spec)
+        return report
+
+    gold = dict(gold or {})
+    if not gold:
+        return _unmeasured(report, f"no frozen gold is recorded for {spec.task_id}")
+    if spec.task_id == "gabench-12-terrain-ruggedness":
+        return _grade_ruggedness(report, spec, trial, gold, budget_seconds)
+    if spec.task_id == "gabench-09-deforestation-buffer":
+        return _grade_deforestation_rate(report, spec, trial, gold, budget_seconds)
+    return _unmeasured(report, f"no GIS grader is frozen for {spec.task_id}")
+
+
 def _finish(report: GradeReport, spec: TaskSpec, trial: TrialBundle,
             budget_seconds: float | None) -> GradeReport:
     """Leakage, budget, delivery validity, process checks and the trial outcome."""
@@ -660,7 +1003,6 @@ def _finish(report: GradeReport, spec: TaskSpec, trial: TrialBundle,
     else:
         report.validity = {"v": 1, "reason": "every delivery requirement was met"}
 
-    report.process = _process_checks(report, trial)
     v = report.validity["v"]
     quality = report.quality or {}
     if report.family == "canopy_extraction":
@@ -687,10 +1029,230 @@ def _finish(report: GradeReport, spec: TaskSpec, trial: TrialBundle,
     for name, check in report.checks.items():
         if check.verdict == "fail" and check.detail not in report.failure_reasons:
             report.failure_reasons.append(f"{name}: {check.detail}")
+    # Last, because a process judgement may read the outcome: whether a failed
+    # call was recovered from is decided against the delivery the run ended with.
+    report.process = _process_checks(report, trial, spec)
     return report
 
 
-def _process_checks(report: GradeReport, trial: TrialBundle) -> dict:
+#: Event types that carry a tool call. The collector writes ``tool_start`` and
+#: ``tool_end``; the synthetic fixtures in the tests use ``action`` and
+#: ``tool_call``. Reading only one of the two vocabularies silently left every
+#: process check unmeasured on real evidence, so both are accepted.
+TOOL_EVENT_TYPES = frozenset(
+    {"tool_start", "tool_end", "action", "tool_call", "function_call", "tool_result"}
+)
+
+#: Tools whose use shows the agent looked at a product before declaring it done.
+INSPECTION_TOOLS = frozenset(
+    {"inspect_file", "artifacts_inspect", "artifacts_preview", "tool_result_read", "fs_read",
+     "verify_output", "job_log"}
+)
+
+#: The dependency probe tools, and the shape of what they report back.
+_MISSING_MODULE = re.compile(r"no module named '([^']+)'", re.IGNORECASE)
+
+
+def _tool_events(trial: TrialBundle) -> list[dict]:
+    return [event for event in trial.events if event.get("type") in TOOL_EVENT_TYPES]
+
+
+def _call_failed(event: dict) -> bool:
+    """A call failed when the collector says so, in whichever field it used."""
+    flags = [event.get(key) for key in ("ok", "outcome_ok", "success")]
+    known = [bool(value) for value in flags if isinstance(value, bool)]
+    if known:
+        return not all(known)
+    status = str(event.get("status") or event.get("state") or "").casefold()
+    return status in {"failed", "error", "rejected"}
+
+
+def _tool_name(event: dict) -> str:
+    return str(event.get("name") or "").casefold()
+
+
+def _executed_code(trial: TrialBundle) -> list[str]:
+    """The source the run actually executed, as the collector recorded it."""
+    blocks: list[str] = []
+    for event in _tool_events(trial):
+        if _tool_name(event) != "code_run":
+            continue
+        arguments = event.get("arguments")
+        code = arguments.get("code") if isinstance(arguments, dict) else event.get("code")
+        if isinstance(code, str) and code.strip():
+            blocks.append(code)
+    return blocks
+
+
+_NUMBER = re.compile(r"(?<![\w.])\d+(?:\.\d+)?(?:[eE][+-]?\d+)?(?![\w.])")
+
+
+def _numbers_in(text: str) -> set[float]:
+    """Numeric literals appearing in the source, so 5500 and 5.5e3 both count."""
+    found: set[float] = set()
+    for token in _NUMBER.findall(text):
+        try:
+            found.add(float(token))
+        except ValueError:  # pragma: no cover - the regex already constrains it
+            continue
+    return found
+
+
+def _dependency_evidence(trial: TrialBundle, required: list[str]) -> dict[str, set[str]]:
+    """Which required packages the run proved available, missing, or never probed.
+
+    Evidence comes only from what the run itself recorded: an environment probe,
+    an install, or an import error surfaced by a tool. Nothing is inferred from
+    the score, and a package the run never mentions stays unprobed.
+    """
+    def normalise(name: str) -> str:
+        return str(name).casefold().replace("-", "_").replace(".", "_")
+
+    wanted = {normalise(name) for name in required if str(name).strip()}
+    available: set[str] = set()
+    missing: set[str] = set()
+
+    for event in _tool_events(trial):
+        name = _tool_name(event)
+        text = json.dumps(event, ensure_ascii=False)
+        for module in _MISSING_MODULE.findall(text):
+            if normalise(module) in wanted:
+                missing.add(normalise(module))
+        if name == "environment_check":
+            result = event.get("result")
+            data = result.get("data") if isinstance(result, dict) else None
+            modules = data.get("modules") if isinstance(data, dict) else None
+            for entry in modules or []:
+                if not isinstance(entry, dict):
+                    continue
+                module = normalise(entry.get("module") or "")
+                if module in wanted and entry.get("importable") is True:
+                    available.add(module)
+        if name == "dependency_install":
+            result = event.get("result")
+            data = result.get("data") if isinstance(result, dict) else None
+            verification = data.get("verification") if isinstance(data, dict) else None
+            if not isinstance(verification, dict):
+                continue
+            if str(verification.get("state") or "").casefold() != "succeeded":
+                continue
+            for package in list(verification.get("installed_packages") or []):
+                if isinstance(package, dict):
+                    module = normalise(package.get("name") or "")
+                    if module in wanted:
+                        available.add(module)
+            for requirement in list(verification.get("requirements") or []):
+                module = normalise(requirement)
+                if module in wanted:
+                    available.add(module)
+
+    return {"available": available, "missing": missing - available, "wanted": wanted}
+
+
+def _dependency_check(trial: TrialBundle, spec: TaskSpec) -> Check:
+    required = [str(name) for name in (spec.resources.get("python") or []) if str(name).strip()]
+    name = "grounded-process-dependencies_satisfied-v1"
+    if not required:
+        return Check("unknown", name, [],
+                     "the task declares no dependency, so there is nothing to satisfy")
+    evidence = _dependency_evidence(trial, required)
+    wanted, available, missing = evidence["wanted"], evidence["available"], evidence["missing"]
+    if missing:
+        return Check(
+            "fail", name, sorted(missing),
+            f"the run recorded a missing dependency and no later evidence of it: "
+            f"{', '.join(sorted(missing))}",
+        )
+    if wanted <= available:
+        return Check(
+            "pass", name, sorted(available),
+            f"the run recorded every declared package as available: {', '.join(sorted(wanted))}",
+        )
+    unprobed = sorted(wanted - available)
+    if available:
+        return Check(
+            "unknown", name, sorted(available),
+            f"{', '.join(sorted(available))} were available; no evidence was recorded for "
+            f"{', '.join(unprobed)}",
+        )
+    return Check(
+        "unknown", name, [],
+        f"the run records no dependency probe covering {', '.join(unprobed)}",
+    )
+
+
+def _method_check(trial: TrialBundle, spec: TaskSpec) -> Check:
+    """Does the executed code use the kind of method this task's data needs?
+
+    Only tasks with a frozen rubric are judged. A rubric is a list of marker
+    groups; the method fits when at least one marker from every group appears in
+    the code, which leaves an equivalent spelling of the same step acceptable.
+    """
+    name = "grounded-process-method_fits_data-v1"
+    groups = [group for group in (spec.process_rubric.get("method_markers") or []) if group]
+    if not groups:
+        return Check(
+            "unknown", name, [],
+            "no method rubric is frozen for this task: the same answer can be reached by "
+            "several defensible methods, so naming one would punish a correct alternative",
+        )
+    code = _executed_code(trial)
+    if not code:
+        return Check("unknown", name, [],
+                     "the run recorded no executed code, so the method cannot be read from it")
+    text = "\n".join(code).casefold()
+    absent = [group for group in groups
+              if not any(str(marker).casefold() in text for marker in group)]
+    if not absent:
+        return Check(
+            "pass", name, [str(group[0]) for group in groups],
+            "the executed code uses every step the frozen rubric names: "
+            + ", ".join(str(group[0]) for group in groups),
+        )
+    return Check(
+        "fail", name, [str(group[0]) for group in absent],
+        "the executed code shows no step for " + ", ".join(str(group[0]) for group in absent)
+        + ", which this task's data requires",
+    )
+
+
+def _parameters_check(trial: TrialBundle, spec: TaskSpec) -> Check:
+    """Are the frozen parameter values the ones the executed code actually used?
+
+    Numbers are compared as values, so 5500 and 5.5e3 are the same parameter;
+    non-numeric parameters (a CRS, say) are matched as text.
+    """
+    name = "grounded-process-key_parameters_correct-v1"
+    declared = [item for item in (spec.process_rubric.get("key_parameters") or [])
+                if isinstance(item, dict) and item.get("name")]
+    if not declared:
+        return Check("unknown", name, [],
+                     "no key parameter is frozen for this task, so none can be checked")
+    code = _executed_code(trial)
+    if not code:
+        return Check("unknown", name, [],
+                     "the run recorded no executed code, so its parameters cannot be read")
+    text = "\n".join(code)
+    numbers = _numbers_in(text)
+    folded = text.casefold()
+    found, absent = [], []
+    for item in declared:
+        label = str(item.get("name"))
+        numeric = item.get("numeric")
+        tokens = [str(token) for token in (item.get("tokens") or [])]
+        matched = (numeric is not None and float(numeric) in numbers) or any(
+            str(token).casefold() in folded for token in tokens
+        )
+        (found if matched else absent).append(label)
+    if not absent:
+        return Check("pass", name, found,
+                     "the executed code carries every frozen parameter: " + ", ".join(found))
+    return Check("fail", name, absent,
+                 "the executed code never uses " + ", ".join(absent)
+                 + ", which the frozen task requires")
+
+
+def _process_checks(report: GradeReport, trial: TrialBundle, spec: TaskSpec) -> dict:
     """Only the process judgements the stored evidence actually supports.
 
     The plan requires every process check to carry evidence, so anything this
@@ -702,32 +1264,40 @@ def _process_checks(report: GradeReport, trial: TrialBundle) -> dict:
                     "this grader has no trustworthy signal for this check, so it is unmeasured").as_dict()
         for name in PROCESS_CHECKS
     }
-    events = trial.events
-    tool_events = [event for event in events
-                   if event.get("type") in {"action", "tool_call", "function_call", "tool_result"}]
-    failures = [event for event in tool_events
-                if str(event.get("status") or event.get("state") or "").casefold()
-                in {"failed", "error", "rejected"}]
-    inspected = [event for event in tool_events
-                 if any(token in json.dumps(event, ensure_ascii=False).casefold()
-                        for token in ("verify", "inspect", "read", "open", "info", "stat", "check"))]
+    tool_events = _tool_events(trial)
+    failures = [event for event in tool_events if _call_failed(event)]
+    inspected = [event for event in tool_events if _tool_name(event) in INSPECTION_TOOLS]
+
+    checks["dependencies_satisfied"] = _dependency_check(trial, spec).as_dict()
+    checks["method_fits_data"] = _method_check(trial, spec).as_dict()
+    checks["key_parameters_correct"] = _parameters_check(trial, spec).as_dict()
 
     if tool_events:
-        checks["recovered_from_errors"] = Check(
-            "pass" if not failures else "unknown", "grounded-process-recovered_from_errors-v1", [],
-            "no tool call failed, so no recovery was required" if not failures else
-            f"{len(failures)} tool call(s) failed; whether the agent then changed approach is not "
-            "decided by this grader",
-        ).as_dict()
+        if not failures:
+            checks["recovered_from_errors"] = Check(
+                "pass", "grounded-process-recovered_from_errors-v1", [],
+                "no tool call failed, so no recovery was required",
+            ).as_dict()
+        elif report.outcome.get("v") == 1:
+            checks["recovered_from_errors"] = Check(
+                "pass", "grounded-process-recovered_from_errors-v1",
+                [str(event.get("name") or "") for event in failures[:5]],
+                f"{len(failures)} tool call(s) failed and the run still produced a valid, "
+                "graded delivery",
+            ).as_dict()
+        else:
+            checks["recovered_from_errors"] = Check(
+                "unknown", "grounded-process-recovered_from_errors-v1",
+                [str(event.get("name") or "") for event in failures[:5]],
+                f"{len(failures)} tool call(s) failed; whether the agent then changed approach "
+                "is not decided by this grader",
+            ).as_dict()
         checks["verified_product"] = Check(
-            "pass" if inspected else "unknown", "grounded-process-verified_product-v1", [],
-            "the trajectory contains at least one step that inspects data or a product" if inspected
-            else "the trajectory shows no step that inspects data or a product",
-        ).as_dict()
-        checks["method_fits_data"] = Check(
-            "unknown", "grounded-process-method_fits_data-v1", [],
-            "tool names alone do not establish that the method suited the data; this needs a "
-            "per-task method rubric",
+            "pass" if inspected else "unknown", "grounded-process-verified_product-v1",
+            sorted({str(event.get("name") or "") for event in inspected}),
+            "the run inspected a product before finishing: "
+            + ", ".join(sorted({str(event.get("name") or "") for event in inspected}))
+            if inspected else "the trajectory shows no step that inspects data or a product",
         ).as_dict()
     if report.outcome.get("v") == 1:
         checks["input_scope_correct"] = Check(
@@ -756,6 +1326,6 @@ def _elapsed_seconds(usage: dict) -> float | None:
 
 __all__ = [
     "Check", "GradeReport", "GROUNDED_RULES_VERSION", "LEAK_TOKENS", "PROCESS_CHECKS",
-    "SUITE_VERSION", "TaskSpec", "TrialBundle", "grade_canopy_extraction",
-    "grade_canopy_statistics", "read_gold_mask",
+    "SUITE_VERSION", "TaskSpec", "TrialBundle", "assert_portable", "grade_canopy_extraction",
+    "grade_canopy_statistics", "grade_gis_analysis", "read_gold_mask",
 ]

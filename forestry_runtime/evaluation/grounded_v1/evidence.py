@@ -163,7 +163,11 @@ def align_to_grid(
         delivery.reason = f"the raster could not be opened: {type(error).__name__}: {error}"
         return delivery
 
-    if delivery.nodata is not None:
+    if delivery.nodata is not None and value_domain == "canopy":
+        # Only a class raster is forbidden from marking pixels unobserved: a 0/1
+        # answer must account for every pixel. A continuous surface such as
+        # ruggedness may legitimately declare nodata, and refusing it here would
+        # fail a correct delivery for a rule that never applied to it.
         delivery.reason = (f"the raster declares nodata={delivery.nodata}, but a 0/1 class "
                            "raster must not mark pixels as no-data")
         delivery.class_values_ok = False

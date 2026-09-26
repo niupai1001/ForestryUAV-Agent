@@ -1,16 +1,18 @@
 {
   "suite_version": "grounded-v1.2",
+  "selection_version": "grounded-v1.1",
   "declared_suite_version": "grounded-v1.2",
+  "rules_version": "grounded-rules-1.1",
   "dataset_revision": "d97d4da0ebbb6e249ae95ac5e19656babd972eb2",
   "test_shard_sha256": "5c10ac4cb8afaf18dae5aad5b22cc86bb80977116a8bcd8c16d41ae48b9b13cf",
   "task_count": 14,
-  "gabench_repo": "data\\gabench\\repo",
+  "gabench_repo": "data/gabench/repo",
   "tasks": [
     {
       "task_id": "oam-01",
       "family": "canopy_extraction",
       "question": "从 oam-01.tif 提取树冠覆盖，交付与输入严格对齐的单波段二值 GeoTIFF（0/1）及覆盖率百分数。",
-      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_root": "data/oam_tcd/grounded_v1_1_public",
       "public_inputs": [
         "oam-01.tif"
       ],
@@ -42,13 +44,14 @@
       "tolerance": {
         "coverage_points": 0.5
       },
-      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-01.tif"
+      "process_rubric": {},
+      "input_path": "data/oam_tcd/grounded_v1_1_public/oam-01.tif"
     },
     {
       "task_id": "oam-02",
       "family": "canopy_extraction",
       "question": "从 oam-02.tif 提取树冠覆盖，交付与输入严格对齐的单波段二值 GeoTIFF（0/1）及覆盖率百分数。",
-      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_root": "data/oam_tcd/grounded_v1_1_public",
       "public_inputs": [
         "oam-02.tif"
       ],
@@ -80,13 +83,14 @@
       "tolerance": {
         "coverage_points": 0.5
       },
-      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-02.tif"
+      "process_rubric": {},
+      "input_path": "data/oam_tcd/grounded_v1_1_public/oam-02.tif"
     },
     {
       "task_id": "oam-03",
       "family": "canopy_extraction",
       "question": "从 oam-03.tif 提取树冠覆盖，交付与输入严格对齐的单波段二值 GeoTIFF（0/1）及覆盖率百分数。",
-      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_root": "data/oam_tcd/grounded_v1_1_public",
       "public_inputs": [
         "oam-03.tif"
       ],
@@ -118,13 +122,14 @@
       "tolerance": {
         "coverage_points": 0.5
       },
-      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-03.tif"
+      "process_rubric": {},
+      "input_path": "data/oam_tcd/grounded_v1_1_public/oam-03.tif"
     },
     {
       "task_id": "oam-04",
       "family": "canopy_extraction",
       "question": "从 oam-04.tif 提取树冠覆盖，交付与输入严格对齐的单波段二值 GeoTIFF（0/1）及覆盖率百分数。",
-      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_root": "data/oam_tcd/grounded_v1_1_public",
       "public_inputs": [
         "oam-04.tif"
       ],
@@ -156,13 +161,14 @@
       "tolerance": {
         "coverage_points": 0.5
       },
-      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-04.tif"
+      "process_rubric": {},
+      "input_path": "data/oam_tcd/grounded_v1_1_public/oam-04.tif"
     },
     {
       "task_id": "oam-05",
       "family": "canopy_extraction",
       "question": "从 oam-05.tif 提取树冠覆盖，交付与输入严格对齐的单波段二值 GeoTIFF（0/1）及覆盖率百分数。",
-      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_root": "data/oam_tcd/grounded_v1_1_public",
       "public_inputs": [
         "oam-05.tif"
       ],
@@ -194,13 +200,14 @@
       "tolerance": {
         "coverage_points": 0.5
       },
-      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-05.tif"
+      "process_rubric": {},
+      "input_path": "data/oam_tcd/grounded_v1_1_public/oam-05.tif"
     },
     {
       "task_id": "oam-06",
       "family": "canopy_extraction",
       "question": "从 oam-06.tif 提取树冠覆盖，交付与输入严格对齐的单波段二值 GeoTIFF（0/1）及覆盖率百分数。",
-      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_root": "data/oam_tcd/grounded_v1_1_public",
       "public_inputs": [
         "oam-06.tif"
       ],
@@ -232,13 +239,14 @@
       "tolerance": {
         "coverage_points": 0.5
       },
-      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-06.tif"
+      "process_rubric": {},
+      "input_path": "data/oam_tcd/grounded_v1_1_public/oam-06.tif"
     },
     {
       "task_id": "oam-07",
       "family": "canopy_statistics",
       "question": "统计 oam-07-input.tif 的树冠覆盖率百分数，以及树冠像元数和总有效像元数，写成 JSON。",
-      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_root": "data/oam_tcd/grounded_v1_1_public",
       "public_inputs": [
         "oam-07-input.tif"
       ],
@@ -270,13 +278,14 @@
         "pixels_relative": 0.0,
         "coverage_points": 1e-09
       },
-      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-07-input.tif"
+      "process_rubric": {},
+      "input_path": "data/oam_tcd/grounded_v1_1_public/oam-07-input.tif"
     },
     {
       "task_id": "oam-08",
       "family": "canopy_statistics",
       "question": "统计 oam-08-input.tif 的树冠覆盖率百分数，以及树冠像元数和总有效像元数，写成 JSON。",
-      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_root": "data/oam_tcd/grounded_v1_1_public",
       "public_inputs": [
         "oam-08-input.tif"
       ],
@@ -308,13 +317,14 @@
         "pixels_relative": 0.0,
         "coverage_points": 1e-09
       },
-      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-08-input.tif"
+      "process_rubric": {},
+      "input_path": "data/oam_tcd/grounded_v1_1_public/oam-08-input.tif"
     },
     {
       "task_id": "oam-09",
       "family": "canopy_statistics",
       "question": "统计 oam-09-input.tif 的树冠覆盖率百分数，以及树冠像元数和总有效像元数，写成 JSON。",
-      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_root": "data/oam_tcd/grounded_v1_1_public",
       "public_inputs": [
         "oam-09-input.tif"
       ],
@@ -346,13 +356,14 @@
         "pixels_relative": 0.0,
         "coverage_points": 1e-09
       },
-      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-09-input.tif"
+      "process_rubric": {},
+      "input_path": "data/oam_tcd/grounded_v1_1_public/oam-09-input.tif"
     },
     {
       "task_id": "oam-10",
       "family": "canopy_statistics",
       "question": "统计 oam-10-input.tif 的树冠覆盖率百分数，以及树冠像元数和总有效像元数，写成 JSON。",
-      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_root": "data/oam_tcd/grounded_v1_1_public",
       "public_inputs": [
         "oam-10-input.tif"
       ],
@@ -384,13 +395,14 @@
         "pixels_relative": 0.0,
         "coverage_points": 1e-09
       },
-      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-10-input.tif"
+      "process_rubric": {},
+      "input_path": "data/oam_tcd/grounded_v1_1_public/oam-10-input.tif"
     },
     {
       "task_id": "oam-11",
       "family": "canopy_statistics",
       "question": "统计 oam-11-input.tif 的树冠覆盖率百分数，以及树冠像元数和总有效像元数，写成 JSON。",
-      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_root": "data/oam_tcd/grounded_v1_1_public",
       "public_inputs": [
         "oam-11-input.tif"
       ],
@@ -422,13 +434,14 @@
         "pixels_relative": 0.0,
         "coverage_points": 1e-09
       },
-      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-11-input.tif"
+      "process_rubric": {},
+      "input_path": "data/oam_tcd/grounded_v1_1_public/oam-11-input.tif"
     },
     {
       "task_id": "oam-12",
       "family": "canopy_statistics",
       "question": "统计 oam-12-input.tif 的树冠覆盖率百分数，以及树冠像元数和总有效像元数，写成 JSON。",
-      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_root": "data/oam_tcd/grounded_v1_1_public",
       "public_inputs": [
         "oam-12-input.tif"
       ],
@@ -460,13 +473,14 @@
         "pixels_relative": 0.0,
         "coverage_points": 1e-09
       },
-      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-12-input.tif"
+      "process_rubric": {},
+      "input_path": "data/oam_tcd/grounded_v1_1_public/oam-12-input.tif"
     },
     {
       "task_id": "gabench-09-deforestation-buffer",
       "family": "gis_analysis",
-      "question": "计算巴西 Rondônia 州道路 5.5 km 缓冲区内的森林砍伐率，即缓冲区内的砍伐面积占缓冲区总面积的百分比。结果保存为 deforestation_rate.csv。若某个 GeoJSON 未显式声明坐标系，则按 WGS84 (EPSG:4326) 处理。",
-      "public_root": "data\\gabench\\repo\\dataset",
+      "question": "计算巴西 Rondônia 州道路 5.5 km 缓冲区内的森林砍伐率，即缓冲区内的砍伐面积占缓冲区总面积的比例。结果保存为 deforestation_rate.csv 的 percentage_deforestation 列，**写成比值形式（约 0.479），不要写成百分数（不要写 47.9）**。若某个 GeoJSON 未显式声明坐标系，则按 WGS84 (EPSG:4326) 处理。",
+      "public_root": "data/gabench/repo/dataset",
       "public_inputs": [
         "roads.geojson",
         "deforestedArea.geojson"
@@ -475,10 +489,10 @@
         "deforestation_rate.csv holding the percentage"
       ],
       "grading_rule": [
-        "Reproject both layers to EPSG:32723 (metres), buffer the roads by 5500 m, dissolve the buffers, intersect with the deforested polygon, and take 100 * clipped_area / buffer_area.",
+        "Reproject both layers to EPSG:32723 (metres), buffer the roads by 5500 m, dissolve the buffers, intersect with the deforested polygon, and report clipped_area / buffer_area as a ratio.",
         "The reference result is recomputed by this project from the published inputs; the tested agent's toolchain is never used to produce the standard answer.",
-        "Absolute tolerance 0.01 percentage points, because the published reference carries six decimal places.",
-        "A CSV that reports metres, an area, or an unlabelled number is a failure with that reason."
+        "Tolerance is relative 1e-4 with an absolute floor of 1e-9. The width is deliberate: the published deforested polygon is topologically invalid, and two defensible repairs of it (buffer(0), which the reference used, and shapely.make_valid) differ by 1.07e-05. A tighter tolerance would measure which repair the agent guessed rather than whether it solved the task.",
+        "A CSV that reports metres, an area, or an unlabelled number is a failure with that reason. So is the same number written as a percentage (47.9): the frozen answer is the ratio."
       ],
       "condition": "vector",
       "budget": {
@@ -494,15 +508,46 @@
         "network": "not required"
       },
       "tolerance": {
-        "coverage_points": 0.01
+        "value_absolute": 1e-09,
+        "value_relative": 0.0001
       },
-      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\gabench\\repo\\dataset\\roads.geojson"
+      "process_rubric": {
+        "method_markers": [
+          [
+            "buffer"
+          ],
+          [
+            "dissolve",
+            "union_all",
+            "unary_union"
+          ],
+          [
+            "intersection",
+            "intersect",
+            "clip",
+            "overlay"
+          ]
+        ],
+        "key_parameters": [
+          {
+            "name": "buffer_distance_5500_m",
+            "numeric": 5500
+          },
+          {
+            "name": "projected_crs_epsg_32723",
+            "tokens": [
+              "32723"
+            ]
+          }
+        ]
+      },
+      "input_path": "data/gabench/repo/dataset/roads.geojson"
     },
     {
       "task_id": "gabench-12-terrain-ruggedness",
       "family": "gis_analysis",
       "question": "用高程数据计算地形起伏度（ruggedness）：以 3×3 邻域的高程极差（最大值减最小值）作为每个像元的起伏度，输出与输入同网格的 GeoTIFF。",
-      "public_root": "data\\gabench\\repo\\dataset",
+      "public_root": "data/gabench/repo/dataset",
       "public_inputs": [
         "Elevation.tif"
       ],
@@ -532,10 +577,110 @@
         "pixels_absolute": 0.0,
         "pixels_relative": 0.0
       },
-      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\gabench\\repo\\dataset\\Elevation.tif"
+      "process_rubric": {
+        "method_markers": [
+          [
+            "generic_filter",
+            "maximum_filter",
+            "minimum_filter",
+            "uniform_filter",
+            "neighborhood",
+            "neighbourhood",
+            "sliding_window",
+            "rolling"
+          ],
+          [
+            "range",
+            "ptp",
+            "maximum",
+            "minimum",
+            "max",
+            "min",
+            "amax",
+            "amin"
+          ]
+        ],
+        "key_parameters": [
+          {
+            "name": "neighbourhood_window_3x3",
+            "tokens": [
+              "3x3",
+              "3×3",
+              "(3, 3)",
+              "(3,3)",
+              "3, 3",
+              "size=3"
+            ]
+          }
+        ]
+      },
+      "input_path": "data/gabench/repo/dataset/Elevation.tif"
     }
   ],
   "gold": {
+    "gabench-09-deforestation-buffer": {
+      "kind": "gis_vector",
+      "gold_value": 0.4793110356552816,
+      "gold_field": "percentage_deforestation",
+      "gold_source": "published dataset/result/deforestation_rate.csv",
+      "intermediates": {
+        "buffer_area_m2": 179792795540.404,
+        "deforested_clip_area_m2": 86176671033.82933
+      },
+      "method": "assign EPSG:4326 where a GeoJSON declares none, reproject both layers to EPSG:32723, buffer the roads by 5500 m, dissolve the buffers, intersect with the deforested polygon, and take clipped_area / buffer_area",
+      "recomputation": {
+        "buffer_area_m2": 179792795540.4048,
+        "deforested_clip_area_m2": 86176671033.82924,
+        "ratio": 0.47931103565527894,
+        "ratio_absolute_error": 2.6645352591003757e-15,
+        "roads_features": 27662,
+        "deforested_features": 1,
+        "deforested_geometry_valid_as_published": false,
+        "repair_used": "buffer(0)"
+      },
+      "pitfalls": [
+        "The published deforested polygon is topologically invalid and GEOS refuses to overlay it as published (TopologyException: side location conflict). The reference repaired it with a zero-width buffer, which reproduces the published value to 1e-15.",
+        "shapely.make_valid() also repairs it but drops about 2.04 km^2 and gives 0.47930037874086123, 1.07e-05 away. That route is a defensible reading of the task, so the frozen tolerance covers both; make_valid must not be used as the standard itself."
+      ]
+    },
+    "gabench-12-terrain-ruggedness": {
+      "kind": "gis_raster",
+      "gold_raster": "data/gabench/private/gold/ruggedness-Elevation.tif",
+      "gold_raster_sha256": "200bcfb4aeb2a4ef8522a6c4e68424ff4273192e249e61abd73451188bf886f7",
+      "gold_raster_bytes": 31461518,
+      "grid": {
+        "crs": "EPSG:26911",
+        "shape": [
+          2494,
+          3062
+        ],
+        "transform": [
+          30.0,
+          0.0,
+          307049.43822125107,
+          0.0,
+          -30.0,
+          3837890.3523405134
+        ],
+        "dtype": "uint8",
+        "nodata": null
+      },
+      "value_range": {
+        "min": 0,
+        "max": 36
+      },
+      "valid_pixels": 7636628,
+      "method": "3x3 neighbourhood range (maximum minus minimum) of band 1 of Elevation.tif read as float64, edge pixels using the nearest available neighbour",
+      "recomputation": {
+        "mismatched_pixels": 0,
+        "max_abs_difference": 0.0,
+        "note": "0 of 7,636,628 pixels differ from the published reference raster."
+      },
+      "pitfalls": [
+        "255 is real elevation in this dataset and must not be read as nodata; the file declares no nodata and the reference treats 255 as a normal value.",
+        "The published reference raster lives inside the directory the agent is shown. Only the files named in public_inputs may be copied into the agent workspace, and the frozen gold copy is kept outside it."
+      ]
+    },
     "oam-01": {
       "kind": "canopy",
       "gold_mask": "oam-01-gold.tif",

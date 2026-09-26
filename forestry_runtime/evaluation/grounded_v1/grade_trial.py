@@ -20,6 +20,7 @@ from pathlib import Path
 
 from .grading import (
     TaskSpec, TrialBundle, grade_canopy_extraction, grade_canopy_statistics,
+    grade_gis_analysis,
 )
 
 
@@ -31,6 +32,11 @@ def load_task(tasks_file: Path, task_id: str) -> dict:
     raise KeyError(f"{task_id} is not in {tasks_file}")
 
 
+def load_gold(tasks_file: Path, task_id: str) -> dict:
+    payload = json.loads(Path(tasks_file).read_text(encoding="utf-8"))
+    return dict((payload.get("gold") or {}).get(task_id) or {})
+
+
 def spec_from(task: dict) -> TaskSpec:
     return TaskSpec(
         task_id=task["task_id"], family=task["family"], question=task["question"],
@@ -39,10 +45,13 @@ def spec_from(task: dict) -> TaskSpec:
         grading_rule=list(task["grading_rule"]), condition=task["condition"],
         budget=dict(task["budget"]), resources=dict(task["resources"]),
         tolerance=dict(task.get("tolerance") or {}),
+        # Without this the frozen rubric is silently dropped and the method and
+        # parameter checks stay unmeasured on every real trial.
+        process_rubric=dict(task.get("process_rubric") or {}),
     )
 
 
-def grade(task: dict, trial_path: Path, gold_root: Path) -> dict:
+def grade(task: dict, trial_path: Path, gold_root: Path, gold: dict | None = None) -> dict:
     spec = spec_from(task)
     bundle = TrialBundle.load(trial_path, case_id=task["task_id"])
     budget = task["budget"].get("wall_seconds")
@@ -56,11 +65,12 @@ def grade(task: dict, trial_path: Path, gold_root: Path) -> dict:
             spec, bundle, gold_mask=gold_root / f"{task['task_id']}-gold.tif",
             budget_seconds=budget,
         )
-    else:
-        raise NotImplementedError(
-            f"{task['task_id']} belongs to the GIS family, whose grader is not implemented in "
-            "this version; the canopy grader is the accepted part of phase A"
+    elif task["family"] == "gis_analysis":
+        report = grade_gis_analysis(
+            spec, bundle, gold=gold or {}, budget_seconds=budget,
         )
+    else:
+        raise NotImplementedError(f"no grader is frozen for the family {task['family']!r}")
     return report.as_dict()
 
 
@@ -69,7 +79,7 @@ def main() -> int:
     parser.add_argument("--task", required=True)
     parser.add_argument("--trial", type=Path, required=True)
     parser.add_argument("--tasks-file", type=Path,
-                        default=Path("evaluation/grounded_v1/tasks.grounded-v1.1.json"))
+                        default=Path("evaluation/grounded_v1/tasks.grounded-v1.2.json"))
     parser.add_argument("--gold-root", type=Path,
                         default=Path("data/oam_tcd/grounded_v1_1_private"))
     parser.add_argument("--out", type=Path, default=None)
@@ -78,12 +88,16 @@ def main() -> int:
     args = parser.parse_args()
 
     task = load_task(args.tasks_file, args.task)
-    report = grade(task, args.trial.resolve(), args.gold_root.resolve())
+    gold = load_gold(args.tasks_file, args.task)
+
+    def grade_once() -> dict:
+        return grade(task, args.trial.resolve(), args.gold_root.resolve(), gold)
+
+    report = grade_once()
     if args.repeat_check > 1:
         baseline = json.dumps(report, ensure_ascii=False, sort_keys=True)
         for _ in range(args.repeat_check - 1):
-            again = json.dumps(grade(task, args.trial.resolve(), args.gold_root.resolve()),
-                               ensure_ascii=False, sort_keys=True)
+            again = json.dumps(grade_once(), ensure_ascii=False, sort_keys=True)
             if again != baseline:
                 print(json.dumps({"repeatable": False, "task": args.task},
                                  ensure_ascii=False))
