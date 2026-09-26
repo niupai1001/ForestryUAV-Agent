@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 from ..kernel.protocol import ToolPreconditionError, execution_failure, normalize_result, parse_arguments
@@ -55,6 +56,52 @@ class RuntimeTools(
         self._domain = None
         self._observations: dict[str, str | None] = {}
         self._knowledge_queries: list[str] = []
+        self.input_paths = self._materialise_attachments()
+
+    # An uploaded asset is stored *beside* the workspace, and a job container mounts
+    # only the workspace. Without the copy below every raster, archive or binary the
+    # user attached is unreachable from model-written code: the agent can list it,
+    # preview it, and read it as text, but `open()` inside the sandbox fails. That
+    # reads downstream as "the model cannot handle a GeoTIFF" when the real fact is
+    # that the bytes were never in the sandbox -- and the agent then spends its whole
+    # budget walking the filesystem looking for a file that was never mounted.
+    # Materialising attachments into one obvious directory is what makes an
+    # attachment and a workspace file the same thing to the agent.
+    def _materialise_attachments(self) -> dict[str, str]:
+        """Copy this chat's attached assets to ``<workspace>/inputs/`` once."""
+        if not self.allowed:
+            return {}
+        directory = self.workspace / "inputs"
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return {}
+        placed: dict[str, str] = {}
+        taken: set[str] = set()
+        for asset_id in sorted(self.allowed):
+            try:
+                asset = self.store.get(asset_id, self.owner)
+                source = self.store.path(asset_id, self.owner)
+            except AssetError:
+                continue
+            if not source.is_file():
+                continue
+            name = str(asset.get("name") or source.name).replace("\\", "/").rsplit("/", 1)[-1]
+            if not name or name in {".", ".."}:
+                name = asset_id
+            if name.casefold() in taken:
+                name = f"{asset_id[-8:]}-{name}"
+            taken.add(name.casefold())
+            target = directory / name
+            try:
+                # Size comparison keeps this idempotent across turns without hashing
+                # a multi-hundred-megabyte raster on every model request.
+                if not target.is_file() or target.stat().st_size != source.stat().st_size:
+                    shutil.copyfile(source, target)
+            except OSError:
+                continue
+            placed[asset_id] = f"inputs/{name}"
+        return placed
 
     @staticmethod
     def _call_key(name: str, arguments: dict) -> str:

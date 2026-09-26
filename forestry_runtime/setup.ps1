@@ -136,7 +136,7 @@ $env:AGENT_JOB_CPUS = if ($envValues['AGENT_JOB_CPUS']) { $envValues['AGENT_JOB_
 $env:AGENT_JOB_MEMORY = if ($envValues['AGENT_JOB_MEMORY']) { $envValues['AGENT_JOB_MEMORY'] } else { '6g' }
 $env:AGENT_JOB_PIDS = if ($envValues['AGENT_JOB_PIDS']) { $envValues['AGENT_JOB_PIDS'] } else { '256' }
 $env:AGENT_MAX_ACTIVE_JOBS = if ($envValues['AGENT_MAX_ACTIVE_JOBS']) { $envValues['AGENT_MAX_ACTIVE_JOBS'] } else { '1' }
-$ollamaModel = if ($envValues['OLLAMA_MODEL']) { $envValues['OLLAMA_MODEL'] } else { 'qwen3.5:4b' }
+$ollamaModel = if ($envValues['OLLAMA_MODEL']) { $envValues['OLLAMA_MODEL'] } else { 'qwen3.8:27b' }
 $remoteSensingEnabled = ($envValues['REMOTE_SENSING_PLUGINS_ENABLED'] -eq 'true')
 
 # --- Host bridge -----------------------------------------------------------

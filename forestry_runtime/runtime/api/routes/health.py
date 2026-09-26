@@ -64,7 +64,7 @@ def health():
     return {
         'status': 'degraded' if degraded else 'ok',
         'version': '0.10.0',
-        'model': os.getenv('OLLAMA_MODEL', 'qwen3.5:4b'),
+        'model': os.getenv('OLLAMA_MODEL', 'qwen3.8:27b'),
         'kernel': 'pydantic-ai',
         'remote_sensing_plugins': os.getenv('REMOTE_SENSING_PLUGINS_ENABLED', 'false').lower() == 'true',
         **dependencies,

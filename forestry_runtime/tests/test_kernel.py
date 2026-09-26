@@ -25,16 +25,21 @@ EXPECTED_CORE_NAMES = (
     "knowledge_search", "knowledge_read", "domain_guide",
 )
 EXPECTED_LEGACY_CONTRACT_SHA256 = (
-    # Updated deliberately, twice: `dependency_install` gained a `system_packages`
-    # field (a wheel can need a shared library pip cannot supply), and `domain_guide`
-    # gained wording that a guide id is a document name rather than a tool name -- a
-    # Run once called it 124 times treating the id as a capability.
-    "fb48a10cfb708cdcaa8fb28f8b551f2b983fbb8e4767a4e255dff6ee15a18313"
+    # Updated deliberately, four times: `dependency_install` gained a `system_packages`
+    # field (a wheel can need a shared library pip cannot supply); `domain_guide` gained
+    # wording that a guide id is a document name rather than a tool name -- a Run once
+    # called it 124 times treating the id as a capability; `code_run.source_ids` gained a
+    # description (with none, nothing told the model that an uploaded file is unreachable
+    # from the sandbox unless its id is listed here, and a whole Run was spent walking the
+    # filesystem for a raster that was never mounted); and `environment_check` gained
+    # descriptions on both fields plus the promise that clears a `code_run` refusal.
+    "13e67c6fd38a842997f13e20014760133294051531238287aabaf8d43b3adc21"
 )
-# Raised by the `system_packages` field on `dependency_install` and the `guide_id`
-# wording on `domain_guide`, which are the only contract changes here; the visible
-# tool count is unchanged.
-EXPECTED_VISIBLE_SCHEMA_CHARS = 10384
+# Raised by the `system_packages` field on `dependency_install`, the `guide_id`
+# wording on `domain_guide`, the `source_ids` description on `code_run`, and the
+# `environment_check` field descriptions, which are the only contract changes here;
+# the visible tool count is unchanged.
+EXPECTED_VISIBLE_SCHEMA_CHARS = 11506
 
 
 class KernelContractTests(unittest.TestCase):

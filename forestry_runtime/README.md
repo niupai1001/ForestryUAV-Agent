@@ -16,7 +16,7 @@ RunCoordinator + RunStore
 ContextCompiler ← 运行事实 / 显式项目记忆 / 知识源清单
           │
           ▼
-PydanticAI Agent + Qwen3.5 / Ollama ← Tool Registry（实际可调用集合）
+PydanticAI Agent + Qwen3.8 / Ollama ← Tool Registry（实际可调用集合）
           │ 原生消息历史、thinking、tool call、observation、checkpoint
           ▼
 RuntimeTools ─────────────── RemoteSensingTools（可选）

@@ -171,7 +171,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path("evaluation/work/baseline"))
     parser.add_argument("--ollama-url", default=os.getenv("OLLAMA_URL_HOST", "http://127.0.0.1:11434"))
-    parser.add_argument("--model", default=os.getenv("OLLAMA_MODEL", "qwen3.5:4b"))
+    parser.add_argument("--model", default=os.getenv("OLLAMA_MODEL", "qwen3.8:27b"))
     parser.add_argument("--container", default="forestry-runtime")
     parser.add_argument(
         "--container-image",

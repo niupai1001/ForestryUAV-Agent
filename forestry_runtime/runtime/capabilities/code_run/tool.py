@@ -11,7 +11,19 @@ from ..base import Args
 class CodeRunArgs(Args):
     language: Literal["python", "shell"]
     code: str = Field(min_length=1, max_length=131072)
-    source_ids: list[str] = Field(default_factory=list, max_length=8)
+    source_ids: list[str] = Field(
+        default_factory=list, max_length=8,
+        description=(
+            "Asset ids to mount read-only into the job as /sources/<source_id>/. "
+            "You MUST pass the id of every uploaded input you want to read: files that "
+            "live outside the workspace are NOT reachable from inside the sandbox unless "
+            "they are listed here. Copy the ids verbatim from the asset list or from an "
+            "artifacts_inspect result; a mounted directory appears under its own path, so "
+            "list it first with os.listdir('/sources/<source_id>') if you are unsure of "
+            "the filename. Omitting this argument is only correct when the code needs "
+            "nothing but files already in the workspace."
+        ),
+    )
     timeout_seconds: int = Field(default=14400, ge=1, le=14400)
     required_packages: list[str] = Field(
         default_factory=list, max_length=20,

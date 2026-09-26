@@ -360,7 +360,7 @@ def _model() -> OpenAIChatModel:
         openai_chat_send_back_thinking_parts="field",
     )
     return OpenAIChatModel(
-        os.getenv("OLLAMA_MODEL", "qwen3.5:4b"),
+        os.getenv("OLLAMA_MODEL", "qwen3.8:27b"),
         provider=OpenAIProvider(base_url=base_url, api_key="ollama"),
         profile=profile,
     )
@@ -413,7 +413,7 @@ def _settings() -> dict:
     }
 
 
-def _bounded_tool_result(output: dict, persist=None, limit: int = 14000) -> dict:
+def _bounded_tool_result(output: dict, persist=None, limit: int | None = None) -> dict:
     """Bound a large tool result without dropping its terminal or error facts.
 
     Naive head-truncation loses exactly the part that matters: a job's final
@@ -422,6 +422,8 @@ def _bounded_tool_result(output: dict, persist=None, limit: int = 14000) -> dict
     head and the tail of the payload, and points at the complete result for
     anything that needs more.
     """
+    if limit is None:
+        limit = int(os.getenv("TOOL_RESULT_LIMIT", "14000"))
     encoded = json.dumps(output, ensure_ascii=False, allow_nan=False)
     if len(encoded) <= limit:
         return output
@@ -961,7 +963,7 @@ async def stream_agent(
                 grants = box.workspaces.list_grants(box.owner, box.chat_id)
                 inputs = reachable_inputs(
                     attachments=box.attachment_context(), grants=grants,
-                    workspace=box.workspace,
+                    workspace=box.workspace, materialised=box.input_paths,
                 )
                 inputs.pop("workspace_root", None)
                 proposed = {"tool": call.tool_name, "arguments": args}

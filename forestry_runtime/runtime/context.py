@@ -552,6 +552,7 @@ class ContextCompiler:
             attachments=attachments,
             grants=grants,
             workspace=getattr(self.toolbox, "workspace", None),
+            materialised=getattr(self.toolbox, "input_paths", None),
         )
         if self.run_facts:
             facts["run"] = self.run_facts()
@@ -588,7 +589,8 @@ class ContextCompiler:
         return parts, manifest, len(instruction)
 
 
-def reachable_inputs(*, attachments: list, grants: list, workspace) -> dict:
+def reachable_inputs(*, attachments: list, grants: list, workspace,
+                    materialised: dict | None = None) -> dict:
     """What this chat can actually reach, with one usable reference per entry.
 
     A discovery tool answers "which files match this pattern", inside one root. This
@@ -630,15 +632,25 @@ def reachable_inputs(*, attachments: list, grants: list, workspace) -> dict:
     }
 
     asset_entries = []
+    placed = materialised or {}
     for item in attachments:
         name = str(item.get("name") or "")
+        # A copy under `inputs/` is what makes the attachment's *bytes* reachable
+        # from model-written code, so it is stated here rather than left to be
+        # discovered: the sandbox mounts only the workspace, never the asset tree.
+        workspace_path = placed.get(str(item.get("id") or ""))
         asset_entries.append({
             "kind": "asset",
             "id": item.get("id"),
             "name": name,
             "media_type": item.get("media_type"),
+            "workspace_path": workspace_path,
             "exact_reference": {"scope": "assets", "asset_id": item.get("id"), "name": name},
         })
+        if workspace_path:
+            asset_entries[-1]["exact_reference_for_code"] = {
+                "scope": "workspace", "path": workspace_path,
+            }
 
     grant_entries = []
     for item in grants:
@@ -659,7 +671,17 @@ def reachable_inputs(*, attachments: list, grants: list, workspace) -> dict:
             "text and does not make a file reachable."
         )
     elif asset_entries:
-        note = "Attached assets are addressed by asset_id, not by any path."
+        copied = [entry["workspace_path"] for entry in asset_entries if entry.get("workspace_path")]
+        if copied:
+            note = (
+                "Attached assets are addressed by asset_id, not by any host path. Each one is "
+                "also copied into the workspace under inputs/, and that copy is the only way "
+                "model-written code can read its bytes: the sandbox mounts the workspace, not "
+                "the asset directory. Use the workspace_path from this list with fs_read or "
+                "with open() inside code_run, for example " + ", ".join(copied[:4]) + "."
+            )
+        else:
+            note = "Attached assets are addressed by asset_id, not by any path."
     else:
         note = "Authorized source directories are read-only and addressed by source_id."
 

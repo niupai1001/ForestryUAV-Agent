@@ -408,6 +408,35 @@ class EnvironmentCapability:
                     + ". The dependency directory already holds these; installing them "
                       "again does not change the job image."
                 )
+        # A probe that proves a module is importable must *make* it import-checked.
+        # It did not, and the gap was a trap: code_run's own refusal named
+        # environment_check with `modules` as the remedy, that call reported
+        # `missing=[]`, and code_run then refused again with the identical message --
+        # because only `record_requirements` wrote the record the preflight reads. A
+        # model that never guessed the undocumented parameter cycled until the Run
+        # paused, and two Runs of the same model on the same task diverged purely on
+        # whether that guess happened.
+        if requested and not record_requirements:
+            importable = [
+                str(item.get("module")) for item in result["modules"]
+                if item.get("importable")
+            ]
+            if importable:
+                key = requirement_fingerprint(requested)
+                records = self._environment_records()
+                entry = dict(records.get(key) or {})
+                probed = set(entry.get("modules") or [])
+                probed.update(importable)
+                entry.update({
+                    "requirements": normalise_requirements(requested),
+                    "modules": sorted(probed),
+                    "image": result.get("image"),
+                    "verified_at": time.time(),
+                })
+                records[key] = entry
+                self._write_environment_records(records)
+                result["verification_key"] = key
+                result["import_checked"] = sorted(importable)
         if record_requirements:
             key = requirement_fingerprint(record_requirements)
             records = self._environment_records()
@@ -733,11 +762,21 @@ class EnvironmentCapability:
                 "installed_top_levels": sorted(available)[:50],
                 "retryable": True,
                 "suggested_tool": "environment_check",
-                "suggested_arguments": {"modules": missing[:20]},
+                # `record_requirements` is listed alongside `modules` because the
+                # suggested arguments must actually clear the refusal. Naming only
+                # `modules` sent a Run into a loop: the check answered `missing=[]`
+                # and the refusal repeated verbatim, three times, until the Run paused.
+                "suggested_arguments": {
+                    "modules": missing[:20],
+                    "record_requirements": missing[:20],
+                },
                 "guidance": (
                     "Call environment_check with these modules to prove importability in "
-                    "the job image, installing them with dependency_install first if the "
-                    "check reports they are missing."
+                    "the job image; a module that probes importable becomes import-checked "
+                    "and this refusal clears. Pass the same names as record_requirements "
+                    "to bind the verification to those distributions for later code. "
+                    "Install them with dependency_install first only if the check reports "
+                    "they are not importable."
                 ),
             },
         }

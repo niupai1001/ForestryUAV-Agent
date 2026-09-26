@@ -142,7 +142,7 @@ class RuntimeApiClient:
 def collect_trial(
     *, client: RuntimeApiClient, case_id: str, repeat: int, prompt: str,
     fixture_files: list[Path], output: Path, configuration: dict[str, Any],
-    timeout_seconds: int = 1800,
+    timeout_seconds: int = 1800, settings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     output.mkdir(parents=True, exist_ok=False)
     raw_dir = output / "raw"
@@ -155,6 +155,19 @@ def collect_trial(
     turns: list[dict[str, Any]] = []
     try:
         client.request("POST", "/sessions", {"chat_id": client.headers["X-Chat-ID"]})
+        # A controlled arm is only controlled if its harness parameters are applied to
+        # the session that runs it. Overrides must follow session creation, so they
+        # live here rather than in the operator's shell: a setting changed on the wrong
+        # session is silently the default, which measures nothing and looks like a
+        # model difference. The applied values are written to the package so a grade
+        # can always be traced to the configuration that produced it.
+        if settings:
+            applied = client.request("PUT", "/settings", {"settings": settings})
+            (raw_dir / "arm-settings.json").write_text(
+                json.dumps({"requested": settings, "applied": applied},
+                           ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
         assets = [client.upload(path) for path in fixture_files]
         run = client.request("POST", "/runs", {
             "messages": [{"role": "user", "content": prompt}],

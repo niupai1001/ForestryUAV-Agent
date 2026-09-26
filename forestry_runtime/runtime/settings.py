@@ -111,7 +111,7 @@ GROUP_KNOWLEDGE = "知识与插件"
 #: the intended way to keep deployment configuration out of it.
 SETTINGS: tuple[Setting, ...] = (
     # -- model and sampling -------------------------------------------------
-    Setting("OLLAMA_MODEL", "text", "qwen3.5:4b", GROUP_MODEL,
+    Setting("OLLAMA_MODEL", "text", "qwen3.8:27b", GROUP_MODEL,
             "生成所用的模型名。改了下一个 Run 生效。"),
     Setting("OLLAMA_TEMPERATURE", "float", "0.2", GROUP_MODEL,
             "采样温度。0 更确定，越高越发散。", minimum=0.0, maximum=2.0),
@@ -138,6 +138,9 @@ SETTINGS: tuple[Setting, ...] = (
             "输入预算占上下文窗口的比例。", minimum=0.1, maximum=1.0),
     Setting("CONTEXT_SAFETY_MARGIN_TOKENS", "int", "0", GROUP_CONTEXT,
             "在预算之外额外保留的余量（token）。", minimum=0, maximum=65536),
+    Setting("TOOL_RESULT_LIMIT", "int", "14000", GROUP_CONTEXT,
+            "工具结果内联返回的字符上限；超出则截断为 head/tail 并给出 result_id。",
+            minimum=1000, maximum=400000),
 
     # -- jobs and waiting ---------------------------------------------------
     Setting("INSTALL_WAIT_SECONDS", "text", "90,300,900", GROUP_JOBS,
