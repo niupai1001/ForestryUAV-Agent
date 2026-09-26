@@ -2,7 +2,7 @@
 
 本台账对应 `evaluation/GROUNDED_EXECUTION_PLAN.md` 第 2.2 节最后一段：**枚举 GABench 的非卫星任务，按“输入完整、不依赖在线私有服务、最终结果可程序化判定”筛除，再按矢量处理 / 栅格处理 / 组合分析各取两题。** 本文件只做筛选与复算方法记录，**不包含任何评分器实现**（评分器是后续步骤，由其他人负责）。
 
-机器可读版本：`evaluation/grounded_v1/gabench_candidates.json`；获取记录：`data/gabench/ACQUISITION.md`；逐文件 SHA-256：`evaluation/work/gabench_acquisition_manifest.json`。
+机器可读版本：`evaluation/grounded_v1/gabench_candidates.json`；获取记录：`evaluation/grounded_v1/GABENCH_ACQUISITION.md`；逐文件 SHA-256：`evaluation/work/gabench_acquisition_manifest.json`。
 
 ## 0. 结论（先讲清楚）
 
@@ -241,7 +241,7 @@ Invoke-WebRequest -Uri "https://media.githubusercontent.com/media/GeoX-Lab/GABen
 #    evaluation/work/gabench_acquisition_manifest.json（276 个文件，1.42 GiB）
 ```
 
-获取细节（含关键文件 SHA-256 表、TLS 说明、许可提示）见 `data/gabench/ACQUISITION.md`。
+获取细节（含关键文件 SHA-256 表、TLS 说明、许可提示）见 `evaluation/grounded_v1/GABENCH_ACQUISITION.md`。
 
 ## 8. 本台账没有做什么
 

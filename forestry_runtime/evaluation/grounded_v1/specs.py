@@ -241,7 +241,7 @@ def main() -> None:
                         default=Path("data/oam_tcd/grounded_v1_1_private/manifest.json"))
     parser.add_argument("--public-root", type=Path, default=Path("data/oam_tcd/grounded_v1_1_public"))
     parser.add_argument("--gabench-repo", type=Path, default=Path("data/gabench/repo"))
-    parser.add_argument("--out", type=Path, default=Path("evaluation/grounded_v1/tasks.grounded-v1.1.json"))
+    parser.add_argument("--out", type=Path, default=Path("evaluation/grounded_v1/tasks.grounded-v1.2.json"))
     parser.add_argument("--budget-seconds", type=int, default=DEFAULT_BUDGET_SECONDS)
     args = parser.parse_args()
     payload = build_tasks(

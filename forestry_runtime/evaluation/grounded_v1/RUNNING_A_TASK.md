@@ -7,7 +7,7 @@
 ```powershell
 # Runtime（容器，监听 8010）
 Invoke-RestMethod http://127.0.0.1:8010/health | ConvertTo-Json
-# 期望：status=ok, model=qwen3.5:4b, model_reachable=true, host_bridge_reachable=true
+# 期望：status=ok, model=qwen3.8:27b, model_reachable=true, host_bridge_reachable=true
 
 # 执行桥（宿主机进程，监听 8011，负责真正跑代码）
 $key = (Get-Content .env | Where-Object { $_ -match '^HOST_BRIDGE_KEY=' }) -replace '^HOST_BRIDGE_KEY=',''

@@ -30,7 +30,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-DEFAULT_TASKS_FILE = Path("evaluation/grounded_v1/tasks.grounded-v1.1.json")
+DEFAULT_TASKS_FILE = Path("evaluation/grounded_v1/tasks.grounded-v1.2.json")
 DEFAULT_RUNS_ROOT = Path("data/runs")
 
 
@@ -63,6 +63,7 @@ def _client(base_url: str, api_key: str, owner: str, chat_id: str):
 def run_trial(
     *, task: dict, base_url: str, api_key: str, owner: str, repeat: int,
     runs_root: Path, timeout_seconds: int, configuration: dict,
+    settings: dict | None = None,
 ) -> dict:
     """Collect one trial. Returns the collector's result plus the trial path."""
     chat_id = str(uuid.uuid4())
@@ -86,6 +87,7 @@ def run_trial(
         client=client, case_id=task["task_id"], repeat=repeat,
         prompt=task["question"], fixture_files=fixtures, output=package,
         configuration=configuration, timeout_seconds=timeout_seconds,
+        settings=settings,
     )
     result["package"] = str(package)
     return result
@@ -177,6 +179,11 @@ def main() -> int:
     parser.add_argument("--probe", action="store_true",
                         help="one throwaway run that only reports the agent's environment; "
                              "never graded and never counted as a slot")
+    parser.add_argument("--settings", default="",
+                        help=('JSON object of Runtime setting overrides applied to this '
+                              'trial\'s session, for example \'{"OLLAMA_CONTEXT": 131072, '
+                              '"AGENT_MAX_ROUNDS": 64}\'. Only these keys differ between '
+                              'controlled arms; everything else is left at its default.'))
     args = parser.parse_args()
 
     if args.list:
@@ -215,7 +222,7 @@ def main() -> int:
         repeat=args.repeat, runs_root=args.runs_root, timeout_seconds=timeout,
         configuration={
             "harness": "forestry-runtime", "base_url": args.base_url,
-            "model": "qwen3.5:4b", "kernel": "pydantic-ai",
+            "model": os.getenv("OLLAMA_MODEL", "qwen3.8:27b"), "kernel": "pydantic-ai",
             "task_id": task["task_id"], "repeat": args.repeat,
         },
     )

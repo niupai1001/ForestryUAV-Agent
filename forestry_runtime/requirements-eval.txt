@@ -1,0 +1,30 @@
+# Grounded evaluation dependencies (pinned).
+#
+# The grader recomputes reference values with these libraries. Floating point,
+# shapely/geos geometry predicates and rasterio GTiff defaults all change between
+# versions, so an unpinned environment silently changes what "correct" means.
+# Pin every package that enters a gold value or a comparison.
+
+# --- OAM-TCD shard decoding and mask IO (grader, generator, audit) ---
+pyarrow==25.0.1
+numpy==2.5.3
+rasterio==1.5.1
+pillow==12.3.0
+
+# --- GIS tasks (gabench-09 vector, gabench-12 raster) ---
+scipy==1.18.1          # ndimage.generic_filter, the ID 12 neighbourhood range
+geopandas==1.1.4       # ID 9 buffer / dissolve / clip
+shapely==2.1.2         # geometry engine behind geopandas
+pyproj==3.8.0          # EPSG:4326 -> EPSG:32723 reprojection for ID 9
+pandas==3.0.6          # geopandas dependency; also reads the ID 9 result CSV
+
+# --- transitive pins that affect numeric or IO behaviour ---
+affine==3.0.1
+attrs==26.1.0
+certifi==2026.7.22
+click==8.5.0
+packaging==26.3
+pyparsing==3.3.3
+python-dateutil==2.9.0.post0
+six==1.17.0
+tzdata==2026.4

@@ -13,7 +13,7 @@
 | 只读评分器 | `evaluation/grounded_v1/{grading,metrics,evidence,specs,grade_trial}.py` | 已实现 |
 | 反例测试 | `tests/test_grounded_grading.py`（29 项） | 全部通过 |
 | GABench 筛选台账 | `evaluation/grounded_v1/GABENCH_LEDGER.md`、`gabench_candidates.json` | 已生成 |
-| GABench 上游固定与获取记录 | `data/gabench/ACQUISITION.md` | 已生成 |
+| GABench 上游固定与获取记录 | `evaluation/grounded_v1/GABENCH_ACQUISITION.md` | 已生成 |
 
 评分器规则版本：`grounded-rules-1.0`。题库版本：`grounded-v1.1`。数据集 revision 与分片 SHA-256 沿用计划中的固定值，未变。
 

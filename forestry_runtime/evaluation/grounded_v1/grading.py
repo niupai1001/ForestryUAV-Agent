@@ -53,7 +53,7 @@ VERDICTS = ("pass", "fail", "unknown", "not_applicable")
 #: Bumped whenever a grading judgement changes. Old evidence stays attached to the
 #: rules version that produced its result.
 GROUNDED_RULES_VERSION = "grounded-rules-1.0"
-SUITE_VERSION = "grounded-v1.1"
+SUITE_VERSION = "grounded-v1.2"
 
 #: Process checks the plan names. A trial reports each as pass/fail/unknown, and an
 #: unobtainable signal is ``unknown`` -- never an implied failure.

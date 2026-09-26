@@ -1,0 +1,864 @@
+{
+  "suite_version": "grounded-v1.2",
+  "declared_suite_version": "grounded-v1.2",
+  "dataset_revision": "d97d4da0ebbb6e249ae95ac5e19656babd972eb2",
+  "test_shard_sha256": "5c10ac4cb8afaf18dae5aad5b22cc86bb80977116a8bcd8c16d41ae48b9b13cf",
+  "task_count": 14,
+  "gabench_repo": "data\\gabench\\repo",
+  "tasks": [
+    {
+      "task_id": "oam-01",
+      "family": "canopy_extraction",
+      "question": "从 oam-01.tif 提取树冠覆盖，交付与输入严格对齐的单波段二值 GeoTIFF（0/1）及覆盖率百分数。",
+      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_inputs": [
+        "oam-01.tif"
+      ],
+      "required_deliverables": [
+        "a single-band GeoTIFF of the same grid as the input",
+        "class values limited to 0 (non-canopy) and 1 (canopy)",
+        "a text answer stating the canopy coverage percentage"
+      ],
+      "grading_rule": [
+        "The valid domain is every input pixel whose RGB is not all zero; the pixel is excluded from both numerator and denominator otherwise.",
+        "Foreground is a non-zero class value; background is 0. The annotation encodes canopy groups as colours and black as background, so binarisation is 'any channel non-zero is canopy'.",
+        "IoU = TP / (TP + FP + FN) over the frozen valid domain. Truth and prediction both empty scores 1 by the frozen convention and is reported separately; truth empty and prediction non-empty scores 0.",
+        "Precision, recall, F1 and the coverage error in percentage points are reported beside IoU.",
+        "The delivered raster must share the input's CRS (semantically) and its cell grid and affine transform (tight tolerance). A delivery on a different grid fails delivery validity.",
+        "The coverage figure in the answer must agree with the delivered raster within 0.5 percentage points. The relaxed tolerance is deliberate: a rounded figure ('about 27%') is a correct report, and it is the pixel comparison, not this check, that judges the extraction. A grossly different figure ('99.9%') is a contradiction and invalidates delivery."
+      ],
+      "condition": "rgb-not-all-zero",
+      "budget": {
+        "wall_seconds": 900,
+        "repeats": 3
+      },
+      "resources": {
+        "python": [
+          "rasterio",
+          "numpy"
+        ],
+        "network": "not required"
+      },
+      "tolerance": {
+        "coverage_points": 0.5
+      },
+      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-01.tif"
+    },
+    {
+      "task_id": "oam-02",
+      "family": "canopy_extraction",
+      "question": "从 oam-02.tif 提取树冠覆盖，交付与输入严格对齐的单波段二值 GeoTIFF（0/1）及覆盖率百分数。",
+      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_inputs": [
+        "oam-02.tif"
+      ],
+      "required_deliverables": [
+        "a single-band GeoTIFF of the same grid as the input",
+        "class values limited to 0 (non-canopy) and 1 (canopy)",
+        "a text answer stating the canopy coverage percentage"
+      ],
+      "grading_rule": [
+        "The valid domain is every input pixel whose RGB is not all zero; the pixel is excluded from both numerator and denominator otherwise.",
+        "Foreground is a non-zero class value; background is 0. The annotation encodes canopy groups as colours and black as background, so binarisation is 'any channel non-zero is canopy'.",
+        "IoU = TP / (TP + FP + FN) over the frozen valid domain. Truth and prediction both empty scores 1 by the frozen convention and is reported separately; truth empty and prediction non-empty scores 0.",
+        "Precision, recall, F1 and the coverage error in percentage points are reported beside IoU.",
+        "The delivered raster must share the input's CRS (semantically) and its cell grid and affine transform (tight tolerance). A delivery on a different grid fails delivery validity.",
+        "The coverage figure in the answer must agree with the delivered raster within 0.5 percentage points. The relaxed tolerance is deliberate: a rounded figure ('about 27%') is a correct report, and it is the pixel comparison, not this check, that judges the extraction. A grossly different figure ('99.9%') is a contradiction and invalidates delivery."
+      ],
+      "condition": "rgb-not-all-zero",
+      "budget": {
+        "wall_seconds": 900,
+        "repeats": 3
+      },
+      "resources": {
+        "python": [
+          "rasterio",
+          "numpy"
+        ],
+        "network": "not required"
+      },
+      "tolerance": {
+        "coverage_points": 0.5
+      },
+      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-02.tif"
+    },
+    {
+      "task_id": "oam-03",
+      "family": "canopy_extraction",
+      "question": "从 oam-03.tif 提取树冠覆盖，交付与输入严格对齐的单波段二值 GeoTIFF（0/1）及覆盖率百分数。",
+      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_inputs": [
+        "oam-03.tif"
+      ],
+      "required_deliverables": [
+        "a single-band GeoTIFF of the same grid as the input",
+        "class values limited to 0 (non-canopy) and 1 (canopy)",
+        "a text answer stating the canopy coverage percentage"
+      ],
+      "grading_rule": [
+        "The valid domain is every input pixel whose RGB is not all zero; the pixel is excluded from both numerator and denominator otherwise.",
+        "Foreground is a non-zero class value; background is 0. The annotation encodes canopy groups as colours and black as background, so binarisation is 'any channel non-zero is canopy'.",
+        "IoU = TP / (TP + FP + FN) over the frozen valid domain. Truth and prediction both empty scores 1 by the frozen convention and is reported separately; truth empty and prediction non-empty scores 0.",
+        "Precision, recall, F1 and the coverage error in percentage points are reported beside IoU.",
+        "The delivered raster must share the input's CRS (semantically) and its cell grid and affine transform (tight tolerance). A delivery on a different grid fails delivery validity.",
+        "The coverage figure in the answer must agree with the delivered raster within 0.5 percentage points. The relaxed tolerance is deliberate: a rounded figure ('about 27%') is a correct report, and it is the pixel comparison, not this check, that judges the extraction. A grossly different figure ('99.9%') is a contradiction and invalidates delivery."
+      ],
+      "condition": "rgb-not-all-zero",
+      "budget": {
+        "wall_seconds": 900,
+        "repeats": 3
+      },
+      "resources": {
+        "python": [
+          "rasterio",
+          "numpy"
+        ],
+        "network": "not required"
+      },
+      "tolerance": {
+        "coverage_points": 0.5
+      },
+      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-03.tif"
+    },
+    {
+      "task_id": "oam-04",
+      "family": "canopy_extraction",
+      "question": "从 oam-04.tif 提取树冠覆盖，交付与输入严格对齐的单波段二值 GeoTIFF（0/1）及覆盖率百分数。",
+      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_inputs": [
+        "oam-04.tif"
+      ],
+      "required_deliverables": [
+        "a single-band GeoTIFF of the same grid as the input",
+        "class values limited to 0 (non-canopy) and 1 (canopy)",
+        "a text answer stating the canopy coverage percentage"
+      ],
+      "grading_rule": [
+        "The valid domain is every input pixel whose RGB is not all zero; the pixel is excluded from both numerator and denominator otherwise.",
+        "Foreground is a non-zero class value; background is 0. The annotation encodes canopy groups as colours and black as background, so binarisation is 'any channel non-zero is canopy'.",
+        "IoU = TP / (TP + FP + FN) over the frozen valid domain. Truth and prediction both empty scores 1 by the frozen convention and is reported separately; truth empty and prediction non-empty scores 0.",
+        "Precision, recall, F1 and the coverage error in percentage points are reported beside IoU.",
+        "The delivered raster must share the input's CRS (semantically) and its cell grid and affine transform (tight tolerance). A delivery on a different grid fails delivery validity.",
+        "The coverage figure in the answer must agree with the delivered raster within 0.5 percentage points. The relaxed tolerance is deliberate: a rounded figure ('about 27%') is a correct report, and it is the pixel comparison, not this check, that judges the extraction. A grossly different figure ('99.9%') is a contradiction and invalidates delivery."
+      ],
+      "condition": "rgb-not-all-zero",
+      "budget": {
+        "wall_seconds": 900,
+        "repeats": 3
+      },
+      "resources": {
+        "python": [
+          "rasterio",
+          "numpy"
+        ],
+        "network": "not required"
+      },
+      "tolerance": {
+        "coverage_points": 0.5
+      },
+      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-04.tif"
+    },
+    {
+      "task_id": "oam-05",
+      "family": "canopy_extraction",
+      "question": "从 oam-05.tif 提取树冠覆盖，交付与输入严格对齐的单波段二值 GeoTIFF（0/1）及覆盖率百分数。",
+      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_inputs": [
+        "oam-05.tif"
+      ],
+      "required_deliverables": [
+        "a single-band GeoTIFF of the same grid as the input",
+        "class values limited to 0 (non-canopy) and 1 (canopy)",
+        "a text answer stating the canopy coverage percentage"
+      ],
+      "grading_rule": [
+        "The valid domain is every input pixel whose RGB is not all zero; the pixel is excluded from both numerator and denominator otherwise.",
+        "Foreground is a non-zero class value; background is 0. The annotation encodes canopy groups as colours and black as background, so binarisation is 'any channel non-zero is canopy'.",
+        "IoU = TP / (TP + FP + FN) over the frozen valid domain. Truth and prediction both empty scores 1 by the frozen convention and is reported separately; truth empty and prediction non-empty scores 0.",
+        "Precision, recall, F1 and the coverage error in percentage points are reported beside IoU.",
+        "The delivered raster must share the input's CRS (semantically) and its cell grid and affine transform (tight tolerance). A delivery on a different grid fails delivery validity.",
+        "The coverage figure in the answer must agree with the delivered raster within 0.5 percentage points. The relaxed tolerance is deliberate: a rounded figure ('about 27%') is a correct report, and it is the pixel comparison, not this check, that judges the extraction. A grossly different figure ('99.9%') is a contradiction and invalidates delivery."
+      ],
+      "condition": "rgb-not-all-zero",
+      "budget": {
+        "wall_seconds": 900,
+        "repeats": 3
+      },
+      "resources": {
+        "python": [
+          "rasterio",
+          "numpy"
+        ],
+        "network": "not required"
+      },
+      "tolerance": {
+        "coverage_points": 0.5
+      },
+      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-05.tif"
+    },
+    {
+      "task_id": "oam-06",
+      "family": "canopy_extraction",
+      "question": "从 oam-06.tif 提取树冠覆盖，交付与输入严格对齐的单波段二值 GeoTIFF（0/1）及覆盖率百分数。",
+      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_inputs": [
+        "oam-06.tif"
+      ],
+      "required_deliverables": [
+        "a single-band GeoTIFF of the same grid as the input",
+        "class values limited to 0 (non-canopy) and 1 (canopy)",
+        "a text answer stating the canopy coverage percentage"
+      ],
+      "grading_rule": [
+        "The valid domain is every input pixel whose RGB is not all zero; the pixel is excluded from both numerator and denominator otherwise.",
+        "Foreground is a non-zero class value; background is 0. The annotation encodes canopy groups as colours and black as background, so binarisation is 'any channel non-zero is canopy'.",
+        "IoU = TP / (TP + FP + FN) over the frozen valid domain. Truth and prediction both empty scores 1 by the frozen convention and is reported separately; truth empty and prediction non-empty scores 0.",
+        "Precision, recall, F1 and the coverage error in percentage points are reported beside IoU.",
+        "The delivered raster must share the input's CRS (semantically) and its cell grid and affine transform (tight tolerance). A delivery on a different grid fails delivery validity.",
+        "The coverage figure in the answer must agree with the delivered raster within 0.5 percentage points. The relaxed tolerance is deliberate: a rounded figure ('about 27%') is a correct report, and it is the pixel comparison, not this check, that judges the extraction. A grossly different figure ('99.9%') is a contradiction and invalidates delivery."
+      ],
+      "condition": "rgb-not-all-zero",
+      "budget": {
+        "wall_seconds": 900,
+        "repeats": 3
+      },
+      "resources": {
+        "python": [
+          "rasterio",
+          "numpy"
+        ],
+        "network": "not required"
+      },
+      "tolerance": {
+        "coverage_points": 0.5
+      },
+      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-06.tif"
+    },
+    {
+      "task_id": "oam-07",
+      "family": "canopy_statistics",
+      "question": "统计 oam-07-input.tif 的树冠覆盖率百分数，以及树冠像元数和总有效像元数，写成 JSON。",
+      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_inputs": [
+        "oam-07-input.tif"
+      ],
+      "required_deliverables": [
+        "a JSON object carrying the canopy coverage percentage, the canopy pixel count and the valid pixel count"
+      ],
+      "grading_rule": [
+        "The provided mask tile is the whole observable domain: valid pixels are all pixels of that tile. The original imagery's no-observation gaps are not visible in a mask, so no denominator may be required that the agent cannot observe.",
+        "canopy_pixels counts non-zero pixels of the provided mask.",
+        "coverage_percent = 100 * canopy_pixels / valid_pixels.",
+        "Each reported number is judged by |reported - truth| <= max(absolute_tolerance, relative_tolerance * |truth|) with the tolerance frozen before the run.",
+        "A missing or non-numeric required field is a failure with that reason, not a zero error.",
+        "All required assertions must pass for the task to score 1; otherwise it scores 0."
+      ],
+      "condition": "given-mask-tile",
+      "budget": {
+        "wall_seconds": 900,
+        "repeats": 3
+      },
+      "resources": {
+        "python": [
+          "rasterio",
+          "numpy"
+        ],
+        "network": "not required"
+      },
+      "tolerance": {
+        "pixels_absolute": 1.0,
+        "pixels_relative": 0.0,
+        "coverage_points": 1e-09
+      },
+      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-07-input.tif"
+    },
+    {
+      "task_id": "oam-08",
+      "family": "canopy_statistics",
+      "question": "统计 oam-08-input.tif 的树冠覆盖率百分数，以及树冠像元数和总有效像元数，写成 JSON。",
+      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_inputs": [
+        "oam-08-input.tif"
+      ],
+      "required_deliverables": [
+        "a JSON object carrying the canopy coverage percentage, the canopy pixel count and the valid pixel count"
+      ],
+      "grading_rule": [
+        "The provided mask tile is the whole observable domain: valid pixels are all pixels of that tile. The original imagery's no-observation gaps are not visible in a mask, so no denominator may be required that the agent cannot observe.",
+        "canopy_pixels counts non-zero pixels of the provided mask.",
+        "coverage_percent = 100 * canopy_pixels / valid_pixels.",
+        "Each reported number is judged by |reported - truth| <= max(absolute_tolerance, relative_tolerance * |truth|) with the tolerance frozen before the run.",
+        "A missing or non-numeric required field is a failure with that reason, not a zero error.",
+        "All required assertions must pass for the task to score 1; otherwise it scores 0."
+      ],
+      "condition": "given-mask-tile",
+      "budget": {
+        "wall_seconds": 900,
+        "repeats": 3
+      },
+      "resources": {
+        "python": [
+          "rasterio",
+          "numpy"
+        ],
+        "network": "not required"
+      },
+      "tolerance": {
+        "pixels_absolute": 1.0,
+        "pixels_relative": 0.0,
+        "coverage_points": 1e-09
+      },
+      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-08-input.tif"
+    },
+    {
+      "task_id": "oam-09",
+      "family": "canopy_statistics",
+      "question": "统计 oam-09-input.tif 的树冠覆盖率百分数，以及树冠像元数和总有效像元数，写成 JSON。",
+      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_inputs": [
+        "oam-09-input.tif"
+      ],
+      "required_deliverables": [
+        "a JSON object carrying the canopy coverage percentage, the canopy pixel count and the valid pixel count"
+      ],
+      "grading_rule": [
+        "The provided mask tile is the whole observable domain: valid pixels are all pixels of that tile. The original imagery's no-observation gaps are not visible in a mask, so no denominator may be required that the agent cannot observe.",
+        "canopy_pixels counts non-zero pixels of the provided mask.",
+        "coverage_percent = 100 * canopy_pixels / valid_pixels.",
+        "Each reported number is judged by |reported - truth| <= max(absolute_tolerance, relative_tolerance * |truth|) with the tolerance frozen before the run.",
+        "A missing or non-numeric required field is a failure with that reason, not a zero error.",
+        "All required assertions must pass for the task to score 1; otherwise it scores 0."
+      ],
+      "condition": "given-mask-tile",
+      "budget": {
+        "wall_seconds": 900,
+        "repeats": 3
+      },
+      "resources": {
+        "python": [
+          "rasterio",
+          "numpy"
+        ],
+        "network": "not required"
+      },
+      "tolerance": {
+        "pixels_absolute": 1.0,
+        "pixels_relative": 0.0,
+        "coverage_points": 1e-09
+      },
+      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-09-input.tif"
+    },
+    {
+      "task_id": "oam-10",
+      "family": "canopy_statistics",
+      "question": "统计 oam-10-input.tif 的树冠覆盖率百分数，以及树冠像元数和总有效像元数，写成 JSON。",
+      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_inputs": [
+        "oam-10-input.tif"
+      ],
+      "required_deliverables": [
+        "a JSON object carrying the canopy coverage percentage, the canopy pixel count and the valid pixel count"
+      ],
+      "grading_rule": [
+        "The provided mask tile is the whole observable domain: valid pixels are all pixels of that tile. The original imagery's no-observation gaps are not visible in a mask, so no denominator may be required that the agent cannot observe.",
+        "canopy_pixels counts non-zero pixels of the provided mask.",
+        "coverage_percent = 100 * canopy_pixels / valid_pixels.",
+        "Each reported number is judged by |reported - truth| <= max(absolute_tolerance, relative_tolerance * |truth|) with the tolerance frozen before the run.",
+        "A missing or non-numeric required field is a failure with that reason, not a zero error.",
+        "All required assertions must pass for the task to score 1; otherwise it scores 0."
+      ],
+      "condition": "given-mask-tile",
+      "budget": {
+        "wall_seconds": 900,
+        "repeats": 3
+      },
+      "resources": {
+        "python": [
+          "rasterio",
+          "numpy"
+        ],
+        "network": "not required"
+      },
+      "tolerance": {
+        "pixels_absolute": 1.0,
+        "pixels_relative": 0.0,
+        "coverage_points": 1e-09
+      },
+      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-10-input.tif"
+    },
+    {
+      "task_id": "oam-11",
+      "family": "canopy_statistics",
+      "question": "统计 oam-11-input.tif 的树冠覆盖率百分数，以及树冠像元数和总有效像元数，写成 JSON。",
+      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_inputs": [
+        "oam-11-input.tif"
+      ],
+      "required_deliverables": [
+        "a JSON object carrying the canopy coverage percentage, the canopy pixel count and the valid pixel count"
+      ],
+      "grading_rule": [
+        "The provided mask tile is the whole observable domain: valid pixels are all pixels of that tile. The original imagery's no-observation gaps are not visible in a mask, so no denominator may be required that the agent cannot observe.",
+        "canopy_pixels counts non-zero pixels of the provided mask.",
+        "coverage_percent = 100 * canopy_pixels / valid_pixels.",
+        "Each reported number is judged by |reported - truth| <= max(absolute_tolerance, relative_tolerance * |truth|) with the tolerance frozen before the run.",
+        "A missing or non-numeric required field is a failure with that reason, not a zero error.",
+        "All required assertions must pass for the task to score 1; otherwise it scores 0."
+      ],
+      "condition": "given-mask-tile",
+      "budget": {
+        "wall_seconds": 900,
+        "repeats": 3
+      },
+      "resources": {
+        "python": [
+          "rasterio",
+          "numpy"
+        ],
+        "network": "not required"
+      },
+      "tolerance": {
+        "pixels_absolute": 1.0,
+        "pixels_relative": 0.0,
+        "coverage_points": 1e-09
+      },
+      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-11-input.tif"
+    },
+    {
+      "task_id": "oam-12",
+      "family": "canopy_statistics",
+      "question": "统计 oam-12-input.tif 的树冠覆盖率百分数，以及树冠像元数和总有效像元数，写成 JSON。",
+      "public_root": "data\\oam_tcd\\grounded_v1_1_public",
+      "public_inputs": [
+        "oam-12-input.tif"
+      ],
+      "required_deliverables": [
+        "a JSON object carrying the canopy coverage percentage, the canopy pixel count and the valid pixel count"
+      ],
+      "grading_rule": [
+        "The provided mask tile is the whole observable domain: valid pixels are all pixels of that tile. The original imagery's no-observation gaps are not visible in a mask, so no denominator may be required that the agent cannot observe.",
+        "canopy_pixels counts non-zero pixels of the provided mask.",
+        "coverage_percent = 100 * canopy_pixels / valid_pixels.",
+        "Each reported number is judged by |reported - truth| <= max(absolute_tolerance, relative_tolerance * |truth|) with the tolerance frozen before the run.",
+        "A missing or non-numeric required field is a failure with that reason, not a zero error.",
+        "All required assertions must pass for the task to score 1; otherwise it scores 0."
+      ],
+      "condition": "given-mask-tile",
+      "budget": {
+        "wall_seconds": 900,
+        "repeats": 3
+      },
+      "resources": {
+        "python": [
+          "rasterio",
+          "numpy"
+        ],
+        "network": "not required"
+      },
+      "tolerance": {
+        "pixels_absolute": 1.0,
+        "pixels_relative": 0.0,
+        "coverage_points": 1e-09
+      },
+      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\oam_tcd\\grounded_v1_1_public\\oam-12-input.tif"
+    },
+    {
+      "task_id": "gabench-09-deforestation-buffer",
+      "family": "gis_analysis",
+      "question": "计算巴西 Rondônia 州道路 5.5 km 缓冲区内的森林砍伐率，即缓冲区内的砍伐面积占缓冲区总面积的百分比。结果保存为 deforestation_rate.csv。若某个 GeoJSON 未显式声明坐标系，则按 WGS84 (EPSG:4326) 处理。",
+      "public_root": "data\\gabench\\repo\\dataset",
+      "public_inputs": [
+        "roads.geojson",
+        "deforestedArea.geojson"
+      ],
+      "required_deliverables": [
+        "deforestation_rate.csv holding the percentage"
+      ],
+      "grading_rule": [
+        "Reproject both layers to EPSG:32723 (metres), buffer the roads by 5500 m, dissolve the buffers, intersect with the deforested polygon, and take 100 * clipped_area / buffer_area.",
+        "The reference result is recomputed by this project from the published inputs; the tested agent's toolchain is never used to produce the standard answer.",
+        "Absolute tolerance 0.01 percentage points, because the published reference carries six decimal places.",
+        "A CSV that reports metres, an area, or an unlabelled number is a failure with that reason."
+      ],
+      "condition": "vector",
+      "budget": {
+        "wall_seconds": 900,
+        "repeats": 3
+      },
+      "resources": {
+        "python": [
+          "geopandas",
+          "shapely",
+          "pyproj"
+        ],
+        "network": "not required"
+      },
+      "tolerance": {
+        "coverage_points": 0.01
+      },
+      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\gabench\\repo\\dataset\\roads.geojson"
+    },
+    {
+      "task_id": "gabench-12-terrain-ruggedness",
+      "family": "gis_analysis",
+      "question": "用高程数据计算地形起伏度（ruggedness）：以 3×3 邻域的高程极差（最大值减最小值）作为每个像元的起伏度，输出与输入同网格的 GeoTIFF。",
+      "public_root": "data\\gabench\\repo\\dataset",
+      "public_inputs": [
+        "Elevation.tif"
+      ],
+      "required_deliverables": [
+        "a GeoTIFF of terrain ruggedness on the input grid"
+      ],
+      "grading_rule": [
+        "Ruggedness = neighbourhood maximum minus neighbourhood minimum over a 3x3 window, edge pixels using the nearest available neighbour.",
+        "The published reference raster ruggedness.tif was recomputed independently by this project and matched exactly (0 of 7,636,628 pixels differ); that recomputation, not the agent, is the standard.",
+        "255 is real elevation in this dataset and must not be read as nodata.",
+        "Every valid pixel must match the reference exactly: the rule is integer arithmetic, so no tolerance is granted."
+      ],
+      "condition": "raster",
+      "budget": {
+        "wall_seconds": 900,
+        "repeats": 3
+      },
+      "resources": {
+        "python": [
+          "rasterio",
+          "numpy",
+          "scipy"
+        ],
+        "network": "not required"
+      },
+      "tolerance": {
+        "pixels_absolute": 0.0,
+        "pixels_relative": 0.0
+      },
+      "input_path": "E:\\Document\\ChatGPT\\林业无人机遥感agent开发\\forestry_runtime\\data\\gabench\\repo\\dataset\\Elevation.tif"
+    }
+  ],
+  "gold": {
+    "oam-01": {
+      "kind": "canopy",
+      "gold_mask": "oam-01-gold.tif",
+      "valid_definition": "rgb-not-all-zero",
+      "valid_pixels": 3012442,
+      "gold_canopy_pixels": 811396,
+      "gold_foreground_pixels": 811396,
+      "gold_coverage_percent": 26.934826,
+      "grid": {
+        "crs": "EPSG:3395",
+        "shape": [
+          2048,
+          2048
+        ],
+        "transform": [
+          0.1,
+          0.0,
+          -8234169.317392076,
+          0.0,
+          -0.1,
+          5122647.975422719
+        ]
+      },
+      "image_id": 3555,
+      "oam_id": "59e62b903d6412ef7220a03e",
+      "biome": 4
+    },
+    "oam-02": {
+      "kind": "canopy",
+      "gold_mask": "oam-02-gold.tif",
+      "valid_definition": "rgb-not-all-zero",
+      "valid_pixels": 4194304,
+      "gold_canopy_pixels": 3277273,
+      "gold_foreground_pixels": 3277273,
+      "gold_coverage_percent": 78.136277,
+      "grid": {
+        "crs": "EPSG:3395",
+        "shape": [
+          2048,
+          2048
+        ],
+        "transform": [
+          0.1,
+          0.0,
+          4381667.308552684,
+          0.0,
+          -0.1,
+          -683826.6029076573
+        ]
+      },
+      "image_id": 2430,
+      "oam_id": "5ae3a7f00b093000130aff66",
+      "biome": 1
+    },
+    "oam-03": {
+      "kind": "canopy",
+      "gold_mask": "oam-03-gold.tif",
+      "valid_definition": "rgb-not-all-zero",
+      "valid_pixels": 3325523,
+      "gold_canopy_pixels": 2169638,
+      "gold_foreground_pixels": 2169638,
+      "gold_coverage_percent": 65.242009,
+      "grid": {
+        "crs": "EPSG:3395",
+        "shape": [
+          2048,
+          2048
+        ],
+        "transform": [
+          0.1,
+          0.0,
+          2092115.2919375286,
+          0.0,
+          -0.1,
+          6019875.498616901
+        ]
+      },
+      "image_id": 4129,
+      "oam_id": "5b729f5e9102ad0b033a5c3f",
+      "biome": 4
+    },
+    "oam-04": {
+      "kind": "canopy",
+      "gold_mask": "oam-04-gold.tif",
+      "valid_definition": "rgb-not-all-zero",
+      "valid_pixels": 2750068,
+      "gold_canopy_pixels": 1910083,
+      "gold_foreground_pixels": 1914761,
+      "gold_coverage_percent": 69.455846,
+      "grid": {
+        "crs": "EPSG:3395",
+        "shape": [
+          2048,
+          2048
+        ],
+        "transform": [
+          0.09999999999990905,
+          0.0,
+          4171595.2389673567,
+          0.0,
+          -0.09999999999990905,
+          7714204.772058884
+        ]
+      },
+      "image_id": 165,
+      "oam_id": "60c1b7e8c3b42f000788d30a",
+      "biome": 4
+    },
+    "oam-05": {
+      "kind": "canopy",
+      "gold_mask": "oam-05-gold.tif",
+      "valid_definition": "rgb-not-all-zero",
+      "valid_pixels": 4194304,
+      "gold_canopy_pixels": 961201,
+      "gold_foreground_pixels": 961201,
+      "gold_coverage_percent": 22.916818,
+      "grid": {
+        "crs": "EPSG:3395",
+        "shape": [
+          2048,
+          2048
+        ],
+        "transform": [
+          0.1,
+          0.0,
+          4416691.707507346,
+          0.0,
+          -0.1,
+          -539728.0873054827
+        ]
+      },
+      "image_id": 4553,
+      "oam_id": "5d96feee0a75b70006703919",
+      "biome": -1
+    },
+    "oam-06": {
+      "kind": "canopy",
+      "gold_mask": "oam-06-gold.tif",
+      "valid_definition": "rgb-not-all-zero",
+      "valid_pixels": 4054869,
+      "gold_canopy_pixels": 2877096,
+      "gold_foreground_pixels": 2877121,
+      "gold_coverage_percent": 70.954105,
+      "grid": {
+        "crs": "EPSG:3395",
+        "shape": [
+          2048,
+          2048
+        ],
+        "transform": [
+          0.1,
+          0.0,
+          -9688651.369896833,
+          0.0,
+          -0.1,
+          2337175.3473949637
+        ]
+      },
+      "image_id": 1335,
+      "oam_id": "60ff2cea5a90f10006fd3008",
+      "biome": 14
+    },
+    "oam-07": {
+      "kind": "spatial",
+      "gold_mask": "oam-07-gold.tif",
+      "valid_definition": "given-mask-tile",
+      "valid_pixels": 4194304,
+      "gold_canopy_pixels": 774509,
+      "gold_foreground_pixels": 774509,
+      "gold_coverage_percent": 18.465734,
+      "grid": {
+        "crs": "EPSG:3395",
+        "shape": [
+          2048,
+          2048
+        ],
+        "transform": [
+          0.1,
+          0.0,
+          4433400.9756195815,
+          0.0,
+          -0.1,
+          -578919.0768623229
+        ]
+      },
+      "image_id": 2695,
+      "oam_id": "5d97350ae2b1f300057cb38a",
+      "biome": 1
+    },
+    "oam-08": {
+      "kind": "spatial",
+      "gold_mask": "oam-08-gold.tif",
+      "valid_definition": "given-mask-tile",
+      "valid_pixels": 4194304,
+      "gold_canopy_pixels": 670785,
+      "gold_foreground_pixels": 670785,
+      "gold_coverage_percent": 15.992761,
+      "grid": {
+        "crs": "EPSG:3395",
+        "shape": [
+          2048,
+          2048
+        ],
+        "transform": [
+          0.1,
+          0.0,
+          -8288177.479703338,
+          0.0,
+          -0.1,
+          4745242.397712538
+        ]
+      },
+      "image_id": 218,
+      "oam_id": "5fd2c45c8fcb370005f66132",
+      "biome": 4
+    },
+    "oam-09": {
+      "kind": "spatial",
+      "gold_mask": "oam-09-gold.tif",
+      "valid_definition": "given-mask-tile",
+      "valid_pixels": 4194304,
+      "gold_canopy_pixels": 557709,
+      "gold_foreground_pixels": 557709,
+      "gold_coverage_percent": 13.296819,
+      "grid": {
+        "crs": "EPSG:3395",
+        "shape": [
+          2048,
+          2048
+        ],
+        "transform": [
+          0.1,
+          0.0,
+          4608898.919358236,
+          0.0,
+          -0.1,
+          6893534.804413187
+        ]
+      },
+      "image_id": 3723,
+      "oam_id": "59f0e7dcbac48e5b1cd0cf18",
+      "biome": 4
+    },
+    "oam-10": {
+      "kind": "spatial",
+      "gold_mask": "oam-10-gold.tif",
+      "valid_definition": "given-mask-tile",
+      "valid_pixels": 4194304,
+      "gold_canopy_pixels": 805939,
+      "gold_foreground_pixels": 805939,
+      "gold_coverage_percent": 19.215083,
+      "grid": {
+        "crs": "EPSG:3395",
+        "shape": [
+          2048,
+          2048
+        ],
+        "transform": [
+          0.09999999999996588,
+          0.0,
+          -5744090.987075823,
+          0.0,
+          -0.09999999999996588,
+          -1750795.8334164713
+        ]
+      },
+      "image_id": 294,
+      "oam_id": "5dded5bc0140b80006d2e565",
+      "biome": 7
+    },
+    "oam-11": {
+      "kind": "spatial",
+      "gold_mask": "oam-11-gold.tif",
+      "valid_definition": "given-mask-tile",
+      "valid_pixels": 4194304,
+      "gold_canopy_pixels": 68018,
+      "gold_foreground_pixels": 68018,
+      "gold_coverage_percent": 1.621675,
+      "grid": {
+        "crs": "EPSG:3395",
+        "shape": [
+          2048,
+          2048
+        ],
+        "transform": [
+          0.10000000000013641,
+          0.0,
+          -8829059.836530333,
+          0.0,
+          -0.10000000000013641,
+          4071558.2448564307
+        ]
+      },
+      "image_id": 934,
+      "oam_id": "613dc1b918b2fb000574fb94",
+      "biome": 5
+    },
+    "oam-12": {
+      "kind": "spatial",
+      "gold_mask": "oam-12-gold.tif",
+      "valid_definition": "given-mask-tile",
+      "valid_pixels": 4194304,
+      "gold_canopy_pixels": 1025038,
+      "gold_foreground_pixels": 1025038,
+      "gold_coverage_percent": 24.43881,
+      "grid": {
+        "crs": "EPSG:3395",
+        "shape": [
+          2048,
+          2048
+        ],
+        "transform": [
+          0.1,
+          0.0,
+          -7881431.744743068,
+          0.0,
+          -0.1,
+          2206983.5335695357
+        ]
+      },
+      "image_id": 2192,
+      "oam_id": "5e56fdde2408ff000614bb7e",
+      "biome": 1
+    }
+  }
+}
