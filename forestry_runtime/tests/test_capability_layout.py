@@ -26,6 +26,7 @@ class CapabilityLayoutTests(unittest.TestCase):
             "knowledge_search": "runtime.capabilities.knowledge_search.tool",
             "knowledge_read": "runtime.capabilities.knowledge_search.tool",
             "domain_guide": "runtime.capabilities.domain_guides.tool",
+            "work_plan": "runtime.capabilities.work_plan.tool",
         }
         self.assertEqual(set(expected_modules), {spec.name for spec in _REGISTRY})
         for name, module in expected_modules.items():

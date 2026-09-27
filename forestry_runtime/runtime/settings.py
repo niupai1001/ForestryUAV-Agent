@@ -121,6 +121,10 @@ SETTINGS: tuple[Setting, ...] = (
             "单次回复的输出上限（token）。", minimum=256, maximum=131072),
     Setting("OLLAMA_THINK", "bool", "true", GROUP_MODEL,
             "是否让模型输出思考过程。"),
+    Setting("MODEL_VISION_ENABLED", "bool", "false", GROUP_MODEL,
+            "模型是否接受图像输入。开启后，inspect_raster_region 生成的缩略图会作为"
+            "图像内容随工具结果一起发给模型；关闭时该工具仍返回图片资产与数值统计，"
+            "用户可以在界面查看，但模型只看到数字。默认关闭，因为默认模型是文本模型。"),
 
     # -- agent loop ---------------------------------------------------------
     Setting("AGENT_MAX_ROUNDS", "int", "32", GROUP_LOOP,

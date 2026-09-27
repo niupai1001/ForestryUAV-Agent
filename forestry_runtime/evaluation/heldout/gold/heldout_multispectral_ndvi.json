@@ -1,0 +1,13 @@
+{
+  "fixture": "evaluation/heldout/fixtures/heldout_multispectral_ndvi",
+  "bands": {
+    "red": 1,
+    "nir": 3
+  },
+  "valid_pixel_count": 65536,
+  "zero_denominator_pixel_count": 0,
+  "mean": 0.5204965220366382,
+  "tolerance": {
+    "mean_abs": 0.0001
+  }
+}

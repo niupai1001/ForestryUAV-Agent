@@ -32,6 +32,24 @@ def finite(value):
     return value if value is None or math.isfinite(value) else str(value)
 
 class RasterCapability:
+    def _open_input(self, scope='auto', asset_id=None, path='', source_id=None, *, role='input'):
+        """Resolve one unified input reference and remember how to name it again.
+
+        Every input-consuming capability opens its file through this, so a workspace
+        file, an attachment and a file under an authorized directory are all
+        acceptable with the same arguments -- and the reference that resolved is
+        reported back with the result, which is what lets the next tool be called by
+        copying rather than by guessing a conversion.
+        """
+        resolved = self.resolve_input(
+            scope=scope, asset_id=asset_id, path=path, source_id=source_id,
+        )
+        references = getattr(self, '_input_references', None)
+        if references is None:
+            references = self._input_references = {}
+        references[role] = dict(resolved.reference)
+        return resolved.asset_view(), resolved.local_path, resolved
+
     @staticmethod
     def validate_tiff(path):
         # 与有效像元扫描分离，避免生成预览时也扫描整幅掩膜。
@@ -103,9 +121,9 @@ class RasterCapability:
             'note': note,
         }
 
-    def inspect_file(self, asset_id):
-        asset, path = self.asset(asset_id)
-        ext = Path(asset['name']).suffix.lower()
+    def inspect_file(self, scope='auto', asset_id=None, path='', source_id=None):
+        asset, path, _ = self._open_input(scope, asset_id, path, source_id)
+        ext = Path(asset.get('name') or path.name).suffix.lower()
 
         if ext in ('.tif', '.tiff'):
             self.validate_tiff(path)
@@ -254,8 +272,8 @@ class RasterCapability:
 
             return entries, total
 
-    def inspect_zip(self, asset_id):
-        _, path = self.asset(asset_id)
+    def inspect_zip(self, scope='auto', asset_id=None, path='', source_id=None):
+        _, path, _ = self._open_input(scope, asset_id, path, source_id)
         entries, total = self.zip_entries(path)
         return {
             'entry_count': len(entries),
@@ -271,8 +289,8 @@ class RasterCapability:
             'listing_truncated': len(entries) > 200,
         }
 
-    def extract_zip(self, asset_id):
-        _, path = self.asset(asset_id)
+    def extract_zip(self, scope='auto', asset_id=None, path='', source_id=None):
+        _, path, resolved = self._open_input(scope, asset_id, path, source_id)
         entries, _ = self.zip_entries(path)
         files = []
 
@@ -284,7 +302,7 @@ class RasterCapability:
                     asset = self.register(
                         stream,
                         entry.filename,
-                        parent=asset_id,
+                        parent=resolved.source_asset_id(),
                         limit=536870912,
                     )
                 files.append({
@@ -322,6 +340,135 @@ class RasterCapability:
             raise AssetError('不同波段角色必须使用不同的波段编号')
         return selected
 
+    def inspect_raster_region(
+        self, scope='auto', asset_id=None, path='', source_id=None,
+        band=1, window=None, max_size=512, stretch_percentiles=None,
+    ):
+        """A bounded look at a raster region: statistics plus the picture of them.
+
+        The numbers and the image come from the *same* sampled array, so the model is
+        checking a spatial result against the values that describe it rather than
+        against a separately rescaled picture. Bounded on purpose -- one band, one
+        window, at most ``max_size`` pixels on a side -- because the point is a
+        controlled observation, not a full-resolution artifact.
+        """
+        asset, path, resolved = self._open_input(scope, asset_id, path, source_id)
+        if Path(asset.get('name') or path.name).suffix.lower() not in ('.tif', '.tiff'):
+            raise AssetError('Region inspection input must be a TIFF')
+        self.validate_tiff(path)
+        low_pct, high_pct = (stretch_percentiles or [2, 98])[:2]
+        if not 0 <= low_pct < high_pct <= 100:
+            raise AssetError('stretch_percentiles must be an increasing pair within 0..100')
+        size = max(64, min(1024, int(max_size)))
+
+        with rasterio.open(path, driver='GTiff') as src:
+            if not 1 <= int(band) <= src.count:
+                raise ToolPreconditionError(
+                    'The requested band does not exist in this raster.',
+                    code='raster_band_missing', reason='inapplicable',
+                    requested_band=int(band), band_count=src.count,
+                    checked_scope={'input': dict(resolved.reference)},
+                )
+            if window:
+                if len(window) != 4:
+                    raise AssetError('window must be [col_off, row_off, width, height]')
+                col_off, row_off, width, height = (int(value) for value in window)
+                if width <= 0 or height <= 0:
+                    raise AssetError('window width and height must be positive')
+                if (col_off < 0 or row_off < 0
+                        or col_off + width > src.width or row_off + height > src.height):
+                    raise ToolPreconditionError(
+                        'The requested window falls outside the raster extent.',
+                        code='raster_window_out_of_bounds', reason='invalid_arguments',
+                        requested_window=[col_off, row_off, width, height],
+                        raster_size={'width': src.width, 'height': src.height},
+                    )
+                region = Window(col_off, row_off, width, height)
+            else:
+                col_off, row_off, width, height = 0, 0, src.width, src.height
+                region = Window(0, 0, src.width, src.height)
+
+            factor = min(1.0, float(size) / max(1, max(width, height)))
+            out_width = max(1, round(width * factor))
+            out_height = max(1, round(height * factor))
+            data = src.read(
+                int(band), window=region,
+                out_shape=(out_height, out_width),
+                masked=True, resampling=Resampling.average,
+            )
+            values = data.compressed()
+            values = values[np.isfinite(values)]
+            stats = {
+                'band': int(band),
+                'band_description': src.descriptions[int(band) - 1],
+                'dtype': src.dtypes[int(band) - 1],
+                'window': [col_off, row_off, width, height],
+                'raster_size': {'width': src.width, 'height': src.height},
+                'sampled_shape': {'width': out_width, 'height': out_height},
+                'sampled_pixels': int(out_height * out_width),
+                'valid_pixels': int(values.size),
+                'valid_fraction': (
+                    float(values.size) / float(out_height * out_width)
+                    if out_height * out_width else None
+                ),
+                'min': float(values.min()) if values.size else None,
+                'max': float(values.max()) if values.size else None,
+                'mean': float(values.mean()) if values.size else None,
+                'percentiles': (
+                    {
+                        f'p{int(p)}': float(np.percentile(values, p))
+                        for p in (1, 5, 25, 50, 75, 95, 99)
+                    } if values.size else {}
+                ),
+                'nodata': finite(src.nodata),
+                'crs': str(src.crs) if src.crs else None,
+                'note': (
+                    'Statistics describe the sampled window of this band, not the whole '
+                    'raster and not the meaning of its values.'
+                ),
+            }
+            # Stretch from the sampled values rather than from the whole band: the
+            # picture and the numbers above must describe the same pixels.
+            if values.size:
+                low, high = np.percentile(values, [low_pct, high_pct])
+            else:
+                low, high = 0.0, 1.0
+            pixels = np.asarray(data.filled(float(low)), dtype='float64')
+            pixels = np.nan_to_num((pixels - low) / max(float(high - low), 1e-9))
+            grey = (np.clip(pixels, 0, 1) * 255).astype('uint8')
+            image = Image.fromarray(grey, mode='L')
+
+        output = io.BytesIO()
+        image.save(output, format='PNG')
+        output.seek(0)
+        thumbnail = self.register(
+            output,
+            f'{Path(asset.get("name") or path.name).stem}_band{int(band)}_region.png',
+            'image/png', resolved.source_asset_id(),
+            metadata={
+                'derived_from': dict(resolved.reference),
+                'preview_method': 'sampled-window-stretch',
+                'stretch_percentiles': [low_pct, high_pct],
+            },
+        )
+        return {
+            'thumbnail': thumbnail,
+            'statistics': stats,
+            'stretch': {
+                'percentiles': [low_pct, high_pct],
+                'low_value': float(low), 'high_value': float(high),
+            },
+            # The harness attaches these bytes to the model request when the model
+            # accepts images; when it does not, the asset and its URL remain, so the
+            # user can still look at exactly what the model described.
+            'attach_image': {'asset_id': thumbnail['id'], 'media_type': 'image/png'},
+            'note': (
+                'This is a bounded look at one band and one window, stretched for '
+                'display. It is evidence about spatial arrangement, not a measurement '
+                'of accuracy and not a classification result.'
+            ),
+        }
+
     @staticmethod
     def _raster_roles(src):
         roles = {'red': None, 'nir': None, 'alpha': None}
@@ -338,9 +485,9 @@ class RasterCapability:
                 roles['alpha'] = index
         return roles
 
-    def inspect_raster(self, asset_id, band_indices=None):
-        asset, path = self.asset(asset_id)
-        if Path(asset['name']).suffix.lower() not in ('.tif', '.tiff'):
+    def inspect_raster(self, scope='auto', asset_id=None, path='', source_id=None, band_indices=None):
+        asset, path, _ = self._open_input(scope, asset_id, path, source_id)
+        if Path(asset.get('name') or path.name).suffix.lower() not in ('.tif', '.tiff'):
             raise AssetError('Raster inspection input must be a TIFF')
         self.validate_tiff(path)
 
@@ -650,9 +797,9 @@ class RasterCapability:
         )
         return float(centers[int(np.argmax(between))])
 
-    def segment_canopy(self, asset_id, threshold=None):
-        asset, path = self.asset(asset_id)
-        if Path(asset['name']).suffix.lower() not in ('.tif', '.tiff'):
+    def segment_canopy(self, scope='auto', asset_id=None, path='', source_id=None, threshold=None):
+        asset, path, resolved = self._open_input(scope, asset_id, path, source_id)
+        if Path(asset.get('name') or path.name).suffix.lower() not in ('.tif', '.tiff'):
             raise AssetError('Canopy segmentation input must be a TIFF')
         self.validate_tiff(path)
         temp_path = None
@@ -696,8 +843,8 @@ class RasterCapability:
                     raise ToolPreconditionError(
                         'NDVI raster contains no valid pixels; canopy segmentation cannot run.',
                         code='no_valid_ndvi_pixels', reason='inapplicable',
-                        missing=[{'kind': 'valid_ndvi_pixels', 'asset_id': asset_id}],
-                        checked_scope={'asset_id': asset_id, 'bands': [1],
+                        missing=[{'kind': 'valid_ndvi_pixels', 'input': dict(resolved.reference)}],
+                        checked_scope={'input': dict(resolved.reference), 'bands': [1],
                                        'windows_scanned': 'all'},
                         valid_pixels=0, width=src.width, height=src.height,
                     )
@@ -727,7 +874,8 @@ class RasterCapability:
                     dst.set_band_description(1, 'canopy_candidate_mask')
                     dst.update_tags(
                         algorithm='NDVI_THRESHOLD_CANOPY_CANDIDATE',
-                        source_asset_id=asset_id,
+                        source_asset_id=resolved.source_asset_id() or '',
+                        source_reference=json.dumps(resolved.reference, ensure_ascii=False),
                         threshold=str(selected_threshold),
                         threshold_source=threshold_source,
                         class_0='valid_non_candidate',
@@ -764,12 +912,12 @@ class RasterCapability:
                 .replace('.', 'p')
             )
             output_name = (
-                f'{Path(asset["name"]).stem}_canopy_candidate_'
+                f'{Path(asset.get("name") or path.name).stem}_canopy_candidate_'
                 f'{threshold_source.split("_")[0]}_t{threshold_label}.tif'
             )
             with temp_path.open('rb') as stream:
                 output_asset = self.register(
-                    stream, output_name, 'image/tiff', asset_id
+                    stream, output_name, 'image/tiff', resolved.source_asset_id()
                 )
             return {
                 'mask': output_asset,
@@ -811,9 +959,9 @@ class RasterCapability:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
 
-    def calculate_ndvi(self, asset_id, bands):
-        asset, path = self.asset(asset_id)
-        if Path(asset['name']).suffix.lower() not in ('.tif', '.tiff'):
+    def calculate_ndvi(self, scope='auto', asset_id=None, path='', source_id=None, bands=None):
+        asset, path, resolved = self._open_input(scope, asset_id, path, source_id)
+        if Path(asset.get('name') or path.name).suffix.lower() not in ('.tif', '.tiff'):
             raise AssetError('NDVI input must be a TIFF')
         selected = self._required_bands(bands, ('red', 'nir'))
         red_band = selected['red']
@@ -871,7 +1019,8 @@ class RasterCapability:
                     dst.set_band_description(1, 'NDVI')
                     dst.update_tags(
                         algorithm='NDVI', formula='(NIR-Red)/(NIR+Red)',
-                        source_asset_id=asset_id,
+                        source_asset_id=resolved.source_asset_id() or '',
+                        source_reference=json.dumps(resolved.reference, ensure_ascii=False),
                         red_band=str(red_band), nir_band=str(nir_band),
                         red_scale=str(red_scale), red_offset=str(red_offset),
                         nir_scale=str(nir_scale), nir_offset=str(nir_offset),
@@ -919,11 +1068,11 @@ class RasterCapability:
                     raise AssetError('No valid pixels remain for NDVI calculation')
 
             output_name = (
-                f'{Path(asset["name"]).stem}_ndvi_r{red_band}_n{nir_band}.tif'
+                f'{Path(asset.get("name") or path.name).stem}_ndvi_r{red_band}_n{nir_band}.tif'
             )
             with temp_path.open('rb') as stream:
                 output_asset = self.register(
-                    stream, output_name, 'image/tiff', asset_id
+                    stream, output_name, 'image/tiff', resolved.source_asset_id()
                 )
             return {
                 'ndvi': output_asset,
@@ -957,9 +1106,9 @@ class RasterCapability:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
 
-    def preview_image(self, asset_id):
-        asset, path = self.asset(asset_id)
-        ext = Path(asset['name']).suffix.lower()
+    def preview_image(self, scope='auto', asset_id=None, path='', source_id=None):
+        asset, path, resolved = self._open_input(scope, asset_id, path, source_id)
+        ext = Path(asset.get('name') or path.name).suffix.lower()
         bands = None
 
         if ext in ('.tif', '.tiff'):
@@ -1019,9 +1168,14 @@ class RasterCapability:
         return {
             'preview': self.register(
                 output,
-                Path(asset['name']).stem + '_preview.png',
+                Path(asset.get('name') or path.name).stem + '_preview.png',
                 'image/png',
-                asset_id,
+                resolved.source_asset_id(),
+                metadata={
+                    'derived_from': dict(resolved.reference),
+                    'preview_method': 'band-stretch',
+                    'bands_used': bands,
+                },
             ),
             'bands_used': bands,
             'note': '预览经过缩放/拉伸，不是可用于定量分析的原始数据。',

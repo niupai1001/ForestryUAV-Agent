@@ -74,6 +74,30 @@ OpenHands 已排除，不进入依赖或后续选型。已被替代的 Open WebU
 | `tool_result_read` | 按 offset 分页读取被 Context 上限截断的完整工具结果 |
 | `artifacts_inspect/preview` | 读取资产类型、大小和有界预览，不把大文件塞进 Context |
 | `knowledge_search/read` | 在显式选中的项目内检索知识并按 chunk ID 读取有界上下文；返回原始 citation |
+| `work_plan` | 记录并修订本次任务的工作计划：交付目标、已观察条件、候选方法及其前提、尚缺证据、验收方式；每条判断必须引用本次真正取得的观察或正文 |
+
+### 一个文件引用，跨工具通用
+
+所有消费文件的工具接受同一组参数 `{scope, path, asset_id, source_id}`，`scope=auto` 时按已有
+参数解析。文件、附件和已授权目录中的文件都能传给检查、分析与预览工具；工具结果回传解析后的
+`exact_reference`，下一步直接照抄，不需要在路径与资产 ID 之间转换。已授权目录中的文件由
+Host Bridge 复制进 Workspace 后交给本地读取器，源目录仍保持只读。
+
+### 产物交付与验收
+
+每个产物由后端生成 `preview_url`（内联显示）与 `download_url`，并**分开**报告四件事：进程是否
+成功、文件是否存在、服务端是否可读、浏览器是否可显示。`answers_task` 单独保留为未验证 ——
+阈值分割成功不等于树冠语义成立，科学语义需要任务验证器或有记录的抽样复核。GeoTIFF 另外附带
+实测的波段、网格、有效区与统计（`product_qa`）。模型可通过 `inspect_raster_region` 取得受控
+窗口的缩略图与同一批像元的统计；当 `MODEL_VISION_ENABLED=true` 时，该图片会作为工具返回内容
+的一部分发给多模态模型。
+
+### 执行环境
+
+代码作业与安装作业共用 Workspace 内的磁盘目录 `.runtime/scratch`（安装作业同时挂到 `/tmp`，
+此前 512 MiB 的 `/tmp` tmpfs 正是真实安装耗尽的那块盘）。`environment_check` 在**代码作业实际
+使用的镜像**内探测，报告镜像（含安装后 commit 的镜像）、依赖清单、可写位置容量与 cgroup 限额；
+容量不足时失败会带上真正耗尽的路径与该文件系统的总容量，而不只是"安装失败"。
 
 遥感插件按需加载的 UAV 检查入口不负责启动摄影测量：`inspect_uav_source` 检查一个明确航片目录的基础元数据；`inspect_uav_dataset` 递归建立数据集清单，并把主航线、起飞前/后参考板和已有成果分开；`inspect_uav_products` 检查已有 GeoTIFF/VRT 的 CRS、像元单位、网格、波段、掩膜和 DSM/DTM 对齐条件。后两者返回完整有界报告后，本轮检查型请求会收起工具集合，要求模型直接基于已观察事实回答，避免继续猜路径或重复读取。
 

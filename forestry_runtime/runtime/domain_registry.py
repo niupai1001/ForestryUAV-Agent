@@ -22,9 +22,12 @@ DOMAIN_TOOL_GROUPS = (
     DomainToolGroup(
         "geospatial-raster-inspection",
         "Inspect raster/image metadata, pixels, masks, CRS, bands, and bounded previews.",
-        ("inspect_file", "inspect_raster", "preview_image"),
+        ("inspect_file", "inspect_raster", "inspect_raster_region", "preview_image"),
         "remote-sensing",
-        ("栅格", "影像元数据", "波段", "坐标系", "crs", "geotiff", "raster"),
+        (
+            "栅格", "影像元数据", "波段", "坐标系", "crs", "geotiff", "raster",
+            "空间结果", "叠加", "缩略图", "局部", "区域", "掩膜", "mask",
+        ),
     ),
     DomainToolGroup(
         "archive-import",

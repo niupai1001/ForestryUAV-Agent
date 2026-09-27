@@ -73,15 +73,40 @@ class ForestStructureCapability:
             raise AssetError(f'{label}缺少米制vertical_units元数据')
         return reference
 
+    @staticmethod
+    def _reference_arguments(reference, asset_id):
+        """Turn either input form into the flat arguments the resolver accepts.
+
+        ``model_dump()`` hands a nested reference to these methods as a plain
+        mapping, while a direct call may pass the model itself; both mean the same
+        thing and neither should have to know which one it is.
+        """
+        if reference is None:
+            return {"asset_id": asset_id}
+        if hasattr(reference, "as_arguments"):
+            return reference.as_arguments()
+        if isinstance(reference, dict):
+            return {
+                "scope": reference.get("scope") or "auto",
+                "asset_id": reference.get("asset_id"),
+                "path": reference.get("path") or "",
+                "source_id": reference.get("source_id"),
+            }
+        raise AssetError(f"Unsupported input reference: {reference!r}")
+
     def build_canopy_height_model(
-        self, dsm_asset_id, dtm_asset_id, vertical_reference,
+        self, dsm, dtm, dsm_asset_id, dtm_asset_id, vertical_reference,
     ):
-        dsm_asset, dsm_path = self.asset(dsm_asset_id)
-        dtm_asset, dtm_path = self.asset(dtm_asset_id)
+        dsm_asset, dsm_path, dsm_resolved = self._open_input(
+            role='dsm', **self._reference_arguments(dsm, dsm_asset_id),
+        )
+        dtm_asset, dtm_path, dtm_resolved = self._open_input(
+            role='dtm', **self._reference_arguments(dtm, dtm_asset_id),
+        )
         for asset, path, label in (
             (dsm_asset, dsm_path, 'DSM'), (dtm_asset, dtm_path, 'DTM')
         ):
-            if Path(asset['name']).suffix.casefold() not in {'.tif', '.tiff'}:
+            if Path(asset.get('name') or path.name).suffix.casefold() not in {'.tif', '.tiff'}:
                 raise AssetError(f'{label}必须是GeoTIFF资产')
             self.validate_tiff(path)
 
@@ -120,8 +145,8 @@ class ForestStructureCapability:
                         retryable=True,
                         suggested_tool='build_canopy_height_model',
                         suggested_arguments={
-                            'dsm_asset_id': dsm_asset_id,
-                            'dtm_asset_id': dtm_asset_id,
+                            'dsm': dict(dsm_resolved.reference),
+                            'dtm': dict(dtm_resolved.reference),
                             'vertical_reference': dsm_reference,
                         },
                         guidance=(
@@ -203,8 +228,10 @@ class ForestStructureCapability:
                     dst.set_band_description(1, 'canopy_height_m')
                     dst.update_tags(
                         algorithm='CHM_DSM_MINUS_DTM',
-                        dsm_asset_id=dsm_asset_id,
-                        dtm_asset_id=dtm_asset_id,
+                        dsm_asset_id=dsm_resolved.source_asset_id() or '',
+                        dtm_asset_id=dtm_resolved.source_asset_id() or '',
+                        dsm_reference=json.dumps(dsm_resolved.reference, ensure_ascii=False),
+                        dtm_reference=json.dumps(dtm_resolved.reference, ensure_ascii=False),
                         vertical_reference=vertical_reference,
                         dtm_resampled=str(not same_grid).lower(),
                         negative_values_preserved='true',
@@ -214,14 +241,14 @@ class ForestStructureCapability:
                     - dsm.transform.b * dsm.transform.d
                 )
 
-            output_name = f'{Path(dsm_asset["name"]).stem}_chm.tif'
+            output_name = f'{Path(dsm_asset.get("name") or dsm_path.name).stem}_chm.tif'
             with temp_path.open('rb') as stream:
                 output = self.register(
-                    stream, output_name, 'image/tiff', dsm_asset_id,
+                    stream, output_name, 'image/tiff', dsm_resolved.source_asset_id(),
                     metadata={
                         'algorithm': 'CHM_DSM_MINUS_DTM',
-                        'dsm_asset_id': dsm_asset_id,
-                        'dtm_asset_id': dtm_asset_id,
+                        'dsm_reference': dict(dsm_resolved.reference),
+                        'dtm_reference': dict(dtm_resolved.reference),
                         'vertical_reference': vertical_reference,
                     },
                 )
@@ -251,15 +278,17 @@ class ForestStructureCapability:
                 temp_path.unlink(missing_ok=True)
 
     def delineate_tree_candidates(
-        self, chm_asset_id, minimum_height_m, smoothing_sigma_m,
+        self, chm, chm_asset_id, minimum_height_m, smoothing_sigma_m,
         minimum_peak_distance_m, minimum_crown_area_m2,
         maximum_crown_area_m2=None, parameter_source='',
     ):
         from skimage.feature import peak_local_max
         from skimage.segmentation import watershed
 
-        asset, path = self.asset(chm_asset_id)
-        if Path(asset['name']).suffix.casefold() not in {'.tif', '.tiff'}:
+        asset, path, chm_resolved = self._open_input(
+            role='chm', **self._reference_arguments(chm, chm_asset_id),
+        )
+        if Path(asset.get('name') or path.name).suffix.casefold() not in {'.tif', '.tiff'}:
             raise AssetError('CHM必须是GeoTIFF资产')
         self.validate_tiff(path)
         temp_path = None
@@ -286,7 +315,7 @@ class ForestStructureCapability:
                 if not np.any(analysis_mask):
                     return {
                         'outcome': 'empty', 'code': 'no_pixels_above_height',
-                        'control_verified': None, 'chm_asset_id': chm_asset_id,
+                        'control_verified': None, 'chm_reference': dict(chm_resolved.reference),
                         'valid_pixels': int(np.count_nonzero(valid)),
                         'pixels_above_height': 0,
                         'minimum_height_m': float(minimum_height_m),
@@ -312,7 +341,7 @@ class ForestStructureCapability:
                 if not len(coordinates):
                     return {
                         'outcome': 'empty', 'code': 'no_local_peaks',
-                        'control_verified': None, 'chm_asset_id': chm_asset_id,
+                        'control_verified': None, 'chm_reference': dict(chm_resolved.reference),
                         'pixels_above_height': int(np.count_nonzero(analysis_mask)),
                         'minimum_height_m': float(minimum_height_m),
                         'minimum_peak_distance_m': float(minimum_peak_distance_m),
@@ -335,7 +364,7 @@ class ForestStructureCapability:
                 if not old_ids.size:
                     return {
                         'outcome': 'empty', 'code': 'all_candidates_filtered_by_area',
-                        'control_verified': None, 'chm_asset_id': chm_asset_id,
+                        'control_verified': None, 'chm_reference': dict(chm_resolved.reference),
                         'peaks_found': int(len(coordinates)),
                         'minimum_crown_area_m2': float(minimum_crown_area_m2),
                         'maximum_crown_area_m2': maximum_crown_area_m2,
@@ -420,7 +449,8 @@ class ForestStructureCapability:
                     dst.set_band_description(1, 'upper_canopy_candidate_id')
                     dst.update_tags(
                         algorithm='CHM_LOCAL_MAXIMA_WATERSHED',
-                        source_asset_id=chm_asset_id,
+                        source_asset_id=chm_resolved.source_asset_id() or '',
+                        source_reference=json.dumps(chm_resolved.reference, ensure_ascii=False),
                         minimum_height_m=str(minimum_height_m),
                         smoothing_sigma_m=str(smoothing_sigma_m),
                         minimum_peak_distance_m=str(minimum_peak_distance_m),
@@ -431,11 +461,11 @@ class ForestStructureCapability:
                 valid_count = int(np.count_nonzero(valid))
                 labelled_count = int(np.count_nonzero(labels))
 
-            stem = Path(asset['name']).stem
+            stem = Path(asset.get('name') or path.name).stem
             with temp_path.open('rb') as stream:
                 label_asset = self.register(
                     stream, f'{stem}_tree_candidates.tif', 'image/tiff',
-                    chm_asset_id,
+                    chm_resolved.source_asset_id(),
                     metadata={
                         'algorithm': 'CHM_LOCAL_MAXIMA_WATERSHED',
                         'parameter_source': parameter_source,
@@ -502,9 +532,13 @@ class ForestStructureCapability:
             'mean': float(np.mean(values)),
         }
 
-    def summarize_forest_structure(self, chm_asset_id, labels_asset_id):
-        chm_asset, chm_path = self.asset(chm_asset_id)
-        labels_asset, labels_path = self.asset(labels_asset_id)
+    def summarize_forest_structure(self, chm, labels, chm_asset_id, labels_asset_id):
+        chm_asset, chm_path, chm_resolved = self._open_input(
+            role='chm', **self._reference_arguments(chm, chm_asset_id),
+        )
+        labels_asset, labels_path, labels_resolved = self._open_input(
+            role='labels', **self._reference_arguments(labels, labels_asset_id),
+        )
         with rasterio.open(chm_path, driver='GTiff') as chm, rasterio.open(
             labels_path, driver='GTiff'
         ) as label_src:
@@ -518,8 +552,9 @@ class ForestStructureCapability:
                 raise ToolPreconditionError(
                     'CHM与候选标签的坐标系、网格和范围必须完全一致',
                     code='raster_grid_mismatch', reason='inapplicable',
-                    missing=[{'kind': 'aligned_grid', 'chm_asset_id': chm_asset_id,
-                              'labels_asset_id': labels_asset_id}],
+                    missing=[{'kind': 'aligned_grid',
+                              'chm': dict(chm_resolved.reference),
+                              'labels': dict(labels_resolved.reference)}],
                     mismatches=[field for field, same in {
                         'crs': chm.crs == label_src.crs,
                         'transform': chm.transform == label_src.transform,
@@ -584,7 +619,7 @@ class ForestStructureCapability:
                 ]),
             }
 
-        stem = Path(labels_asset['name']).stem
+        stem = Path(labels_asset.get('name') or labels_path.name).stem
         json_asset = self.register(
             io.BytesIO(json.dumps({
                 'summary': summary,
@@ -595,11 +630,12 @@ class ForestStructureCapability:
                     '无独立外业参考时不报告准确率',
                 ],
                 'sources': {
-                    'chm_asset_id': chm_asset_id,
-                    'labels_asset_id': labels_asset_id,
+                    'chm': dict(chm_resolved.reference),
+                    'labels': dict(labels_resolved.reference),
                 },
             }, ensure_ascii=False, indent=2).encode('utf-8')),
-            f'{stem}_stand_summary.json', 'application/json', labels_asset_id,
+            f'{stem}_stand_summary.json', 'application/json',
+            labels_resolved.source_asset_id(),
         )
         csv_text = io.StringIO()
         csv_text.write(
@@ -614,7 +650,7 @@ class ForestStructureCapability:
             )
         csv_asset = self.register(
             io.BytesIO(csv_text.getvalue().encode('utf-8-sig')),
-            f'{stem}_candidates.csv', 'text/csv', labels_asset_id,
+            f'{stem}_candidates.csv', 'text/csv', labels_resolved.source_asset_id(),
         )
         return {
             'summary': summary,

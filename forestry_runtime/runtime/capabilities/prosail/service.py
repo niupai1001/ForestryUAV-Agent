@@ -176,17 +176,19 @@ class ProsailCapability:
         }
 
     def invert_prosail(
-        self, asset_id, lut_asset_id, band_mapping, target_parameters,
-        alpha_band, neighbors, band_mapping_source,
+        self, scope, asset_id, path, source_id, lut_asset_id, band_mapping,
+        target_parameters, alpha_band, neighbors, band_mapping_source,
     ):
-        asset, raster_path = self.asset(asset_id)
+        asset, raster_path, resolved = self._open_input(
+            scope, asset_id, path, source_id, role='raster',
+        )
         lut_asset, lut_path = self.asset(lut_asset_id)
-        if Path(asset['name']).suffix.lower() not in ('.tif', '.tiff'):
+        if Path(asset.get('name') or raster_path.name).suffix.lower() not in ('.tif', '.tiff'):
             raise ToolPreconditionError(
                 'PROSAIL反演输入必须是GeoTIFF反射率影像',
                 code='invalid_reflectance_asset_type', reason='inapplicable',
-                missing=[{'kind': 'geotiff_reflectance', 'asset_id': asset_id}],
-                actual_name=asset['name'], accepted_suffixes=['.tif', '.tiff'],
+                missing=[{'kind': 'geotiff_reflectance', 'input': dict(resolved.reference)}],
+                actual_name=asset.get('name'), accepted_suffixes=['.tif', '.tiff'],
             )
         if Path(lut_asset['name']).suffix.lower() != '.npz':
             raise ToolPreconditionError(
@@ -311,7 +313,8 @@ class ProsailCapability:
                         )
                     dst.update_tags(
                         algorithm='PROSAIL_LUT_weighted_knn',
-                        source_asset_id=asset_id,
+                        source_asset_id=resolved.source_asset_id() or '',
+                        source_reference=json.dumps(resolved.reference, ensure_ascii=False),
                         lut_asset_id=lut_asset_id,
                         neighbors=str(neighbors),
                         band_mapping=json.dumps(
@@ -394,16 +397,16 @@ class ProsailCapability:
                     raise ToolPreconditionError(
                         '反射率影像中没有可用于PROSAIL反演的有效像元',
                         code='no_valid_reflectance_pixels', reason='inapplicable',
-                        missing=[{'kind': 'valid_reflectance_pixels', 'asset_id': asset_id}],
-                        checked_scope={'asset_id': asset_id, 'windows_scanned': 'all'},
+                        missing=[{'kind': 'valid_reflectance_pixels', 'input': dict(resolved.reference)}],
+                        checked_scope={'input': dict(resolved.reference), 'windows_scanned': 'all'},
                         valid_pixels=0, width=src.width, height=src.height,
                     )
                 pixel_count = src.width * src.height
 
-            output_name = f'{Path(asset["name"]).stem}_prosail_inversion.tif'
+            output_name = f'{Path(asset.get("name") or raster_path.name).stem}_prosail_inversion.tif'
             with temp_path.open('rb') as stream:
                 result_asset = self.register(
-                    stream, output_name, 'image/tiff', asset_id
+                    stream, output_name, 'image/tiff', resolved.source_asset_id()
                 )
             return {
                 'inversion': result_asset,

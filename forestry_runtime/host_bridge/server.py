@@ -15,6 +15,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -27,12 +28,25 @@ from urllib.parse import urlparse
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from shared.job_diagnostics import (
+    FAILURE_MARKER,
+    RESOURCE_MARKER,
+    filesystem_evidence,
+    format_bytes,
+    parse_marker,
+    parse_resource_failure,
+)
 from shared.paths import is_within
 
 
 ID = re.compile(r"^[a-z][a-z0-9_-]{7,95}$")
 TEXT_LIMIT = 256 * 1024
 ENVIRONMENT_MARKER = "RUNTIME_ENVIRONMENT_JSON:"
+CONTAINER_FACTS_MARKER = "RUNTIME_CONTAINER_FACTS:"
+
+#: Filesystem paths a job reports capacity for. Named here rather than inline so
+#: the probe script and the failure report describe the same set of locations.
+REPORTED_MOUNTS = ("/", "/tmp", "/scratch", "/deps")
 
 
 class BridgeError(Exception):
@@ -45,6 +59,72 @@ class BridgeError(Exception):
         self.extra = extra
 
 
+def _resource_report_source() -> str:
+    """Python source that reports real filesystem capacity from inside a container.
+
+    Shared by the environment probe and the install job so both describe the same
+    locations with the same units. ``statvfs`` is the only way to learn the size of
+    a tmpfs, a bind-mounted directory or a quota-limited filesystem from inside the
+    container the job actually runs in; the host sees a different number.
+    """
+    return "\n".join([
+        "import json as _json, os as _os",
+        f"_MOUNTS = {REPORTED_MOUNTS!r}",
+        "def _space_report(paths=_MOUNTS):",
+        "    out = {}",
+        "    for p in paths:",
+        "        entry = {'path': p}",
+        "        try:",
+        "            s = _os.statvfs(p)",
+        "            total = s.f_frsize * s.f_blocks",
+        "            free = s.f_frsize * s.f_bavail",
+        "            entry.update(total_bytes=total, free_bytes=free,",
+        "                         used_bytes=max(0, total - free),",
+        "                         total_inodes=s.f_files, free_inodes=s.f_ffree)",
+        "        except Exception as exc:",
+        "            entry['error'] = type(exc).__name__ + ': ' + str(exc)[:200]",
+        "        out[p] = entry",
+        "    return out",
+        "def _dir_bytes(path, limit=4):",
+        "    total = 0; seen = 0",
+        "    for root, dirs, files in _os.walk(path):",
+        "        if seen > limit: break",
+        "        for name in files:",
+        "            try: total += _os.path.getsize(_os.path.join(root, name))",
+        "            except OSError: pass",
+        "        seen += 1",
+        "    return total",
+        "def _emit(marker, payload):",
+        "    import sys as _sys",
+        "    _sys.stdout.write('\\n' + marker + _json.dumps(payload, ensure_ascii=False) + '\\n')",
+        "    _sys.stdout.flush()",
+    ])
+
+
+def _cgroup_limit_source() -> str:
+    """Python source reading the container's effective CPU and memory limits."""
+    return "\n".join([
+        "def _read_first(paths):",
+        "    for p in paths:",
+        "        try:",
+        "            with open(p) as fh:",
+        "                return fh.read().strip()",
+        "        except OSError:",
+        "            continue",
+        "    return None",
+        "def _effective_limits():",
+        "    memory = _read_first(['/sys/fs/cgroup/memory.max',",
+        "                          '/sys/fs/cgroup/memory/memory.limit_in_bytes'])",
+        "    cpu_max = _read_first(['/sys/fs/cgroup/cpu.max',",
+        "                           '/sys/fs/cgroup/cpu/cpu.cfs_quota_us'])",
+        "    out = {'cpu_count': _os.cpu_count(), 'cgroup_memory': memory,",
+        "           'cgroup_cpu': cpu_max}",
+        "    try: out['cgroup_memory_bytes'] = int(memory)",
+        "    except (TypeError, ValueError): pass",
+        "    return out",
+    ])
+
+
 def environment_probe_command(modules: list[str]) -> list[str]:
     """Import each module inside the job image and report version + origin.
 
@@ -52,40 +132,51 @@ def environment_probe_command(modules: list[str]) -> list[str]:
     successful import here is genuine evidence that the module is importable when
     the job runs.  The distribution mapping comes from ``importlib.metadata`` so
     the Runtime can tell which package a module belongs to without guessing.
+
+    The same run also reports the container's own facts -- interpreter, the image
+    it resolved to, the capacity of every writable location and the effective
+    cgroup limits -- because "which image, which dependencies, how much scratch"
+    is one question and answering it should not cost a second container.
     """
-    script = (
-        "import importlib,importlib.metadata as m,json,sys;"
-        "mods=sys.argv[1:];"
-        "pkgmap={};"
-        "dist=[]\n"
-        "try:\n"
-        "    pkgmap=m.packages_distributions()\n"
-        "except Exception:\n"
-        "    pkgmap={}\n"
-        "versions={}\n"
-        "for d in m.distributions():\n"
-        "    name=d.metadata.get('Name') or d.name\n"
-        "    versions[name.casefold()]=d.version\n"
-        "out=[]\n"
-        "for name in mods:\n"
-        "    entry={'module':name,'importable':False,'error':None,'version':None,"
-        "'distributions':sorted(pkgmap.get(name,[])),'origin':None}\n"
-        "    try:\n"
-        "        mod=importlib.import_module(name)\n"
-        "        entry['importable']=True\n"
-        "        entry['origin']=getattr(mod,'__file__',None)\n"
-        "        v=getattr(mod,'__version__',None)\n"
-        "        if not isinstance(v,str):\n"
-        "            for d in entry['distributions'] or [name]:\n"
-        "                if d.casefold() in versions:\n"
-        "                    v=versions[d.casefold()];break\n"
-        "        entry['version']=v if isinstance(v,str) else None\n"
-        "    except BaseException as exc:\n"
-        "        entry['error']=type(exc).__name__+': '+str(exc)[:300]\n"
-        "    out.append(entry)\n"
-        "sys.stdout.write('\\n'+%r+json.dumps(out,ensure_ascii=False)+'\\n')"
-        % ENVIRONMENT_MARKER
-    )
+    script = "\n".join([
+        _resource_report_source(),
+        _cgroup_limit_source(),
+        "import importlib, importlib.metadata as m, json, platform, sys",
+        "mods = sys.argv[1:]",
+        "try:",
+        "    pkgmap = m.packages_distributions()",
+        "except Exception:",
+        "    pkgmap = {}",
+        "versions = {}",
+        "for d in m.distributions():",
+        "    name = d.metadata.get('Name') or d.name",
+        "    versions[name.casefold()] = d.version",
+        "out = []",
+        "for name in mods:",
+        "    entry = {'module': name, 'importable': False, 'error': None, 'version': None,",
+        "             'distributions': sorted(pkgmap.get(name, [])), 'origin': None}",
+        "    try:",
+        "        mod = importlib.import_module(name)",
+        "        entry['importable'] = True",
+        "        entry['origin'] = getattr(mod, '__file__', None)",
+        "        v = getattr(mod, '__version__', None)",
+        "        if not isinstance(v, str):",
+        "            for d in entry['distributions'] or [name]:",
+        "                if d.casefold() in versions:",
+        "                    v = versions[d.casefold()]; break",
+        "        entry['version'] = v if isinstance(v, str) else None",
+        "    except BaseException as exc:",
+        "        entry['error'] = type(exc).__name__ + ': ' + str(exc)[:300]",
+        "    out.append(entry)",
+        "facts = {'python': sys.version.split()[0], 'executable': sys.executable,",
+        "         'platform': platform.platform(), 'workdir': _os.getcwd(),",
+        "         'tmpdir': _os.environ.get('TMPDIR'), 'home': _os.environ.get('HOME'),",
+        "         'pythonpath': _os.environ.get('PYTHONPATH'),",
+        "         'space': _space_report(), 'limits': _effective_limits(),",
+        "         'scratch_bytes_used': _dir_bytes('/tmp')}",
+        "_emit(%r, facts)" % CONTAINER_FACTS_MARKER,
+        "_emit(%r, out)" % ENVIRONMENT_MARKER,
+    ])
     return ["python", "-c", script, *modules]
 
 
@@ -103,24 +194,52 @@ def dependency_install_command(
 
     Both steps live in one job so a failure leaves one unambiguous record, and so the
     container committed to an image is the one that had both.
+
+    The job also reports where it ran out. Its downloads, unpacked wheels, build
+    trees and pip cache all live under ``$TMPDIR``; when that location has a hard
+    capacity, the failure it produces is a property of the container rather than of
+    the package, and only the container can measure it.
     """
     script = "\n".join([
-        "import importlib.metadata as m, json, pathlib, subprocess, sys",
+        _resource_report_source(),
+        "import importlib.metadata as m, json, os, pathlib, subprocess, sys, traceback",
         "target = '/deps'",
         "system_packages = json.loads(sys.argv[1])",
         "packages = json.loads(sys.argv[2])",
-        "if system_packages:",
-        "    subprocess.check_call(['apt-get', 'update', '-qq'])",
-        "    subprocess.check_call(['apt-get', 'install', '-y', '-qq', "
-        "'--no-install-recommends', *system_packages])",
-        "if packages:",
-        "    subprocess.check_call([sys.executable, '-m', 'pip', 'install', "
-        "'--target', target, *packages])",
+        "workdir = os.environ.get('TMPDIR') or '/tmp'",
+        "pip_cache = os.environ.get('PIP_CACHE_DIR') or workdir",
+        "print('RUNTIME_INSTALL_PLAN=' + json.dumps({",
+        "    'tmpdir': workdir, 'pip_cache_dir': pip_cache, 'target': target,",
+        "    'home': os.environ.get('HOME'), 'space': _space_report()}))",
+        "try:",
+        "    if system_packages:",
+        "        subprocess.check_call(['apt-get', 'update', '-qq'])",
+        "        subprocess.check_call(['apt-get', 'install', '-y', '-qq',",
+        "                               '--no-install-recommends', *system_packages])",
+        "    if packages:",
+        "        subprocess.check_call([sys.executable, '-m', 'pip', 'install',",
+        "                               '--target', target, *packages])",
+        "except BaseException as exc:",
+        "    failure = {'ok': False, 'stage': 'install',",
+        "               'error_type': type(exc).__name__, 'error': str(exc)[:1000],",
+        "               'errno': getattr(exc, 'errno', None),",
+        "               'filename': getattr(exc, 'filename', None) or getattr(exc, 'filename2', None),",
+        "               'tmpdir': workdir, 'pip_cache_dir': pip_cache, 'target': target,",
+        "               'space': _space_report(),",
+        "               'tmp_bytes_used': _dir_bytes(workdir),",
+        "               'deps_bytes_used': _dir_bytes(target)}",
+        "    _emit(%r, failure)" % FAILURE_MARKER,
+        "    traceback.print_exc()",
+        "    raise SystemExit(1)",
         "rows = sorted(({'name': d.metadata.get('Name') or d.name, 'version': d.version}",
         "               for d in m.distributions(path=[target])),",
         "              key=lambda x: (x['name'].casefold(), x['version']))",
         "pathlib.Path(target, 'installed-packages.json').write_text(",
         "    json.dumps(rows, ensure_ascii=False, indent=2), encoding='utf-8')",
+        "_emit(%r, {'ok': True, 'tmpdir': workdir, 'pip_cache_dir': pip_cache," % RESOURCE_MARKER,
+        "           'space': _space_report(), 'tmp_bytes_used': _dir_bytes(workdir),",
+        "           'deps_bytes_used': _dir_bytes(target),",
+        "           'installed_count': len(rows)})",
         "print('SYSTEM_PACKAGES=' + json.dumps(sorted(system_packages)))",
     ])
     return [
@@ -168,6 +287,19 @@ class Service:
         self.memory = os.environ.get("AGENT_JOB_MEMORY", "6g")
         self.max_jobs = int(os.environ.get("AGENT_MAX_ACTIVE_JOBS", "1"))
         self.pids = os.environ.get("AGENT_JOB_PIDS", "256")
+        # Scratch space for jobs. A tmpfs is charged against the container's memory
+        # and cannot grow past its size, so a package install -- which downloads,
+        # unpacks and builds before it writes anything to the dependency directory --
+        # fails with "No space left on device" while the host disk is nearly empty.
+        # The scratch area is therefore a real directory on the host, and its hard
+        # capacity is whatever the host filesystem actually gives it. The one number
+        # that matters at admission time is how much of that is still free.
+        self.scratch_dir_name = os.environ.get("AGENT_JOB_SCRATCH_DIR", "scratch")
+        self.min_free_bytes = max(0, int(os.environ.get("AGENT_JOB_MIN_FREE_MB", "512"))) * 1024 * 1024
+        # A code job keeps a tmpfs at /tmp -- it is fast and it is discarded with the
+        # container -- but its size is stated rather than fixed, because the default
+        # matters to anything that stages an intermediate raster there.
+        self.code_tmp_bytes = max(64, int(os.environ.get("AGENT_JOB_TMP_MB", "2048"))) * 1024 * 1024
         # Install jobs may add system packages. Those land in the container's own
         # filesystem, and every job container is removed when it exits, so a library
         # installed by one job is invisible to the next unless the container is
@@ -184,6 +316,50 @@ class Service:
     def _image_record(self, workspace: Path) -> Path:
         """Where a workspace records the image its install jobs have produced."""
         return workspace / ".runtime" / self.image_record_name
+
+    def _scratch_dir(self, workspace: Path) -> Path:
+        """The disk-backed working directory every job shares.
+
+        Kept inside the workspace so it is reclaimed with the session and is already
+        covered by the workspace mount rules, and separated per purpose so the two
+        questions that matter -- "how big did the pip cache get" and "how big did the
+        build tree get" -- can be answered from the paths rather than from a total.
+        """
+        scratch = workspace / ".runtime" / self.scratch_dir_name
+        for sub in ("tmp", "pip-cache", "home"):
+            (scratch / sub).mkdir(parents=True, exist_ok=True)
+        return scratch
+
+    def _check_disk_headroom(self, workspace: Path, kind: str) -> dict:
+        """Refuse to start a job the host has no room for, and say the numbers.
+
+        Starting anyway produces an install that fails after downloading, with an
+        error the Runtime would have to attribute to the package. The check costs one
+        ``statvfs`` and replaces that with a named precondition.
+        """
+        scratch = self._scratch_dir(workspace)
+        usage = shutil.disk_usage(scratch)
+        evidence = {
+            "path": str(scratch),
+            "kind": kind,
+            "total_bytes": usage.total,
+            "free_bytes": usage.free,
+            "used_bytes": usage.used,
+            "total_human": format_bytes(usage.total),
+            "free_human": format_bytes(usage.free),
+            "required_free_bytes": self.min_free_bytes,
+            "required_free_human": format_bytes(self.min_free_bytes),
+        }
+        if usage.free < self.min_free_bytes:
+            raise BridgeError(
+                f"Only {format_bytes(usage.free)} is free on the filesystem holding "
+                f"the job scratch directory; {format_bytes(self.min_free_bytes)} is "
+                "required before a job is started.",
+                code="disk_space_low",
+                retryable=False,
+                **evidence,
+            )
+        return evidence
 
     def _workspace_image(self, workspace: Path) -> str | None:
         """The image this workspace has reached, or None for the configured base.
@@ -245,15 +421,8 @@ class Service:
                 continue
         return stopped
 
-    def prune_finished(self, keep_seconds: int = 3600) -> int:
-        """Remove exited managed containers that are no longer needed.
-
-        Settled containers accumulate one per job and are never reclaimed. They do not
-        occupy an execution slot -- only *running* containers do -- but the pile makes
-        operator inspection and slot accounting progressively harder to read, and a
-        lingering container name is exactly what ``job_start`` checks before launching.
-        Recent ones are kept briefly so a late ``job_status`` still finds its output.
-        """
+    def prune_finished(self, keep_seconds: int = 0) -> int:
+        """Persist finished job evidence, then remove only managed containers."""
         listed = docker(
             "ps", "-a", "--filter", "label=forestry.runtime.managed=true",
             "--filter", "status=exited", "--format", "{{.Names}}", check=False,
@@ -271,19 +440,22 @@ class Service:
             except (ValueError, TypeError):
                 continue
             if moment and time.time() - moment >= keep_seconds:
-                docker("rm", "-f", name, check=False)
-                removed += 1
+                job_id = name.removeprefix("forestry-")
+                try:
+                    self.job_status({"job_id": job_id})
+                    # An earlier status may have been persisted before cleanup failed.
+                    if self._job_record(job_id).is_file():
+                        docker("rm", name, check=False)
+                        removed += 1
+                except (ValueError, BridgeError, OSError):
+                    continue
         return removed
 
     def watchdog(self, interval_seconds: int = 15) -> None:
-        maintenance_every = max(1, int(300 / max(1, interval_seconds)))
-        cycles = 0
         while True:
             try:
                 self.enforce_deadlines()
-                cycles += 1
-                if cycles % maintenance_every == 0:
-                    self.prune_finished()
+                self.prune_finished()
             except Exception as exc:
                 print(f"Job watchdog error: {type(exc).__name__}: {exc}", flush=True)
             time.sleep(interval_seconds)
@@ -428,10 +600,76 @@ class Service:
             raise PermissionError("workspace is outside runtime-owned data root")
         return path
 
+    def fs_stage(self, body: dict) -> dict:
+        """Copy one authorized source file into the workspace, read-only in effect.
+
+        Domain tools open a local file. A file under a read grant has no local path
+        the Runtime may hand them, and the alternative -- teaching every analyzer a
+        second, network-backed reader -- would put the grant check in each of them.
+        Staging keeps the check here, where the grant already lives, and produces the
+        one thing every consumer can use: a path.
+
+        The staged copy is content-addressed on the source's size and modification
+        time, so asking twice for an unchanged file reuses the copy instead of
+        duplicating a large raster. The grant itself is unchanged and stays read-only;
+        staging is a copy *out* of the read-only root, never a write into it.
+        """
+        root = self.verify_grant(body)
+        workspace = self._workspace(str(body.get("workspace") or ""))
+        relative = str(body.get("path") or "")
+        target = safe_relative(root, relative, exists=True)
+        if not target.is_file():
+            raise ValueError("staged source must be a file")
+        stat = target.stat()
+        limit = int(os.environ.get("BRIDGE_STAGE_LIMIT_BYTES", str(8 * 1024 * 1024 * 1024)))
+        if stat.st_size > limit:
+            raise BridgeError(
+                f"source file is {format_bytes(stat.st_size)}, above the "
+                f"{format_bytes(limit)} staging limit",
+                code="staged_input_too_large",
+                retryable=False,
+                size_bytes=stat.st_size,
+                limit_bytes=limit,
+            )
+        digest = hashlib.sha256(
+            f"{root}|{target.relative_to(root).as_posix()}|{stat.st_size}|{stat.st_mtime_ns}".encode()
+        ).hexdigest()[:20]
+        name = re.sub(r"[^A-Za-z0-9._-]+", "_", target.name)[:80] or "input"
+        directory = workspace / ".runtime" / "staged"
+        directory.mkdir(parents=True, exist_ok=True)
+        staged = directory / f"{digest}-{name}"
+        reused = staged.is_file() and staged.stat().st_size == stat.st_size
+        if not reused:
+            shutil.copyfile(target, staged)
+        return {
+            "staged_path": staged.relative_to(workspace).as_posix(),
+            "relative_path": target.relative_to(root).as_posix(),
+            "name": target.name,
+            "size_bytes": staged.stat().st_size,
+            "modified": stat.st_mtime,
+            "content_id": digest,
+            "reused": reused,
+            "read_only": True,
+        }
+
     def _container(self, job_id: str) -> str:
         if not ID.fullmatch(job_id):
             raise ValueError("invalid job id")
         return "forestry-" + job_id
+
+    def _job_record(self, job_id: str) -> Path:
+        self._container(job_id)
+        return self.data_root / "job-records" / (job_id + ".json")
+
+    def _stored_job_status(self, job_id: str, offset: int) -> dict | None:
+        try:
+            record = json.loads(self._job_record(job_id).read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+        logs = record.pop("_logs")
+        chunk = logs[offset:offset + 65536]
+        return record | {"output": chunk, "offset": offset + len(chunk),
+                         "has_more_output": offset + len(chunk) < len(logs)}
 
     def _active_jobs(self) -> list[str]:
         running = docker(
@@ -478,6 +716,13 @@ class Service:
           does not have;
         * code the agent wrote still runs read-only, unprivileged and
           capability-stripped, so this does not widen what a ``code_run`` may do.
+
+        Temporary space is the same disk-backed directory for both kinds, mounted at
+        ``/scratch`` and -- for the install job -- at ``/tmp`` as well, because pip,
+        apt and every build backend default to ``/tmp`` and the alternative is to
+        teach each of them a private variable. A hard 512 MiB tmpfs used to sit here;
+        it was the actual capacity a real install ran out of, on a host with tens of
+        gigabytes free.
         """
         args = [
             "--label", "forestry.runtime.managed=true",
@@ -493,20 +738,36 @@ class Service:
         if kind == "install":
             # Writable root filesystem and uid 0, so a system package can be added
             # and then committed into an image the code jobs run from.
-            args.extend([
-                "--user", "0:0",
-                "--tmpfs", "/tmp:rw,nosuid,size=536870912",
-            ])
+            args.extend(["--user", "0:0"])
         else:
             args.extend([
                 "--read-only", "--cap-drop", "ALL",
                 "--user", "10001:10001",
-                "--tmpfs", "/tmp:rw,nosuid,size=536870912",
+                "--tmpfs", f"/tmp:rw,nosuid,size={self.code_tmp_bytes}",
             ])
-        args.extend([
-            "--network", network,
-            "-e", "PYTHONPATH=/workspace/.runtime/deps", "-e", "HOME=/tmp",
-        ])
+        args.extend(["--network", network])
+
+        env = {
+            # `/deps` is on the dependency directory for both kinds; `/scratch` is the
+            # disk-backed working directory described above.
+            "PYTHONPATH": "/workspace/.runtime/deps",
+            "RUNTIME_SCRATCH": "/scratch",
+        }
+        if kind == "install":
+            # Everything pip and apt write on the way goes here, including the cache
+            # HOME would otherwise place under a tmpfs that is about to be discarded.
+            env.update({
+                "HOME": "/scratch/home",
+                "TMPDIR": "/scratch/tmp",
+                "TMP": "/scratch/tmp",
+                "TEMP": "/scratch/tmp",
+                "PIP_CACHE_DIR": "/scratch/pip-cache",
+            })
+        else:
+            env.update({"HOME": "/tmp", "TMPDIR": "/tmp"})
+        for key, value in env.items():
+            args.extend(["-e", f"{key}={value}"])
+
         for host, container, mode in mounts:
             args.extend([
                 "--mount",
@@ -520,6 +781,9 @@ class Service:
     def job_start(self, body: dict) -> dict:
         job_id = str(body.get("job_id") or "")
         name = self._container(job_id)
+        recorded = self._stored_job_status(job_id, max(0, int(body.get("offset", 0))))
+        if recorded is not None:
+            return recorded | {"already_exists": True}
         workspace = self._workspace(str(body.get("workspace") or ""))
         existing = docker("ps", "-a", "--filter", f"name=^/{name}$", "--format", "{{.Names}}")
         if existing.stdout.strip() == name:
@@ -529,6 +793,13 @@ class Service:
         timeout_seconds = min(14400, max(1, int(body.get("timeout_seconds", 14400))))
         command: list[str]
         mounts: list[tuple[Path, str, str]] = []
+        # Both kinds get the shared disk-backed scratch area; the install job also
+        # gets it at /tmp, because pip, apt and every build backend write there and
+        # the alternative is to redirect each of them individually.
+        scratch = self._scratch_dir(workspace)
+        mounts.append((scratch, "/scratch", "rw"))
+        if kind == "install":
+            mounts.append((scratch, "/tmp", "rw"))
         if kind == "install":
             deps = safe_relative(workspace, ".runtime/deps", exists=True)
             mounts.append((deps, "/deps", "rw"))
@@ -574,6 +845,9 @@ class Service:
 
         with self.job_lock:
             self._acquire_slot()
+            # Checked while the slot is held so the answer cannot go stale between the
+            # check and the launch.
+            disk = self._check_disk_headroom(workspace, kind)
             args = [
                 "run", "-d", "--name", name,
                 *self._container_args(
@@ -585,7 +859,13 @@ class Service:
                 *command,
             ]
             result = docker(*args)
-        return {"job_id": job_id, "container_id": result.stdout.strip(), "state": "running", "offset": 0}
+        return {
+            "job_id": job_id,
+            "container_id": result.stdout.strip(),
+            "state": "running",
+            "offset": 0,
+            "scratch": disk,
+        }
 
     def job_run(self, body: dict) -> dict:
         """Run a short, bounded, self-contained check inside the job image.
@@ -594,6 +874,13 @@ class Service:
         neither the workspace nor the action files, and is used to answer
         "what is actually available in this environment" with real evidence
         instead of an inference from an empty workspace.
+
+        It runs the image a *code job* would run, not the configured base image.
+        Those differ as soon as an install commits: code then starts from an image
+        that has the operating-system library the install added, while a probe of the
+        base image reports the module as absent. A dependency check that answers
+        about a different image than the one that will execute is worse than no
+        check, because it looks like evidence.
         """
         modules = body.get("modules") or []
         if not isinstance(modules, list) or len(modules) > 40:
@@ -603,18 +890,20 @@ class Service:
                 raise ValueError("invalid module name")
         workspace = self._workspace(str(body.get("workspace") or ""))
         deps = safe_relative(workspace, ".runtime/deps", exists=True)
+        scratch = self._scratch_dir(workspace)
         timeout_seconds = min(120, max(5, int(body.get("timeout_seconds", 120))))
         job_id = "env_" + hashlib.sha256(
             (str(workspace) + "|" + ",".join(map(str, modules)) + "|" + str(time.time())).encode()
         ).hexdigest()[:24]
-        mounts: list[tuple[Path, str, str]] = [(deps, "/deps", "ro")]
+        mounts: list[tuple[Path, str, str]] = [(deps, "/deps", "ro"), (scratch, "/scratch", "ro")]
+        job_image = self._workspace_image(workspace) or self.image
         args = [
             "run", "--rm",
             *self._container_args(
                 job_id, mounts, "none", str(body.get("chat_id") or ""),
                 timeout_seconds, workdir=False,
             ),
-            self.image, *environment_probe_command(list(map(str, modules))),
+            job_image, *environment_probe_command(list(map(str, modules))),
         ]
         try:
             completed = subprocess.run(
@@ -637,22 +926,39 @@ class Service:
                     report = decoded
             except (ValueError, IndexError):
                 report = []
-        if not report:
+        if not report and not modules:
+            # "Which image, which packages, how much scratch" is answerable without
+            # importing anything, so an empty module list is a valid request and must
+            # not read as an unparsable report.
+            report = []
+        elif not report:
             raise BridgeError(
                 "environment check produced no parsable report: " + combined[-1500:],
                 code="environment_check_unparsable", retryable=False,
             )
+        facts = parse_marker(combined, CONTAINER_FACTS_MARKER) or {}
         return {
-            "image": self.image,
+            "image": job_image,
+            "base_image": self.image,
+            "image_source": "workspace-install" if job_image != self.image else "configured",
             "dependency_mount": "/deps",
             "pythonpath": "/workspace/.runtime/deps",
+            "scratch_mount": "/scratch",
+            "scratch_host_path": str(scratch),
             "exit_code": completed.returncode,
             "modules": report,
+            "container": facts,
+            "space": filesystem_evidence(facts.get("space")),
+            "limits": facts.get("limits") or {},
         }
 
     def job_status(self, body: dict) -> dict:
         job_id = str(body.get("job_id") or "")
         name = self._container(job_id)
+        offset = max(0, int(body.get("offset", 0)))
+        recorded = self._stored_job_status(job_id, offset)
+        if recorded is not None:
+            return recorded
         try:
             raw = docker("inspect", name).stdout
             info = json.loads(raw)[0]
@@ -667,7 +973,6 @@ class Service:
             info = json.loads(docker("inspect", name).stdout)[0]
             state = info["State"]
         logs = docker("logs", name, check=False).stdout + docker("logs", name, check=False).stderr
-        offset = max(0, int(body.get("offset", 0)))
         chunk = logs[offset:offset + 65536]
         if state.get("Running"):
             normalized = "running"
@@ -678,7 +983,7 @@ class Service:
         else:
             normalized = "failed"
         committed: dict = {}
-        if normalized != "running" and labels.get("forestry.runtime.kind") == "install":
+        if normalized == "succeeded" and labels.get("forestry.runtime.kind") == "install":
             # An install job is the only one that can add something to the image
             # rather than to a mount, and the container is discarded on exit, so
             # whatever it added has to be committed before that happens. The status
@@ -695,7 +1000,27 @@ class Service:
                     committed = self._commit_job_image(workspace, name)
                     if committed.get("committed"):
                         self._committed[container_id] = container_id
-        return {
+        # A settled job's own account of what it ran out of. The install script prints
+        # this before it dies, and it is the only source that knows the path and the
+        # capacity from inside the container rather than from the host's view of it.
+        # Reported for every terminal state, because a job can also fail on a
+        # capacity condition the exit code alone cannot name.
+        resource = None
+        if normalized != "running":
+            report = parse_marker(logs, RESOURCE_MARKER)
+            failure = parse_marker(logs, FAILURE_MARKER)
+            detected = parse_resource_failure(logs)
+            if report or failure or detected:
+                resource = {
+                    **(failure or {}),
+                    **(detected or {}),
+                    "container_space": (failure or report or {}).get("space") or {},
+                    "tmpdir": (failure or report or {}).get("tmpdir"),
+                    "pip_cache_dir": (failure or report or {}).get("pip_cache_dir"),
+                    "tmp_bytes_used": (failure or report or {}).get("tmp_bytes_used"),
+                }
+                resource["filesystems"] = filesystem_evidence(resource.get("container_space"))
+        result = {
             "job_id": job_id,
             "state": normalized,
             "terminal": normalized != "running",
@@ -706,7 +1031,20 @@ class Service:
             "offset": offset + len(chunk),
             "has_more_output": offset + len(chunk) < len(logs),
             **({"image": committed} if committed else {}),
+            **({"resource": resource} if resource else {}),
         }
+        if normalized != "running":
+            record = self._job_record(job_id)
+            record.parent.mkdir(parents=True, exist_ok=True)
+            temporary = record.with_name(record.name + f".{threading.get_ident()}.tmp")
+            temporary.write_text(json.dumps(result | {"_logs": logs}, ensure_ascii=False), encoding="utf-8")
+            temporary.replace(record)
+            removed = docker("rm", name, check=False)
+            if removed.returncode != 0:
+                # The terminal observation is durable. The watchdog retries cleanup;
+                # a concurrent status may already have removed this container.
+                print(f"Managed job cleanup deferred: {name}", flush=True)
+        return result
 
     def job_cancel(self, body: dict) -> dict:
         job_id = str(body.get("job_id") or "")
@@ -761,6 +1099,7 @@ class Handler(BaseHTTPRequestHandler):
                 "/fs/read": self.service.fs_read,
                 "/fs/search": self.service.fs_search,
                 "/fs/edit": self.service.fs_edit,
+                "/fs/stage": self.service.fs_stage,
                 "/jobs/start": self.service.job_start,
                 "/jobs/status": self.service.job_status,
                 "/jobs/cancel": self.service.job_cancel,

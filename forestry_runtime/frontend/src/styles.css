@@ -52,6 +52,27 @@ section h3, .artifacts h3 { margin: 0 0 9px; font-size: 12px; text-transform: up
 .traceList { overflow: auto; padding: 12px; display: grid; align-content: start; gap: 9px; }.traceCard { border-left: 3px solid #87938a; background: white; border-radius: 7px; padding: 9px 10px; box-shadow: 0 1px 5px #2033260d; }.traceCard.action { border-color: #256e48; }.traceCard.result { border-color: #4d7f9b; }.traceCard.job { border-color: #bd7a22; }.traceCard.thinking { border-color: #8b70b0; }.traceCard.recovery { border-color: #ad5147; }.traceCard > header { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; }.traceCard header span { color: #6f7a72; }.traceCard details { margin-top: 6px; }.traceCard summary { color: #667269; font-size: 11px; cursor: pointer; }
 .codeDiff { margin-top: 8px; border: 1px solid #d9e0da; border-radius: 6px; overflow: hidden; }.codeDiff small { display: block; padding: 6px 8px; background: #f1f4f1; color: #5f6c63; overflow-wrap: anywhere; }.codeDiff pre { margin: 0; padding: 7px 8px; max-height: 220px; overflow: auto; white-space: pre; }.codeDiff .removed { background: #fff0ee; color: #8d312b; }.codeDiff .added { background: #edf8f0; color: #24623c; border-top: 1px solid #d9e0da; }
 .artifacts { max-height: 190px; overflow: auto; border-top: 1px solid #d9e0da; padding: 13px 16px; }.artifacts a { display: flex; justify-content: space-between; gap: 8px; color: #205e3d; text-decoration: none; padding: 5px 0; font-size: 12px; }.artifacts a > span { display: grid; gap: 2px; }.artifacts a > span:last-child { text-align: right; }.artifacts small { display: block; color: #7b867e; }.verification.verified { color: #1d683e; }.verification.failed { color: #96352e; }
+
+/* Delivered artifacts in the conversation. The four checks stay visible next to the
+   file because a produced file and a finished task are separate claims: the Runtime
+   proves the first and deliberately leaves answers_task unverified. */
+.artifactList { display: grid; gap: 10px; align-self: stretch; max-width: 86%; }
+.artifactList h3 { margin: 0; }
+.artifactCard { display: grid; gap: 8px; padding: 11px 12px; border: 1px solid #cfdad2; border-radius: 10px; background: white; box-shadow: 0 1px 6px #2033260d; overflow: hidden; }
+.artifactCard header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.artifactCard header strong { font-size: 13px; overflow-wrap: anywhere; }
+.artifactCard header small { flex: none; color: #78837b; font-size: 10px; }
+.artifactCaption { margin: 0; color: #6c786f; font-size: 11px; overflow-wrap: anywhere; }
+.artifactCard img { max-width: 100%; max-height: 420px; border: 1px solid #e0e6e1; border-radius: 8px; background: #f3f7f3; object-fit: contain; }
+.artifactFail { margin: 0; padding: 8px 10px; border-radius: 7px; background: #f9dfdc; color: #96352e; font-size: 12px; }
+.artifactChecks { display: flex; flex-wrap: wrap; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.artifactCheck { display: flex; gap: 4px; padding: 3px 7px; border-radius: 999px; background: #f1f4f1; color: #5f6c63; font-size: 10px; }
+.artifactCheck strong { font-weight: 650; }
+.artifactCheck.pass { background: #dcefe3; color: #1d683e; }
+.artifactCheck.fail { background: #f9dfdc; color: #96352e; }
+.artifactCheck.unknown { background: #fff0c7; color: #805600; }
+.artifactDownload { justify-self: start; color: #17613c; font-size: 12px; text-decoration: none; border-bottom: 1px solid #b6d3c1; }
+.artifactDownload:hover { border-color: #17613c; }
 @media (max-width: 1280px) { .shell { grid-template-columns: 240px minmax(430px, 1fr) 330px; } }
 
 /* Runtime settings. Each row states where its effective value came from, because

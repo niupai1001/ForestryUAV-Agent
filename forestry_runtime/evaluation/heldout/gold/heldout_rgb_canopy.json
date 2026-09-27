@@ -1,0 +1,8 @@
+{
+  "fixture": "evaluation/heldout/fixtures/heldout_rgb_canopy",
+  "reference_mask": "evaluation/heldout/fixtures/heldout_rgb_canopy/reference_mask.tif",
+  "canopy_pixels": 8252,
+  "valid_pixels": 65536,
+  "canopy_fraction": 0.12591552734375,
+  "note": "Reference for the sampling review only. The task does not require matching this number exactly; it requires stating a denominator and not equating 'bright' or 'green' with canopy."
+}

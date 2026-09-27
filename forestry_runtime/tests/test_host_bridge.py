@@ -64,6 +64,44 @@ class HostBridgeTests(unittest.TestCase):
         self.assertEqual(json.loads(command[3]), [])
         self.assertEqual(json.loads(command[4]), ["pandas==2.3.2"])
 
+    def test_install_command_can_report_plan_before_running_pip(self):
+        command = dependency_install_command([])
+        # Run the generated program with no requested packages. This catches
+        # missing imports in the preamble before any apt/pip side effects.
+        with tempfile.TemporaryDirectory() as root:
+            command[2] = command[2].replace("target = '/deps'", "target = " + repr(root))
+            completed = subprocess.run(command, capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("RUNTIME_INSTALL_PLAN=", completed.stdout)
+
+    def test_terminal_status_is_saved_and_container_removed(self):
+        job_id = "job_" + "a" * 32
+        name = "forestry-" + job_id
+        calls = []
+        info = [{"Id": "c" * 64, "State": {"Running": False, "ExitCode": 1},
+                 "Config": {"Labels": {"forestry.runtime.kind": "install"}}}]
+
+        def fake_docker(*args, **kwargs):
+            calls.append(args)
+            if args[0] == "inspect":
+                return subprocess.CompletedProcess(args, 0, json.dumps(info), "")
+            if args[0] == "logs":
+                return subprocess.CompletedProcess(args, 0, "failed", "")
+            return subprocess.CompletedProcess(args, 0, "", "")
+
+        with tempfile.TemporaryDirectory() as root:
+            service = object.__new__(Service)
+            service.data_root = Path(root)
+            service._committed = {}
+            with patch("host_bridge.server.docker", side_effect=fake_docker):
+                first = service.job_status({"job_id": job_id})
+                again = service.job_status({"job_id": job_id})
+            self.assertEqual(first, again)
+            self.assertEqual(first["state"], "failed")
+            self.assertIn(("rm", name), calls)
+            self.assertEqual(sum(1 for call in calls if call[0] == "inspect"), 1)
+            self.assertFalse(any(call[0] == "commit" for call in calls))
+
     def test_install_command_installs_system_packages_before_python_ones(self):
         command = dependency_install_command(["rasterio"], ["libexpat1"])
         script = command[2]
@@ -71,9 +109,36 @@ class HostBridgeTests(unittest.TestCase):
         self.assertIn("apt-get", script)
         self.assertIn("--no-install-recommends", script)
         # Order matters: the shared library has to be present before pip resolves a
-        # wheel that links against it.
-        self.assertLess(script.index("apt-get"), script.index("pip"))
+        # wheel that links against it. Compared on the two install commands rather
+        # than on the bare substrings, because the script also names the pip cache
+        # directory before either call.
+        self.assertLess(
+            script.index("'apt-get', 'install'"),
+            script.index("'-m', 'pip', 'install'"),
+        )
         self.assertIn("SYSTEM_PACKAGES=", script)
+
+    def test_install_scratch_is_disk_backed_and_reported(self):
+        """A hard tmpfs was the capacity a real install actually ran out of."""
+        service = object.__new__(Service)
+        service.cpu, service.memory, service.pids = "4", "6g", "256"
+        service.code_tmp_bytes = 2 * 1024 * 1024 * 1024
+        install = service._container_args(
+            "job_" + "a" * 32, [], "bridge", "chat", 600, workdir=False, kind="install",
+        )
+        joined = " ".join(install)
+        # The install job's /tmp comes from the mount table (a real directory), so no
+        # size-limited tmpfs is declared for it here.
+        self.assertNotIn("size=536870912", joined)
+        self.assertIn("TMPDIR=/scratch/tmp", install)
+        self.assertIn("PIP_CACHE_DIR=/scratch/pip-cache", install)
+        self.assertIn("HOME=/scratch/home", install)
+
+        code = service._container_args(
+            "job_" + "b" * 32, [], "none", "chat", 600, workdir=True, kind="python",
+        )
+        self.assertIn("size=%d" % service.code_tmp_bytes, " ".join(code))
+        self.assertIn("RUNTIME_SCRATCH=/scratch", code)
 
     def test_install_command_accepts_a_system_only_request(self):
         command = dependency_install_command([], ["libexpat1"])

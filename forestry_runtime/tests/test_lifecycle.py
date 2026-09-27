@@ -96,7 +96,7 @@ class LifecycleTests(unittest.TestCase):
         asset = store.put(io.BytesIO(b'x' * 1024), 'large.bin', 'alice')
         self.manager.release(self.chat)
         with patch.object(api, 'sessions', self.manager):
-            response = assets.local_file(self.chat, asset['id'], 'alice')
+            response = assets.local_file(self.chat, asset['id'], owner='alice')
         self.manager.mark_deleted('alice', self.chat)
         self.manager.reap()
         self.assertTrue(store.root.exists())

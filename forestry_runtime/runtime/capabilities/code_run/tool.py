@@ -36,7 +36,23 @@ class CodeRunArgs(Args):
 
 
 SPECS = (
-    ToolSpec("code_run", "Run Python or POSIX shell code written by you in a durable Docker job. The workspace is writable, selected source grants are read-only, network is disabled, and the call returns a job_id immediately. A returned job_id means the job started, not that it finished: use job_wait to obtain its result.", CodeRunArgs, "EvidenceArtifact", Scope(reads=["workspace", "source"], writes=["workspace"]), SideEffect.DURABLE_JOB, "execute_code", "sandbox"),
+    ToolSpec(
+        "code_run",
+        (
+            "Run Python or POSIX shell code written by you in a durable Docker job. The "
+            "workspace is writable at /workspace, selected source grants are read-only "
+            "under /sources/<source_id>, network is disabled, and the call returns a "
+            "job_id immediately. A returned job_id means the job started, not that it "
+            "finished: use job_wait to obtain its result. The job runs a fixed image that "
+            "already holds the packages listed by environment_check; that tool also "
+            "reports the image, the dependency directory and the capacity of the writable "
+            "locations, which is where a capacity failure will name itself. Use /scratch "
+            "for intermediates larger than the /tmp tmpfs."
+        ),
+        CodeRunArgs, "EvidenceArtifact",
+        Scope(reads=["workspace", "source"], writes=["workspace"]),
+        SideEffect.DURABLE_JOB, "execute_code", "sandbox",
+    ),
 )
 
 __all__ = ["CodeRunArgs", "SPECS"]

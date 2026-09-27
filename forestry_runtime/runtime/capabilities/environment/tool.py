@@ -30,14 +30,20 @@ class EnvironmentCheckArgs(Args):
 SPECS = (
     ToolSpec(
         "environment_check",
-        "Report the real execution environment: the job image, the installed package "
-        "manifest of the dependency directory, and whether the named modules are "
-        "importable there. Runs a short bounded probe in the job image and never "
-        "occupies the execution slot. Use this instead of inferring that dependencies "
-        "are missing from an empty workspace. A module that reports importable here is "
-        "marked import-checked, so code_run will accept code importing it; when code_run "
-        "refuses with blocked_by, call this tool with the refused module names (and, for "
-        "a durable record, the same names as record_requirements).",
+        (
+            "Report the real execution environment of a code job: the image that job "
+            "will run (including one an install has committed, which is not the "
+            "configured base image), the installed package manifest of the dependency "
+            "directory, whether the named modules are importable there, and the capacity "
+            "of the writable locations. Runs a short bounded probe in that image and "
+            "never occupies the execution slot. Capacity is measured inside the "
+            "container, because a cap on a tmpfs or a quota is invisible from the host. "
+            "Use this instead of inferring that dependencies are missing from an empty "
+            "workspace. A module that reports importable here is marked import-checked, "
+            "so code_run will accept code importing it; when code_run refuses with "
+            "blocked_by, call this tool with the refused module names (and, for a durable "
+            "record, the same names as record_requirements)."
+        ),
         EnvironmentCheckArgs, "EvidenceArtifact",
         Scope(reads=["workspace"]), SideEffect.NONE, "check_environment", "sandbox",
     ),

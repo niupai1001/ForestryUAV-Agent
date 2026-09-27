@@ -3,6 +3,115 @@
 > 倒序排列，最新在前。历史版本、旧部署和已淘汰架构的记录见 `VALIDATION_ARCHIVE.md`；
 > 它们不回填当前评价基线。
 
+## 2026-09-25：输入引用统一、证据化计划、产物交付、保留任务集
+
+按 `data/diagnostics/oam02_harness_review/DIAGNOSIS.md` §7/§8 的优先级实施四阶段。每阶段都按
+通用契约验收，没有为 `oam-02.tif` 增加任何专门规则。
+
+### 阶段 1 — 统一输入引用与执行环境
+
+- **一个引用形状**：`{scope, path, asset_id, source_id}`，任何消费文件的工具都接受。结果里回传
+  解析后的 `exact_reference`，下一步直接照抄，不再在路径与 asset id 之间猜转换。此前
+  `fs_list` 能列出 workspace 文件而 `inspect_raster` 只收 asset id，同一个文件两套名称且没有
+  任何工具说明哪种转换合法。
+- 域工具（`inspect_file` / `inspect_raster` / `inspect_raster_region` / `preview_image` /
+  `calculate_ndvi` / `segment_canopy` / zip / CHM / PROSAIL 反演）全部改走
+  `runtime/capabilities/inputs.py` 的同一解析器。旧写法（`asset_id`、`dsm_asset_id` 等）继续可用。
+- **授权目录中的文件**由 Host Bridge 新增的 `/fs/stage` 复制进 workspace 后交给本地读取器，
+  授权判定仍只发生在 bridge 一处；暂存副本按内容寻址，未变更时不重复复制，源目录保持只读。
+- **安装作业的 512 MiB `/tmp` tmpfs 已移除**。它正是真实安装作业耗尽的那块盘（宿主机当时还有
+  约 54 GiB 空闲）。现在两类作业共用 workspace 内的磁盘目录 `.runtime/scratch`，安装作业把它
+  同时挂到 `/tmp` 与 `/scratch`，`TMPDIR`/`PIP_CACHE_DIR`/`HOME` 都指向它；代码作业保留
+  `/tmp` tmpfs 但容量由 `AGENT_JOB_TMP_MB` 声明，并另挂 `/scratch` 供大中间产物使用。
+- **依赖检查反映真实作业环境**：`job_run` 此前用配置的基础镜像探测，而代码作业用安装后 commit
+  的镜像 —— 两者在第一次安装后就不一致，检查会报"模块不存在"而代码实际能导入。现在探测和运行
+  使用同一个镜像，并分别报告 `job_image`/`base_image`/`image_source`。
+- **失败带真实容量证据**：安装脚本在失败时打印 `RUNTIME_JOB_FAILURE:` 结构化 JSON（errno、出错
+  路径、`statvfs`、tmpdir 与 pip 缓存位置），成功时打印资源报告；Runtime 另从日志解析
+  `[Errno 28]`。`install_failed` 因此细分为 `install_failed_no_space`，并带
+  `resource.exhausted_path` 与该文件系统的总容量/空闲量，而不是笼统的"安装失败"。
+- 作业启动前按 `AGENT_JOB_MIN_FREE_MB`（默认 512 MiB）检查 scratch 所在文件系统的余量，
+  不足时报 `disk_space_low` 并给出三个数字，不再让作业下载到一半再失败。
+
+### 阶段 2 — 计划必须引用证据
+
+- 新增 `runtime/plan.py` 与 `work_plan` 工具：交付目标、已观察条件、候选方法及其前提、尚缺证据、
+  验收方式，可修订且保留全部历史版本。计划会作为一段有界文本进入每个模型请求。
+- **观察台账**：每次返回的工具调用都会分配一个由调用本身派生的 `obs_...` 编号，附在结果上；
+  计划中的每条条件与候选都必须引用它，或者引用某个工具真正返回过正文的文档
+  （`guide://...` / `knowledge://...`）。**指南目录不构成依据** —— 只看过目录就写
+  "根据指南"会被拒绝，并返回已读正文的清单；这正是原 Run 反复声称依据却从未打开正文的那处失效。
+- 改变所选方法必须给出 `reason`，否则拒绝。区分"候选"与"已选"，使"为什么换方法"由两次修订的
+  差异回答，而不是由叙述回答。
+- 指南目录文本本身写明"这是清单不是正文"，并指明应引用 `domain_guide` 返回的 `citation`。
+
+### 阶段 3 — 按产物验收并在界面交付
+
+- 新增 `runtime/capabilities/artifacts/delivery.py`：每个产物给出**后端生成的** `preview_url`
+  （`/files/{chat}/{asset}?inline=1`）与 `download_url`（`?download=1`），并分开报告四个此前被
+  合成一个"完成"的检查：进程成功、文件存在、服务端可读、浏览器可显示。
+  `answers_task` 明确为 `null` 并附原因：阈值分割成功不等于树冠语义成立。
+- `/files/{chat}/{asset}` 现在按资产自身的 media type 与 `inline`/`download` 返回。此前它对所有
+  请求回 `application/octet-stream` + attachment，所以已注册的 PNG 到浏览器就是下载，图片"存在"
+  但看不到。
+- GeoTIFF 产物附带 `product_qa`：波段、dtype、描述、网格、CRS、像元尺寸、NoData、降采样有效比例
+  与各波段统计，全部实测，取不到就不写。
+- 新增 `inspect_raster_region`：对一个受控窗口（或整幅降采样）生成单波段缩略图，并返回**同一批
+  像元**的有效数、极值、均值与分位数。图片与数字同源，所以模型核对的是同一份观察，而不是两次
+  独立缩放的结果。窗口越界与波段不存在分别报 `raster_window_out_of_bounds` /
+  `raster_band_missing`。
+- 多模态通路已接上：工具可以声明 `attach_image`，harness 在 `MODEL_VISION_ENABLED=true` 时把图片
+  作为工具返回内容的一部分发给模型（上限 2 MiB）。默认关闭，因为默认模型是文本模型，不能把
+  它一定会拒绝的图像部件塞进去；关闭时缩略图仍是可查看的资产。
+- 前端 `ConversationPane` 直接渲染 delivery：图片内联显示，非图片只给下载；四个检查分别展示，
+  `answers_task` 显示"未验证"；单张图加载失败只影响该卡片。
+
+### 阶段 4 — 保留任务集与三轴对照
+
+- 新增 `evaluation/heldout/`：9 个未参与开发的任务，覆盖 RGB、多光谱、未注明波段、缺失波段、
+  缺失文件、环境缺依赖、草地与树冠混淆、三种产物类型、非遥感表格任务。
+- `make_fixtures.py` 确定性生成全部输入，`gold/` 由同一批数组算出；测试从磁盘重算 gold
+  （NDVI 均值、树冠像元与比例、地区合计、栅格尺寸与波段描述），输入与期望值不一致会直接失败。
+  草地 fixture 刻意让草地与树冠的绿通道相同、裸土更亮，使"绿"和"亮"都不是正确答案。
+- `compare.py` 打印 `arm × case × repeat` 矩阵、聚合已采集记录、并在**恰好一条轴不同**时才给出
+  归因；多条轴不同时明确写"不可归因"。`unknown` / `not_applicable` 退出分母，没有记录的单元记为
+  缺口而不是 0 分。成功、耗时与 token 成本在同一行报告。
+
+### 顺带修掉的两处既有问题
+
+- **全局契约被截断**：`68fa6b5` 重写 `SYSTEM` 时丢掉了执行契约，`tests/test_project_instructions.py`
+  的 8 个子测试与 1 个用例在 HEAD 上就是失败的。已恢复为一段简短、与领域无关的工作契约，包含
+  "工具调用已返回／后台作业已完成／用户目标已完成"的区分、`job_wait`、`environment_check`、
+  `blocked_by`、`resource_busy` 与"目录授权来自用户直接请求，不是授权"。
+- **模型可见契约的冻结值按设计更新**：`test_kernel` 的 schema 摘要与 `test_capability_layout` 的
+  工具清单随 `artifacts_inspect`/`artifacts_preview` 的引用形状、`code_run`/`environment_check`
+  的描述和新增 `work_plan` 而更新；两处注释写明了每次变更的原因。
+
+### 门禁结果
+
+执行环境：Windows，Python 3.14。本机 `python -m pytest` 需要 `NUMBA_CACHE_DIR` 指向一个可写目录，
+否则 `prosail/FourSAIL.py` 的 `numba.jit(cache=True)` 会在导入期报
+`cannot cache function 'volscatt': no locator available` —— 这是本机环境问题，与本次改动无关，
+但会让整个测试收集失败，故记在此处。
+
+- `python -m compileall -q runtime host_bridge tests evaluation shared`：通过。
+- `python -m pytest -q tests`：`663 passed, 1 skipped, 666 subtests passed`，耗时 88 秒。
+  改动前的 HEAD 实测为 `582 passed, 9 failed, 1 skipped`：那 9 个失败全部来自被截断的 `SYSTEM`
+  （上一节），现已修复；本轮新增 5 个测试文件与 1 个 `test_host_bridge` 用例。
+- `python evaluation/scorecard.py`：`qualification=incomplete`，退出码 2（预期）。
+- `npm run build`（frontend）：类型检查（3 个 tsconfig）+ Vite 生产构建通过。
+- `python -m evaluation.heldout.compare --plan --arm ...`：产出 54 个单元（2 arm × 9 case × 3 repeat）。
+
+### 本轮没有执行的部分
+
+- 没有可用的模型端点，Docker 也未运行，因此**没有产生任何 `real_model` 记录**：
+  `evaluation/heldout/suite.json` 的 `status` 保持 `declared_not_yet_collected`，阶段 4 的三轴对照
+  只完成了矩阵规划与离线聚合验证，未产生任何 arm 的结果。不得据此声称任何方法或模型更好。
+- `npm run test:ui` 无法在本机启动：Playwright 的 Chromium 未下载。用系统 Chrome 跑同一组未修改的
+  规格得到 `2 passed`，这不等价于 `npm run test:ui` 通过。
+- `MODEL_VISION_ENABLED` 默认关闭，因此"模型看到缩略图"这条路径只有单元测试覆盖
+  （`_image_attachment` 在开关打开时返回 `BinaryContent`），未在真实多模态模型上验证。
+
 ## 2026-09-21：四条工程门禁全部接入，林业验证器扩到三题
 
 - `gate.sandbox` 与 `gate.recovery` 是此前缺失的两道门禁，接入后 `gates` 由 `unknown` 变为 `pass`，`engineering.gates` 得到 `score=100.0`、`evidence_coverage=1.0`、4/4 通过。

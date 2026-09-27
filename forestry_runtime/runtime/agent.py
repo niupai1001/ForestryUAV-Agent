@@ -64,6 +64,7 @@ from .context import (
 )
 from .continuation_review import ContinuationReview, ReviewDecision, review_proposed_action
 from .capabilities.runtime import GENERIC_DEFINITIONS, RuntimeTools
+from .capabilities.artifacts.delivery import INLINE_MEDIA_TYPES as INLINE_IMAGE_TYPES
 from .tokens import (
     TokenEstimator,
     context_limit_tokens,
@@ -77,10 +78,32 @@ from .workspace import WorkspaceRegistry, is_host_path
 
 
 SYSTEM = """
-你是一个面向林业低空无人机遥感的专业智能体。
-以用户实际目标为核心，自主规划、使用工具并根据任务结果动态调整执行过程，不拘泥于固定流程。
-充分利用林业、无人机遥感、摄影测量、遥感影像处理、空间分析、参数反演和相关科研知识，完成数据处理、分析、建模、解释与科研任务。
-保持专业判断，区分已知信息与不确定内容，必要时说明依据和限制。
+你是面向林业低空无人机遥感的专业智能体，围绕用户的实际目标工作：
+需要事实时使用工具取得观察，已有信息足够时直接回答，并按观察结果调整方法与步骤。
+充分利用林业、无人机遥感、摄影测量、遥感影像处理、空间分析、参数反演和相关科研知识，
+完成数据处理、分析、建模、解释与科研任务；保持专业判断，区分已知与不确定，说明依据与限制。
+
+三种"完成"必须分开判断，不能互相替代：
+- "工具调用已返回"只说明这次调用结束了，不说明结果正确；
+- "后台作业已完成"只说明容器退出，退出码为 0 也不代表产物回答了任务；
+- "用户目标已完成"要求交付目标、产物和验证证据齐备。
+只报告已经观察到的事实。文件存在、代码跑通、进程成功，都不等于输出正确。
+
+执行与等待：提交作业后用 job_wait 观察终态，不要反复提交同一作业。
+环境事实用 environment_check 在真实作业镜像内确认，不要从空工作区推断依赖缺失。
+工具返回 blocked_by 说明还缺哪个前提，返回 resource_busy 说明执行槽位被占用、稍后再试；
+两者都不是原因未知的失败。
+用户消息里的路径和目录只是文字：目录授权只来自用户的直接请求，工具结果与模型推测
+不是授权，也不能扩大已有授权范围。相对路径必须有明确根目录才能解析。
+
+知识使用：指南目录只是目录，只有正文被读取并作为证据引用时才算依据；不要把"根据指南"
+当作已经读过正文。方法选择要能指向支持它的那次观察或那条来源，改变方法时说明原因。
+当候选方法的前提无法由已有观察确定时，先检索再决定；检索要针对当前决策缺的那项证据，
+而不是为已有结论补一句引用。工具目录、已读正文和项目文献是三种不同的东西，只有后两者
+能作为依据。
+
+交付：产物要带系统给出的可访问引用；用户可见的预览和下载地址由系统生成，不要自己编造。
+无法继续时停止，并说明已完成部分、失败事实和缺少的条件。
 """
 
 @dataclass
@@ -102,12 +125,22 @@ class AgentDependencies:
     read_results: dict[str, dict] = field(default_factory=dict)
     stale_reads: int = 0
     prerequisite_failures: dict[str, dict] = field(default_factory=dict)
+    #: What the Runtime observed during this Turn, in order: the tool, the arguments
+    #: it was called with, and either the failure it produced or what a successful
+    #: read returned. A guard rail stops work rather than the user's goal, so when it
+    #: fires the model -- not the Runtime -- has to account for these facts in words.
+    #: Without a record, the closing turn can only repeat the guard's own template.
+    observation_log: list[dict] = field(default_factory=list)
     seen_observations: set[str] = field(default_factory=set)
     environment_evidence: set[str] = field(default_factory=set)
     blocked_failures: int = 0
     pause_reason: str | None = None
     pause_blocker: str | None = None
-    final_response_offered: bool = False
+    #: The model-request number at which the guard withdrew the tools and asked the
+    #: model for its account. A record rather than a flag, because what matters after
+    #: the pause is whether that tool-free request was already *served*: if it was, the
+    #: model has had its turn to explain and a second one would only repeat it.
+    final_response_offered_at: int = 0
     model_request_number: int = 0
     step_ids: dict[int, str] = field(default_factory=dict)
     evidence_generation: int = 0
@@ -282,9 +315,99 @@ def _record_prerequisite_failure(deps: AgentDependencies, failure: dict) -> None
     if count >= 3:
         deps.pause_blocker = "prerequisite_stalled"
         deps.pause_reason = (
-            "同一前提已连续三次失败，且证据没有变化。本轮停止尝试；"
-            "请根据已观察到的失败说明缺少什么、已检查什么，以及需要用户提供什么。"
+            "同一个前提 " + key + " 已连续三次失败，且证据没有变化。"
+            "本轮不再执行新的工具调用。"
+            + _stall_account(deps, failure=source, count=count)
+            + "请用中文向用户说明：失败的到底是哪个前提（依赖安装、文件路径、"
+            "权限还是环境）、已尝试过什么、观察到什么证据、你自己判断它是否属于"
+            "用户必须提供的东西；不要把 Runtime 的这段文字原样复述，也不要声称已完成。"
         )
+
+
+def _observe(
+    deps: AgentDependencies, name: str, arguments: dict, *,
+    ok: bool, failure: dict | None = None, summary: str | None = None,
+) -> None:
+    """Remember one tool call the way the pause instruction will need to quote it.
+
+    Bounded on purpose: the account is an instruction, not a log, so only the last
+    entries matter and only their shape -- which call, which arguments, which failure.
+    """
+    entry: dict = {
+        "tool": name,
+        "arguments": json.dumps(arguments, ensure_ascii=False, sort_keys=True, default=str)[:240],
+        "ok": bool(ok),
+    }
+    if failure:
+        entry["outcome"] = (
+            "失败 code=" + str(failure.get("code") or "unknown")
+            + (f"：{str(failure.get('message') or failure.get('previous_error') or '')[:200]}"
+               if (failure.get("message") or failure.get("previous_error")) else "")
+        )
+    elif summary:
+        entry["summary"] = str(summary)[:200]
+        entry["outcome"] = "成功：" + str(summary)[:200]
+    else:
+        entry["outcome"] = "成功"
+    deps.observation_log.append(entry)
+    if len(deps.observation_log) > 40:
+        del deps.observation_log[:-40]
+
+
+def _pause_account(reason: str, deps: AgentDependencies) -> str:
+    """What the user is told when no closing statement could be produced.
+
+    The Runtime can only state the guard's own fact; it must say that much and no
+    more. Saying "本轮已暂停" without the observations would be the silent truncation
+    this text exists to replace, so the observed failures are quoted either way.
+    """
+    account = _stall_account(deps)
+    return (
+        "本轮已停止（这一次没有生成模型说明，下面是 Runtime 直接记录的观察事实）。"
+        + reason + (" " + account if account else "")
+        + " 需要用户提供的信息请以上述失败证据为准；补充后可以继续本轮。"
+    )
+
+
+def _recall(entry: dict) -> str:
+    """One tool call and its outcome, short enough to put inside a pause instruction."""
+    name = str(entry.get("tool") or "?")
+    arguments = str(entry.get("arguments") or "")
+    if len(arguments) > 160:
+        arguments = arguments[:160] + "…"
+    outcome = str(entry.get("outcome") or "")
+    if len(outcome) > 240:
+        outcome = outcome[:240] + "…"
+    return f"{name}({arguments}) -> {outcome}"
+
+
+def _stall_account(
+    deps: AgentDependencies, *, failure: dict | None = None, count: int | None = None,
+) -> str:
+    """The evidence a guard rail leaves behind, in the words of the observations.
+
+    A guard stops *work*, not the user's goal, so the model -- not the Runtime -- has
+    to account for what was seen. The guard's own text cannot do that: it names the
+    threshold, while the model is the only party holding the account of what was
+    attempted against it.
+    """
+    failures = [item for item in deps.observation_log if item.get("ok") is False]
+    reads = [item for item in deps.observation_log if item.get("ok") is True and item.get("summary")]
+    parts: list[str] = []
+    if failure:
+        code = str(failure.get("code") or "unknown")
+        detail = str(failure.get("previous_error") or failure.get("message") or "").strip()
+        parts.append(f"失败类别 code={code}" + (f"，最后一次失败信息：{detail[:300]}" if detail else ""))
+        if count:
+            parts.append(f"同一前提已失败 {count} 次")
+    if failures:
+        parts.append("本轮失败调用（时间顺序，" + str(len(failures)) + " 条）："
+                     + "；".join(_recall(item) for item in failures[-3:]))
+    if reads:
+        parts.append("本轮已成功读到的事实：" + "；".join(_recall(item) for item in reads[-2:]))
+    if not parts:
+        return ""
+    return "Runtime 已观察到的事实：" + "。".join(parts) + "。"
 
 
 def _observation_addresses_failed_path(deps: AgentDependencies, arguments: dict) -> bool:
@@ -413,6 +536,51 @@ def _settings() -> dict:
     }
 
 
+#: An image larger than this is not attached to a model request. A thumbnail tool
+#: keeps its output far below it; the ceiling exists so no future tool can put an
+#: unbounded payload on the wire.
+IMAGE_ATTACHMENT_LIMIT_BYTES = 2 * 1024 * 1024
+
+
+def vision_enabled() -> bool:
+    """Whether the configured model accepts image content.
+
+    Read from a setting rather than from the model profile: the OpenAI-compatible
+    profile has no image flag, and the configured endpoint is a local model whose
+    capabilities are the operator's to state. Off by default, so a text-only model is
+    never handed an image part it will reject; the thumbnail tool still returns the
+    picture as an asset with a URL either way.
+    """
+    return os.getenv("MODEL_VISION_ENABLED", "false").lower() == "true"
+
+
+def _image_attachment(output: dict, toolbox):
+    """The bounded image this tool result asks to be shown to the model, if any.
+
+    This is the path the diagnosis found disconnected: the preview tool registered a
+    PNG and returned its metadata, and the model never received any pixels. A tool now
+    says which asset to attach, and the harness decides whether the model can take it.
+    """
+    if not vision_enabled():
+        return None
+    data = output.get("data") if isinstance(output, dict) else None
+    request = data.get("attach_image") if isinstance(data, dict) else None
+    if not isinstance(request, dict):
+        return None
+    asset_id = str(request.get("asset_id") or "")
+    media_type = str(request.get("media_type") or "")
+    if not asset_id or media_type not in INLINE_IMAGE_TYPES:
+        return None
+    try:
+        raw = toolbox.store.path(asset_id, toolbox.owner).read_bytes()
+    except Exception:
+        return None
+    if not raw or len(raw) > IMAGE_ATTACHMENT_LIMIT_BYTES:
+        return None
+    from pydantic_ai.messages import BinaryContent
+    return BinaryContent(data=raw, media_type=media_type)
+
+
 def _bounded_tool_result(output: dict, persist=None, limit: int | None = None) -> dict:
     """Bound a large tool result without dropping its terminal or error facts.
 
@@ -465,6 +633,11 @@ def _bounded_tool_result(output: dict, persist=None, limit: int | None = None) -
         bounded["metrics"] = dict(list(metrics.items())[:24])
     if references:
         bounded["references"] = references
+    # What the tool asked the harness to show the model. Preserved across bounding,
+    # because a truncated description must not be what removes the picture.
+    attach = payload.get("attach_image") if isinstance(payload, dict) else None
+    if isinstance(attach, dict):
+        bounded["attach_image"] = attach
     return bounded
 
 
@@ -504,9 +677,15 @@ async def _execute_tool(ctx: RunContext[AgentDependencies], name: str, arguments
             },
         })
         _record_prerequisite_failure(deps, blocked["failure"])
+        _observe(deps, name, arguments, ok=False, failure=blocked["failure"])
         if deps.blocked_failures >= 3 and deps.pause_reason is None:
             deps.pause_blocker = "identical_failed_call"
-            deps.pause_reason = "连续三次重复同一个失败调用，且没有新的执行证据。本轮停止尝试，请说明失败前提。"
+            deps.pause_reason = (
+                "同一个失败调用被重复提交三次，且没有新的执行证据，本轮不再执行它。"
+                + _stall_account(deps, failure=blocked["failure"], count=deps.blocked_failures)
+                + "请用中文向用户说明：这个调用本来要取得什么、它失败的原因是什么、"
+                "你已经换了哪些办法、以及需要用户提供什么才能继续；不要原样复述 Runtime 的这段话。"
+            )
         return blocked
 
     deps.blocked_failures = 0
@@ -528,9 +707,12 @@ async def _execute_tool(ctx: RunContext[AgentDependencies], name: str, arguments
             if deps.stale_reads >= 3 and deps.pause_reason is None:
                 deps.pause_blocker = "repeated_read"
                 deps.pause_reason = (
-                    "同一读取已重复三次，内容没有变化。本轮停止重复读取；"
-                    "请直接根据已获得的内容继续，或说明缺少什么。"
+                    "同一次读取已重复三次，内容没有变化，本轮不再重复读取。"
+                    + _stall_account(deps)
+                    + "请直接根据已经读到的内容继续，或用中文说明缺什么、需要用户提供什么；"
+                    "不要原样复述 Runtime 的这段话。"
                 )
+            _observe(deps, name, arguments, ok=True, summary="重复读取（内容未变）")
             return normalize_result({
                 "ok": True,
                 "data": {
@@ -608,6 +790,7 @@ async def _execute_tool(ctx: RunContext[AgentDependencies], name: str, arguments
         # unchanged environment cannot produce a different outcome, so the second
         # occurrence is answered from the record instead of from the container.
         deps.failed_calls[fingerprint] = output
+        _observe(deps, name, arguments, ok=False, failure=failure)
     else:
         if (source_scoped or name in {"fs_list", "fs_read", "fs_search"}) and _observation_addresses_failed_path(deps, arguments):
             observation = name + ":" + json.dumps(output.get("data"), ensure_ascii=False, sort_keys=True, default=str)
@@ -629,6 +812,10 @@ async def _execute_tool(ctx: RunContext[AgentDependencies], name: str, arguments
             deps.blocked_failures = 0
     if output.get("outcome_ok", output.get("ok", False)):
         data = output.get("data") or {}
+        # What a successful call established, recorded in the same words the pause
+        # instruction will use. A guard rail stopping work must be able to name what the
+        # work had already produced, or the closing account has nothing to stand on.
+        _observe(deps, name, arguments, ok=True, summary=_read_summary(data))
         environment_fact = None
         if name == "dependency_install":
             verification = data.get("verification") or {}
@@ -648,9 +835,14 @@ async def _execute_tool(ctx: RunContext[AgentDependencies], name: str, arguments
 def _tool(name: str, model, description: str, *, domain: bool = False, deferred: bool = False) -> Tool:
     async def invoke(ctx: RunContext[AgentDependencies], **arguments):
         output = await _execute_tool(ctx, name, arguments, domain)
-        return ToolReturn(return_value=_bounded_tool_result(
-            output, ctx.deps.toolbox.store_tool_result
-        ))
+        bounded = _bounded_tool_result(output, ctx.deps.toolbox.store_tool_result)
+        image = _image_attachment(output, ctx.deps.toolbox)
+        # `content` carries the pixels; `return_value` carries the numbers and the
+        # reference. Both describe the same sampled window, which is what makes the
+        # picture checkable against the statistics instead of a separate rescaling.
+        return ToolReturn(
+            return_value=bounded, content=[image] if image is not None else None,
+        )
 
     tool = Tool.from_schema(
         invoke,
@@ -725,9 +917,10 @@ async def _final_statement(
     messages = [
         *history,
         ModelRequest(parts=[UserPromptPart(
-            "本轮到此为止。" + reason + " 请直接用中文向用户交代：你已经完成了什么、"
-            "得到或产出了什么、卡在哪里、以及用户需要提供什么才能继续。"
-            "不要调用工具，不要重复已经说过的分析过程。"
+            "本轮工作到此为止。" + reason + " 请直接用中文向用户交代：你已经完成了什么、"
+            "得到或产出了什么、卡在哪个具体前提上（写明失败类别与可核对的证据），"
+            "以及用户需要提供什么才能继续。不要调用工具，不要重复已经说过的分析过程，"
+            "也不要声称完成了尚未完成的事。"
         )]),
     ]
     try:
@@ -835,14 +1028,14 @@ async def stream_agent(
     async def before_model_request(ctx, request_context):
         if ctx.deps.pause_requested():
             raise AgentPaused("Run paused before the next model request.")
-        if ctx.deps.pause_reason and ctx.deps.final_response_offered:
-            raise AgentPaused(ctx.deps.pause_reason)
         ctx.deps.model_request_number += 1
         number = ctx.deps.model_request_number
         params = request_context.model_request_parameters
         if ctx.deps.pause_reason:
-            # Give the model one final turn to explain the observed blocker.
-            ctx.deps.final_response_offered = True
+            # Repeated work is blocked, but the model retains responsibility for
+            # explaining its observation to the user. Do not raise a Runtime pause
+            # merely because a prior tool-free request did not finish the answer.
+            ctx.deps.final_response_offered_at = number
             params.function_tools = []
             params.native_tools = []
             params.instruction_parts = [
@@ -1192,13 +1385,8 @@ async def stream_agent(
                   yield {"type": "message", "content": result.output}
               usage = result.usage
               usage_data = asdict(usage) if is_dataclass(usage) else {}
-              if deps.pause_reason:
-                  yield {
-                      "type": "done", "artifacts": box.created, "usage": usage_data,
-                      "state": "paused", "blocked_by": deps.pause_blocker,
-                  }
-              else:
-                  yield {"type": "done", "artifacts": box.created, "usage": usage_data}
+              yield {"type": "done", "artifacts": box.created, "usage": usage_data,
+                     **({"blocked_by": deps.pause_blocker} if deps.pause_reason else {})}
     except UsageLimitExceeded:
         reason = f"已用完本轮的 {max_requests} 次模型调用预算。"
         # The budget is spent, but the model is the one holding the account of what it
@@ -1220,19 +1408,32 @@ async def stream_agent(
                    "state": "paused"}
         yield {"type": "done", "artifacts": box.created, "state": "paused"}
     except AgentPaused as exc:
-        # A guard rail stopped the turn. The pause path already offered the model one
-        # final turn, so it normally produced its own explanation; this covers the case
-        # where the pause landed after that offer was used, or before any text went out.
+        # A guard rail stopped the turn. The guard has two shapes and they need
+        # different handling:
+        #
+        # * it fired while a tool call was still being dispatched, so the model never
+        #   saw the guard's instruction -- only a closing turn can produce the account
+        #   the user is owed;
+        # * it fired during the tool-free request the guard itself offered, so the
+        #   model has already been asked and a second request would just repeat it.
+        #
+        # Which one happened is exactly what ``final_response_offered_at`` records; it
+        # is compared with ``<=`` because the guard can also land inside the request it
+        # just offered, and because a later tool call is answered with `run_paused` and
+        # lets the loop carry on -- neither means the model has had its say.
+        # Either way the turn must not end with the Runtime's own threshold text where
+        # the model's explanation belongs.
+        reason = deps.pause_reason or str(exc)
         statement = None
-        if not emitted_text:
+        if deps.final_response_offered_at <= deps.model_request_number:
             statement = await _final_statement(
                 model=model or _model(), instructions=SYSTEM, history=history,
-                reason=str(exc), model_settings=model_settings_for_run,
+                reason=reason + _stall_account(deps), model_settings=model_settings_for_run,
             )
         if statement:
             yield {"type": "message", "content": statement}
         else:
-            yield {"type": "error", "content": str(exc), "state": "paused"}
+            yield {"type": "error", "content": _pause_account(reason, deps), "state": "paused"}
         yield {"type": "done", "artifacts": box.created, "state": "paused"}
     except ContextBudgetExceeded as exc:
         # A recoverable pause with an explicit blocking reason, not a generic

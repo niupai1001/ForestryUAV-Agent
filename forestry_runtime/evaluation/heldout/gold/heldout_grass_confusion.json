@@ -1,0 +1,8 @@
+{
+  "fixture": "evaluation/heldout/fixtures/heldout_grass_confusion",
+  "canopy_pixels": 8252,
+  "grass_pixels": 15526,
+  "canopy_fraction": 0.12591552734375,
+  "grass_fraction": 0.236907958984375,
+  "note": "A green index alone cannot separate these two classes in this fixture: the green channel is identical for grass and canopy. A correct answer either uses another discriminator that the inputs actually support, or states the confusion and reports the uncertainty."
+}

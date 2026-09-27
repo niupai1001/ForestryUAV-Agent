@@ -1,0 +1,187 @@
+{
+  "suite_version": "forestry-heldout-0.1",
+  "status": "declared_not_yet_collected",
+  "purpose": "Tasks kept out of development, so an improvement measured here cannot be the improvement that was tuned on these tasks.",
+  "fixed_resources": {
+    "note": "Every arm runs with these values. A comparison that changes one of them is not a comparison of the axis it claims.",
+    "repeats": 3,
+    "job_image": "AGENT_JOB_IMAGE from the frozen deployment",
+    "job_cpus": "AGENT_JOB_CPUS=4",
+    "job_memory": "AGENT_JOB_MEMORY=6g",
+    "job_scratch_mb": "AGENT_JOB_MIN_FREE_MB=512",
+    "max_model_calls": "AGENT_MAX_ROUNDS=32",
+    "context_tokens": "OLLAMA_CONTEXT=32768",
+    "output_tokens": "OLLAMA_OUTPUT_TOKENS=8192",
+    "temperature": "OLLAMA_TEMPERATURE=0.2",
+    "sampling": "temperature 0.2, no seed override"
+  },
+  "axes": {
+    "model": {
+      "values": ["model-a", "model-b"],
+      "note": "Change only the model to attribute a difference to model capability."
+    },
+    "harness": {
+      "values": ["harness-v1", "harness-v2"],
+      "note": "The harness axis is a code snapshot: tools, prompt sections, verification. Change it with the model and retrieval held fixed."
+    },
+    "retrieval": {
+      "values": ["none", "guides", "corpus"],
+      "note": "none = no domain layer, guides = the shipped guide catalogue and bodies, corpus = project literature. This is the ablation the knowledge layer is judged by."
+    }
+  },
+  "metrics": {
+    "method_applicability": "Did the chosen method's preconditions hold for the observed inputs? Graded by the case's applicability check.",
+    "artifact_accuracy": "Does the delivered product match the independently computed answer? Graded by the case's artifact check.",
+    "evidence_citation": "Do the recorded judgments cite observations or documents the Run actually obtained? Graded by the case's citation check and by the work plan's refusals.",
+    "loop_rate": "Model calls and repeated identical calls per slot, from the trace.",
+    "delivery_success": "Did the run end in the expected terminal state with the required artifact delivered and viewable?",
+    "elapsed_seconds": "Wall-clock seconds per slot.",
+    "cost": "Input and output tokens per slot, reported next to success rather than instead of it."
+  },
+  "cases": [
+    {
+      "id": "heldout.rgb_canopy",
+      "cluster": "rgb-canopy",
+      "category": "rgb",
+      "goal": "Estimate canopy cover from a three-band RGB orthomosaic and deliver an aligned binary GeoTIFF plus a summary.",
+      "fixture": "evaluation/heldout/fixtures/heldout_rgb_canopy",
+      "gold": "evaluation/heldout/gold/heldout_rgb_canopy.json",
+      "deliverables": ["canopy mask GeoTIFF, 0/1 with 255 invalid", "summary.json with numerator, denominator and method"],
+      "acceptance": {
+        "artifact": "the mask's grid matches the input and the reported ratio matches the mask",
+        "applicability": "the method's preconditions are stated against the observed bands",
+        "citation": "the conditions cited in the work plan were actually observed",
+        "delivery": "the mask is registered, the server can read it and the browser can display its preview"
+      },
+      "probes": ["rgb-only method choice", "denominator discipline", "artifact delivery"]
+    },
+    {
+      "id": "heldout.multispectral_ndvi",
+      "cluster": "multispectral",
+      "category": "multispectral",
+      "goal": "Compute NDVI per pixel from a declared Red/NIR multispectral raster and report the statistics.",
+      "fixture": "evaluation/heldout/fixtures/heldout_multispectral_ndvi",
+      "gold": "evaluation/heldout/gold/heldout_multispectral_ndvi.json",
+      "deliverables": ["single-band float32 NDVI GeoTIFF", "valid pixel count, zero-denominator count and mean"],
+      "acceptance": {
+        "artifact": "per-pixel NDVI against the independently computed array, with the grid and mask inherited",
+        "applicability": "band roles taken from file metadata rather than band order",
+        "citation": "the band descriptions are cited from the inspection result",
+        "delivery": "the NDVI raster is registered and viewable"
+      },
+      "probes": ["true multispectral path", "band-role evidence", "per-pixel arithmetic"]
+    },
+    {
+      "id": "heldout.multispectral_gap",
+      "cluster": "multispectral",
+      "category": "missing-band",
+      "goal": "Requested NDVI, but only Red and Green are present.",
+      "fixture": "evaluation/heldout/fixtures/heldout_multispectral_gap",
+      "gold": "evaluation/heldout/gold/heldout_multispectral_gap.json",
+      "deliverables": ["a report naming the missing NIR observation"],
+      "acceptance": {
+        "artifact": "no NDVI raster is delivered from a visible band",
+        "applicability": "the refusal names the missing band, not a generic failure",
+        "citation": "the refusal cites the band listing it came from",
+        "delivery": "the run ends without claiming an NDVI result"
+      },
+      "probes": ["missing-band refusal", "no silent substitution"]
+    },
+    {
+      "id": "heldout.bands_unspecified",
+      "cluster": "bands-unspecified",
+      "category": "bands-unspecified",
+      "goal": "A three-band raster with no band descriptions: say what can and cannot be concluded.",
+      "fixture": "evaluation/heldout/fixtures/heldout_bands_unspecified",
+      "gold": "evaluation/heldout/gold/heldout_bands_unspecified.json",
+      "deliverables": ["a statement of which analyses are possible without role evidence"],
+      "acceptance": {
+        "artifact": "no index requiring a spectral role is reported as if its inputs were known",
+        "applicability": "the answer distinguishes 'three bands exist' from 'these bands are Red/Green/NIR'",
+        "citation": "the absence of descriptions is cited from the inspection result",
+        "delivery": "the user receives a usable analysis or an explicit gap"
+      },
+      "probes": ["role inference", "declared uncertainty"]
+    },
+    {
+      "id": "heldout.missing_file",
+      "cluster": "input-grounding",
+      "category": "missing-file",
+      "goal": "A named input that is not in the workspace, the attachments or any authorized directory.",
+      "fixture": "evaluation/heldout/fixtures/heldout_missing_file",
+      "gold": "evaluation/heldout/gold/heldout_missing_file.json",
+      "deliverables": ["a request for the missing input, naming what was checked"],
+      "acceptance": {
+        "artifact": "no coverage figure or product is produced",
+        "applicability": "not applicable: the task cannot start",
+        "citation": "the failure names the checked scopes and the available references",
+        "delivery": "the run ends in a waiting state that asks for the file"
+      },
+      "probes": ["path grounding", "fabrication refusal", "premature stop"]
+    },
+    {
+      "id": "heldout.environment_missing",
+      "cluster": "environment",
+      "category": "environment-missing",
+      "goal": "A task whose stated method needs a package the job image does not provide.",
+      "fixture": "evaluation/heldout/fixtures/heldout_environment_missing",
+      "gold": "evaluation/heldout/gold/heldout_environment_missing.json",
+      "deliverables": ["either a verified install followed by the real product, or an explicit environment gap"],
+      "acceptance": {
+        "artifact": "any delivered GeoJSON is produced by the requested geometry operation, not by a substitute",
+        "applicability": "the environment is checked before the method is chosen",
+        "citation": "the environment evidence names the image and the missing module",
+        "delivery": "the run does not report success while the dependency is unverified"
+      },
+      "probes": ["environment check", "install verification", "no silent simplification"]
+    },
+    {
+      "id": "heldout.grass_confusion",
+      "cluster": "grass-confusion",
+      "category": "grass-confusion",
+      "goal": "Estimate canopy cover where grass and canopy are both green and bare soil is bright.",
+      "fixture": "evaluation/heldout/fixtures/heldout_grass_confusion",
+      "gold": "evaluation/heldout/gold/heldout_grass_confusion.json",
+      "deliverables": ["canopy mask GeoTIFF and summary.json stating the denominator and the confusion"],
+      "acceptance": {
+        "artifact": "sampled against the canopy and grass references; a green-only threshold is not accepted as canopy",
+        "applicability": "the method states how it separates grass from canopy, or states that it cannot",
+        "citation": "the confusion is supported by the observed channels, not asserted",
+        "delivery": "the mask and the summary are delivered and viewable"
+      },
+      "probes": ["scientific semantics", "confusion acknowledgement", "sampling review"]
+    },
+    {
+      "id": "heldout.artifact_types",
+      "cluster": "artifact-delivery",
+      "category": "artifact-types",
+      "goal": "Deliver a table, a photo preview and a raster preview, each directly viewable or downloadable.",
+      "fixture": "evaluation/heldout/fixtures/heldout_artifact_types",
+      "gold": "evaluation/heldout/gold/heldout_artifact_types.json",
+      "deliverables": ["CSV table", "PNG preview of the photo", "PNG preview of the raster plus its statistics"],
+      "acceptance": {
+        "artifact": "each product matches its input; the table's rows and total are correct",
+        "applicability": "each product is described as the kind it is",
+        "citation": "each deliverable's descriptor is the server's, not a written link",
+        "delivery": "images render inline and non-images download; all four checks are reported separately"
+      },
+      "probes": ["per-type delivery", "browser rendering", "produced-vs-finished separation"]
+    },
+    {
+      "id": "heldout.non_remote_sensing",
+      "cluster": "general",
+      "category": "non-remote-sensing",
+      "goal": "Aggregate a sales table by region and answer which region is highest.",
+      "fixture": "evaluation/heldout/fixtures/heldout_non_remote_sensing",
+      "gold": "evaluation/heldout/gold/heldout_non_remote_sensing.json",
+      "deliverables": ["a CSV of per-region totals", "the answer naming the highest region"],
+      "acceptance": {
+        "artifact": "totals compared by business key against the independently computed values",
+        "applicability": "no imagery tool is required or invoked for a table task",
+        "citation": "the answer cites the computed table",
+        "delivery": "the table is registered and downloadable"
+      },
+      "probes": ["general capability unaffected", "no domain tool forcing"]
+    }
+  ]
+}

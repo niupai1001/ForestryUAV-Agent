@@ -6,33 +6,32 @@ from pathlib import Path
 from ...kernel.protocol import ToolPreconditionError
 from ...storage import AssetError
 from ...workspace import BridgeRequestError, SourcePathError, is_host_path
+from ..inputs import InputResolution
 
 
-class FilesystemCapability:
+class FilesystemCapability(InputResolution):
     """Workspace, attachment, and explicitly granted source file operations."""
 
     def _grant(self, source_id: str | None, path: str, access: str = "read") -> tuple[dict, str]:
-        if source_id:
-            grant = self.workspaces.get_grant(self.owner, self.chat_id, source_id)
-            if access == "write" and grant["access"] != "write":
-                raise AssetError("This source grant is read-only")
-            return grant, path
-        if not is_host_path(path):
-            raise AssetError("source_id is required for a relative source path")
+        """The write path only; reads use the shared resolver unchanged.
+
+        Writing is the one case the shared rule deliberately does not cover: a read
+        grant may be inferred from the latest user request, while a write grant must
+        name the file the user asked to change.
+        """
         if access == "write":
+            if source_id:
+                grant = self.workspaces.get_grant(self.owner, self.chat_id, source_id)
+                if grant["access"] != "write":
+                    raise AssetError("This source grant is read-only")
+                return grant, path
+            if not is_host_path(path):
+                raise AssetError("source_id is required for a relative source path")
             grant = self.workspaces.authorize_latest_write(
                 self.owner, self.chat_id, path, self.latest_user
             )
             return grant, "."
-        covered = self.workspaces.covering_read_grant(
-            self.owner, self.chat_id, path
-        )
-        if covered:
-            return covered
-        grant = self.workspaces.authorize_latest_request(
-            self.owner, self.chat_id, path, self.latest_user
-        )
-        return grant, "."
+        return self._source_grant(source_id, path)
 
     def fs_list(self, scope="workspace", path=".", source_id=None, page=1, page_size=100):
         if is_host_path(path):

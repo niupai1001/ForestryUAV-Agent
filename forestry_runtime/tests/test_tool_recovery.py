@@ -206,7 +206,7 @@ class ToolRecoveryTests(unittest.TestCase):
         self.assertEqual(failures[0]["failure"]["requested_path"], requested)
         self.assertIn("请上传", events[-2]["content"])
         self.assertEqual(events[-1]["type"], "done")
-        self.assertEqual(events[-1]["state"], "paused")
+        self.assertNotEqual(events[-1].get("state"), "paused")
         self.assertEqual(events[-1]["blocked_by"], "missing_input")
 
     def test_thinking_is_forwarded_by_pydantic_events(self):
@@ -250,7 +250,7 @@ class ToolRecoveryTests(unittest.TestCase):
         failures = [event for event in events if event["type"] == "tool_end"]
         self.assertEqual(len(failures), 3)
         self.assertEqual(failures[-1]["result"]["failure"]["code"], "duplicate_failed_call")
-        self.assertEqual(events[-1]["state"], "paused")
+        self.assertNotEqual(events[-1].get("state"), "paused")
         self.assertIn("没有新的路径证据", events[-2]["content"])
 
     def test_source_path_failure_allows_different_tool_to_gather_evidence(self):
