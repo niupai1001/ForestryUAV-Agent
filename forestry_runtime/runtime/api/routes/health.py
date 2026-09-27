@@ -102,8 +102,8 @@ def ui_index():
             '<h1>Forestry Agent UI is not built</h1>'
             '<p>The workbench is compiled from <code>frontend/</code> by the image\'s '
             '<code>frontend</code> build stage. Rebuild with '
-            '<code>docker compose build runtime</code>, or run <code>.\setup.ps1</code> '
-            'in the project root.</p>',
+            '<code>docker compose build runtime</code>, or run '
+            '<code>.\\setup.ps1</code> in the project root.</p>',
             status_code=503,
         )
     response.set_cookie(
