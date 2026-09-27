@@ -2,11 +2,20 @@
 
 PydanticAI owns tool search and deferred disclosure.  This module only maps
 domain tools to a plugin and a short description; it has no search state.
+
+Selection is scored by the retrieval layer rather than by its own substring test, so
+a Chinese query and an English one go through the same scorer as every other source.
+That matters because the two used to disagree: "读取影像元数据" shares no whole
+keyword with ``影像元数据`` and scored zero, while the English equivalent matched --
+so the domain group was silently absent from exactly the requests that needed it.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+
+from .retrieval.retrievers import score_text, terms_of
+from .retrieval.models import Candidate
 
 
 @dataclass(frozen=True)
@@ -87,13 +96,49 @@ def plugin_enabled(name: str) -> bool:
     return False
 
 
+def _haystack(group: DomainToolGroup) -> str:
+    return " ".join((group.name, group.summary, *group.tools, *group.keywords))
+
+
 def matching_domain_tools(text: str) -> set[str]:
     """Select relevant domain schemas before the model's first action."""
-    normalized = str(text or "").casefold()
+    terms = terms_of(str(text or ""))
+    if not terms:
+        return set()
     selected: set[str] = set()
     for group in DOMAIN_TOOL_GROUPS:
-        if plugin_enabled(group.plugin) and any(
-            keyword.casefold() in normalized for keyword in group.keywords
-        ):
+        if not plugin_enabled(group.plugin):
+            continue
+        if score_text(terms, _haystack(group)) > 0:
             selected.update(group.tools)
     return selected
+
+
+def domain_candidates(text: str, top_k: int = 10) -> list[Candidate]:
+    """Domain groups as retrieval candidates, so they can be fused with the rest.
+
+    The same score that decides which schemas are undeferred, expressed in the
+    retrieval contract: a group can then compete with tools, memory and failures on
+    one ranked list instead of being applied as a separate pre-pass nobody can audit.
+    """
+    terms = terms_of(str(text or ""))
+    if not terms:
+        return []
+    scored = []
+    for group in DOMAIN_TOOL_GROUPS:
+        if not plugin_enabled(group.plugin):
+            continue
+        score = score_text(terms, _haystack(group))
+        if score <= 0:
+            continue
+        scored.append((score, group))
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [
+        Candidate(
+            id=group.name, source_type="tool",
+            content=f"{group.summary} Tools: {', '.join(group.tools)}",
+            exact_reference={"domain_group": group.name, "tools": list(group.tools)},
+            lexical_rank=index, metadata={"plugin": group.plugin},
+        )
+        for index, (_, group) in enumerate(scored[:top_k], start=1)
+    ]

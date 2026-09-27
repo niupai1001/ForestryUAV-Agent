@@ -5,6 +5,7 @@ import asyncio
 from dataclasses import asdict, dataclass, field, is_dataclass
 import json
 import os
+from pathlib import Path
 import time
 from typing import Any, Callable
 
@@ -63,8 +64,19 @@ from .context import (
     reachable_inputs,
 )
 from .continuation_review import ContinuationReview, ReviewDecision, review_proposed_action
+from .failure import FailurePreflight, FailureStore, ResourceVersions
+from .scheduler import ExecutionScheduler, plan_for
+from .subagents import (
+    DelegateInput, DelegationContract, POLICIES, SubagentResult, SubagentRunner,
+    enabled as subagents_enabled, fold_result,
+)
+from . import retrieval as retrieval_fabric
 from .capabilities.runtime import GENERIC_DEFINITIONS, RuntimeTools
-from .capabilities.artifacts.delivery import INLINE_MEDIA_TYPES as INLINE_IMAGE_TYPES
+from .capabilities.artifacts.delivery import (
+    INLINE_MEDIA_TYPES as INLINE_IMAGE_TYPES,
+    describe_artifact,
+)
+from .verification import RunFacts, VerificationService, default_registry
 from .tokens import (
     TokenEstimator,
     context_limit_tokens,
@@ -154,6 +166,26 @@ class AgentDependencies:
     context_ledger: dict = field(default_factory=dict)
     budget_pause_reason: str | None = None
     continuation: ContinuationReview = field(default_factory=ContinuationReview)
+    #: Failures as facts about resources, not a count of identical calls. Created on
+    #: first use because it needs the workspace, which not every caller has.
+    failure_preflight: FailurePreflight | None = None
+    #: Decides which calls may overlap, from what they touch. Created on first use
+    #: because it owns asyncio primitives, which belong to the running loop.
+    scheduler: ExecutionScheduler | None = None
+
+
+def _preflight(deps: AgentDependencies) -> FailurePreflight | None:
+    """The failure record for this Run, created once and cached on the deps."""
+    if deps.failure_preflight is not None:
+        return deps.failure_preflight
+    workspace = getattr(getattr(deps, "toolbox", None), "workspace", None)
+    try:
+        deps.failure_preflight = FailurePreflight(FailureStore(workspace), ResourceVersions())
+    except Exception:
+        # Discovery must never be able to stop a Run; without a record the Runtime
+        # falls back to the counter-based guard it used before.
+        return None
+    return deps.failure_preflight
 
 
 class AgentPaused(Exception):
@@ -201,6 +233,45 @@ def _reviewable_read_tools() -> frozenset[str]:
 
 
 REVIEWABLE_READ_TOOLS: frozenset[str] = _reviewable_read_tools()
+
+
+def _tool_side_effects() -> dict[str, str]:
+    """``side_effect`` per core tool, read from the same declarations as above."""
+    try:
+        from .capabilities.core_specs import load_specs
+        return {spec.name: spec.side_effect.value for spec in load_specs()}
+    except Exception:
+        return {}
+
+
+#: Derived once per process, for the same reason ``PURE_READ_TOOLS`` is.
+TOOL_SIDE_EFFECTS: dict[str, str] = _tool_side_effects()
+
+#: How many reads the scheduler lets run at once. The Agent issues one tool call per
+#: request today, so this is 1 and every call still runs alone -- the scheduler is in
+#: the path, not in the way. Raising it is what turns concurrency on, and that is a
+#: behavioural change with its own measurement, so it is a setting rather than a
+#: constant baked into the dispatch loop.
+SCHEDULER_PARALLEL_READS = int(os.getenv("SCHEDULER_PARALLEL_READS", "1") or "1")
+
+
+def _call_plan(name: str, arguments: dict, *, domain: bool = False) -> "CallPlan":
+    """Classify a call for the scheduler from what its tool declares."""
+    side_effect = TOOL_SIDE_EFFECTS.get(name)
+    if side_effect is None:
+        # Not a core tool: a domain capability, or a declaration that could not be
+        # loaded. A domain call is heavy and most of them write a product, so the
+        # unknown case is treated as a write -- the safe direction to be wrong in.
+        side_effect = "file_write" if domain else "none"
+    return plan_for(name, arguments, side_effect=side_effect)
+
+
+def _scheduler(deps: "AgentDependencies") -> ExecutionScheduler:
+    """The Run's scheduler, created once. Same shape as ``_preflight``."""
+    if deps.scheduler is not None:
+        return deps.scheduler
+    deps.scheduler = ExecutionScheduler(SCHEDULER_PARALLEL_READS)
+    return deps.scheduler
 
 
 def _read_summary(data) -> str:
@@ -339,6 +410,10 @@ def _observe(
         "ok": bool(ok),
     }
     if failure:
+        # The code is kept as a field, not only inside the rendered string, so a later
+        # reader -- the verification layer -- can tell a call that failed from a call
+        # the Runtime declined to repeat. Those are different facts about the run.
+        entry["code"] = str(failure.get("code") or "unknown")
         entry["outcome"] = (
             "失败 code=" + str(failure.get("code") or "unknown")
             + (f"：{str(failure.get('message') or failure.get('previous_error') or '')[:200]}"
@@ -662,18 +737,40 @@ async def _execute_tool(ctx: RunContext[AgentDependencies], name: str, arguments
         and is_host_path(str(arguments.get(field)))
         for field in ("path", "folder_path")
     )
-    previous = deps.failed_calls.get(fingerprint)
-    if previous is not None:
+    # Whether this call can still say something new is answered from the record of
+    # what has already failed about the resource it names -- not from how many times
+    # it has been tried. The counter is kept only so the pause instruction can quote
+    # how long the Run has been going round.
+    preflight = _preflight(deps)
+    decision = preflight.check(name, arguments) if preflight is not None else None
+    if decision is not None and decision.blocked:
         deps.blocked_failures += 1
         blocked = normalize_result({
             "ok": False,
             "outcome_ok": False,
-            "error": "The identical failed call was not executed again.",
+            "error": (
+                "The earlier attempt may already have taken effect; it has to be "
+                "reconciled, not repeated."
+                if decision.policy == "reconcile_only"
+                else "The identical failed call was not executed again."
+            ),
             "failure": {
                 "stage": "agent_control",
                 "code": "duplicate_failed_call",
-                "previous_error": previous.get("error"),
-                "previous_failure": previous.get("failure"),
+                "previous_error": decision.message,
+                "previous_failure": {
+                    "stage": decision.stage, "code": decision.code,
+                    "message": decision.message,
+                },
+                # What the Runtime actually concluded. Carried beside the legacy code
+                # so the model is told which assumption is false, not that it has
+                # used up its attempts.
+                "retry_policy": decision.policy,
+                "label": decision.label,
+                "resource_key": decision.resource_key,
+                "invalid_assumptions": decision.invalid_assumptions,
+                "evidence_id": decision.evidence_id,
+                "detail": decision.reason,
             },
         })
         _record_prerequisite_failure(deps, blocked["failure"])
@@ -745,25 +842,32 @@ async def _execute_tool(ctx: RunContext[AgentDependencies], name: str, arguments
             except RuntimeError:
                 pass
 
-    if domain:
-        try:
-            output = await asyncio.to_thread(
-                deps.toolbox._execute_domain, name, arguments, progress
-            )
-        except Exception as exc:
-            output = execution_failure(exc)
-    elif name == "job_status":
-        output = await asyncio.to_thread(deps.toolbox.execute, name, arguments)
-        data = output.get("data") or {}
-        if output.get("ok") and deps.publish:
-            deps.publish({"type": "job_status", **{
-                key: data.get(key) for key in (
-                    "job_id", "job_type", "state", "terminal", "exit_code",
-                    "offset", "progress_percent", "needs_finalization",
+    async def _invoke() -> dict:
+        if domain:
+            try:
+                return await asyncio.to_thread(
+                    deps.toolbox._execute_domain, name, arguments, progress
                 )
-            }})
-    else:
-        output = await asyncio.to_thread(deps.toolbox.execute, name, arguments, progress)
+            except Exception as exc:
+                return execution_failure(exc)
+        if name == "job_status":
+            output = await asyncio.to_thread(deps.toolbox.execute, name, arguments)
+            data = output.get("data") or {}
+            if output.get("ok") and deps.publish:
+                deps.publish({"type": "job_status", **{
+                    key: data.get(key) for key in (
+                        "job_id", "job_type", "state", "terminal", "exit_code",
+                        "offset", "progress_percent", "needs_finalization",
+                    )
+                }})
+            return output
+        return await asyncio.to_thread(deps.toolbox.execute, name, arguments, progress)
+
+    # Only the call itself is scheduled. Everything above -- deduplication, the
+    # failure preflight, the stall guards -- is a decision about *whether* to call,
+    # and a decision must not hold a lock: a lock held across bookkeeping is how a
+    # scheduler becomes the reason two independent reads wait for each other.
+    output = await _scheduler(deps).run(_call_plan(name, arguments, domain=domain), _invoke)
 
     output = normalize_result(output)
     if not output.get("outcome_ok", output.get("ok", False)):
@@ -791,7 +895,17 @@ async def _execute_tool(ctx: RunContext[AgentDependencies], name: str, arguments
         # occurrence is answered from the record instead of from the container.
         deps.failed_calls[fingerprint] = output
         _observe(deps, name, arguments, ok=False, failure=failure)
+        if preflight is not None:
+            # Recorded against the version of the resource this call met, so that a
+            # later change to that resource -- and only that resource -- can reopen it.
+            preflight.record(name, arguments, output)
     else:
+        if preflight is not None:
+            # A success is evidence about the resource it named, or about the
+            # environment as a whole. Moving that version is what lets a later
+            # identical call run: the world it would meet is no longer the world that
+            # produced the failure.
+            preflight.observe_success(name, arguments, output)
         if (source_scoped or name in {"fs_list", "fs_read", "fs_search"}) and _observation_addresses_failed_path(deps, arguments):
             observation = name + ":" + json.dumps(output.get("data"), ensure_ascii=False, sort_keys=True, default=str)
             if observation not in deps.seen_observations:
@@ -856,6 +970,123 @@ def _tool(name: str, model, description: str, *, domain: bool = False, deferred:
     return tool
 
 
+SUBAGENT_INSTRUCTIONS = (
+    "You are a bounded subagent. You were given one objective and you cannot see the "
+    "conversation that delegated to you, so nothing outside your brief is known to you. "
+    "Work only inside the scope you were given, use only the tools you were given, and "
+    "answer with facts -- what you established, and what you could not. Do not narrate "
+    "your steps and do not ask questions; there is no one to answer them."
+)
+
+DELEGATE_DESCRIPTION = (
+    "Hand one bounded piece of work to a separate context that cannot see this "
+    "conversation, and get back only its findings. Use it for work that would otherwise "
+    "fill this conversation with exploration -- many reads to answer one question, a "
+    "search that may dead-end, checking a product that already exists. Do NOT use it "
+    "for the next step you already know how to take, for anything you would have to "
+    "explain at length first, or to avoid a tool you can call yourself: the subagent "
+    "starts from your objective alone and cannot ask you anything."
+)
+
+
+async def _run_child(parent: AgentDependencies, contract: DelegationContract) -> SubagentResult:
+    """Run one child Agent under its contract and fold what it produced.
+
+    The child gets its own ``AgentDependencies`` so its observations, its deduplicated
+    reads and its failure record are its own -- but the same toolbox, because a child
+    that wrote to a different workspace would not be investigating the same world.
+    """
+    runner = SubagentRunner()
+    allowed, why = runner.may_delegate(contract)
+    if not allowed:
+        # Refused by the boundary, not by the model. Saying which matters: a parent
+        # told only "failed" will try the same delegation again with new wording.
+        return SubagentResult(status="blocked", summary=why)
+
+    child = AgentDependencies(
+        toolbox=parent.toolbox,
+        cancelled=parent.cancelled,
+        pause_requested=parent.pause_requested,
+    )
+    names = set(contract.effective_tools())
+    tools = [
+        _tool(name, model, description)
+        for name, (model, description) in GENERIC_DEFINITIONS.items()
+        if name in names
+    ]
+    if not tools:
+        return SubagentResult(
+            status="blocked",
+            summary=f"no permitted tools for kind {contract.kind!r}",
+        )
+
+    created = getattr(parent.toolbox, "created", None)
+    before = {id(item) for item in (created or [])}
+    child_agent = Agent(
+        model=_model(),
+        instructions=SUBAGENT_INSTRUCTIONS,
+        deps_type=AgentDependencies,
+        tools=tools,
+        retries=1,
+        max_concurrency=1,
+    )
+    # The child's context is built by the runner, which is the only place that can
+    # guarantee the parent's history is not among it.
+    brief = runner.build_child_context(contract, project_metadata={
+        "kind": contract.kind,
+        "depth": contract.depth,
+        "max_model_requests": contract.max_model_requests,
+    })
+    try:
+        result = await child_agent.run(
+            user_prompt=brief[0]["content"],
+            deps=child,
+            usage_limits=UsageLimits(request_limit=contract.max_model_requests),
+        )
+        output = str(getattr(result, "output", "") or "")
+        status = "success"
+    except Exception as exc:
+        # A failed child is a finding, not a crash: the parent has to be told, or it
+        # will delegate the same thing again.
+        output = f"{type(exc).__name__}: {exc}"
+        status = "failed"
+
+    produced = [item for item in (created or []) if id(item) not in before]
+    return fold_result(
+        status=status, output=output, observations=child.observation_log,
+        artifacts=produced,
+    )
+
+
+def _delegate_tool() -> Tool:
+    async def invoke(ctx: RunContext[AgentDependencies], **arguments):
+        kind = str(arguments.get("kind", "explore") or "explore")
+        policy = POLICIES.get(kind)
+        contract = DelegationContract(
+            objective=str(arguments.get("objective", "") or ""),
+            kind=kind,
+            # The contract asks for everything its kind is allowed to do; the runner
+            # narrows it. Asking for less here would make the parent model the one
+            # deciding permissions, which is the thing this design exists to prevent.
+            allowed_tools=list(policy.allowed_tools) if policy else [],
+            resource_scope=[str(item) for item in (arguments.get("resource_scope") or [])],
+            evidence_required=[str(item) for item in (arguments.get("evidence_required") or [])],
+            # Depth stays 0 here: children cannot delegate, so there is no way in.
+            depth=0,
+        )
+        result = await _run_child(ctx.deps, contract)
+        return ToolReturn(return_value=result.as_dict())
+
+    return Tool.from_schema(
+        invoke,
+        name="delegate",
+        description=DELEGATE_DESCRIPTION,
+        json_schema=inline_schema(DelegateInput.model_json_schema()),
+        takes_ctx=True,
+        sequential=True,
+    )
+
+
 def _tools(use_tools: bool, user_text: str = "") -> tuple[list[Tool], int, int]:
     if not use_tools:
         return [], 0, 0
@@ -868,6 +1099,15 @@ def _tools(use_tools: bool, user_text: str = "") -> tuple[list[Tool], int, int]:
         for name, (model, _) in GENERIC_DEFINITIONS.items()
     )
     visible_count = len(tools)
+
+    if subagents_enabled():
+        # Off by default, so the default tool schema is byte-identical to before this
+        # existed. Adding a tool is not free: it is one more way to spend a Run.
+        tools.append(_delegate_tool())
+        visible_schema_chars += len(
+            json.dumps(inline_schema(DelegateInput.model_json_schema()), ensure_ascii=False)
+        )
+        visible_count += 1
 
     if plugin_enabled("remote-sensing"):
         from .capabilities.domain_runtime import DEFINITIONS
@@ -888,6 +1128,114 @@ def _tools(use_tools: bool, user_text: str = "") -> tuple[list[Tool], int, int]:
                 deferred=name not in initially_selected,
             ))
     return tools, visible_count, visible_schema_chars
+
+
+def _retrieval(box, deps=None):
+    """One retrieval call for this Run, or ``None`` when the fabric is off.
+
+    Built per Run, from the toolbox this Run owns, so no source can outlive the
+    project it belongs to. Returning ``None`` rather than an empty fabric is
+    deliberate: the compiler then omits the retrieval section entirely, and a request
+    with no retrieved evidence does not look like one that searched and found nothing.
+    """
+    if not retrieval_fabric.enabled():
+        return None
+    preflight = getattr(deps, "failure_preflight", None)
+    router = retrieval_fabric.build(box, failures=getattr(preflight, "store", None))
+
+    def retrieve_for(query: str):
+        try:
+            return retrieval_fabric.retrieve(router, query)
+        except Exception:
+            # Retrieval is an enhancement, never a precondition: a broken source must
+            # not cost the Run its plan, its facts or its tools.
+            return None
+
+    return retrieve_for
+
+
+def _verification_payload(box, deps) -> dict | None:
+    """What this Run is entitled to claim about what it delivered.
+
+    ``None`` when there is nothing to verify -- a turn that answered a question owes
+    no deliverable, and calling that a failed delivery would be a lie in the other
+    direction. Reported only when the Run produced an artifact or recorded a
+    requirement, which is when "is it finished" is a question with an answer.
+
+    The default outcome is ``delivered_unverified``, and that is the point: a file was
+    written and nothing established that it means what was asked. Reaching
+    ``verified_complete`` requires a verifier for that artifact kind, and none is
+    registered by default.
+    """
+    try:
+        failures: list[str] = []
+        blocked: list[str] = []
+        for entry in getattr(deps, "observation_log", None) or []:
+            if entry.get("ok"):
+                continue
+            name = str(entry.get("tool") or "")
+            if entry.get("code") == "duplicate_failed_call":
+                blocked.append(name)
+            else:
+                failures.append(name)
+
+        artifacts = []
+        for asset in list(getattr(box, "created", None) or [])[:10]:
+            if not isinstance(asset, dict):
+                continue
+            try:
+                path = asset.get("path")
+                descriptor = describe_artifact(
+                    asset, box.chat_id,
+                    path=Path(str(path)) if path else None,
+                    # Measured on purpose: a semantic verdict about a raster is not
+                    # available without reading it, and product_qa is a decimated
+                    # read, so the cost is bounded. Skipping it would leave every
+                    # product permanently at `delivered_unverified`.
+                    product=True,
+                )
+                # Both of these are carried for the verifier and are not part of what
+                # the user is shown: the file itself, and the producer's declaration
+                # of what the values mean. ``describe_artifact`` only forwards a
+                # whitelist of metadata keys, and a verifier needs the whole claim.
+                if path:
+                    descriptor["path"] = str(path)
+                metadata = asset.get("metadata")
+                if isinstance(metadata, dict) and metadata:
+                    descriptor["metadata"] = dict(metadata)
+                artifacts.append(descriptor)
+            except Exception:
+                continue
+
+        open_ids: list[str] = []
+        blocked_ids: list[str] = []
+        completion = "unknown"
+        try:
+            plan = box._plan_store().load()
+            open_ids = [str(item.get("id")) for item in plan.open_requirements()]
+            blocked_ids = [str(item.get("id")) for item in plan.blocked_requirements()]
+            completion = plan.completion_state()
+        except Exception:
+            pass
+
+        if not artifacts and not open_ids and not blocked_ids:
+            return None
+        facts = RunFacts(
+            tool_failures=failures, blocked_calls=blocked, artifacts=artifacts,
+            open_requirements=open_ids, blocked_requirements=blocked_ids,
+            plan_completion=completion,
+            stop_reason=str(getattr(deps, "pause_blocker", "") or ""),
+        )
+        report = VerificationService(default_registry()).evaluate(facts)
+    except Exception:
+        # Verification observes; it never decides whether a Run may finish.
+        return None
+    return {
+        "state": report.state,
+        "verified": report.verified,
+        "reasons": report.reasons[:4],
+        "next_actions": report.next_actions[:3],
+    }
 
 
 async def _final_statement(
@@ -993,7 +1341,8 @@ async def stream_agent(
         box.publish_job_status = publish_job_status
     tools, _, _ = _tools(use_tools, latest_user)
     compiler = ContextCompiler(
-        box, run_facts=run_facts, project_context=project_context
+        box, run_facts=run_facts, project_context=project_context,
+        retrieval=_retrieval(box, deps),
     )
     estimator = TokenEstimator()
     standalone_lifecycle_events: list[dict] = []
@@ -1385,7 +1734,9 @@ async def stream_agent(
                   yield {"type": "message", "content": result.output}
               usage = result.usage
               usage_data = asdict(usage) if is_dataclass(usage) else {}
+              verification = _verification_payload(box, deps)
               yield {"type": "done", "artifacts": box.created, "usage": usage_data,
+                     **({"verification": verification} if verification else {}),
                      **({"blocked_by": deps.pause_blocker} if deps.pause_reason else {})}
     except UsageLimitExceeded:
         reason = f"已用完本轮的 {max_requests} 次模型调用预算。"

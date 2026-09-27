@@ -25,7 +25,12 @@ EXPECTED_CORE_NAMES = (
     "knowledge_search", "knowledge_read", "domain_guide", "work_plan",
 )
 EXPECTED_LEGACY_CONTRACT_SHA256 = (
-    # Updated deliberately, six times: `dependency_install` gained a `system_packages`
+    # Updated deliberately, seven times: `work_plan` gained `requirements`,
+    # `constraints`, `blockers` and `waiting_for`, so the parts of the user's request
+    # can be recorded and checked instead of living only in the model's history. A
+    # requirement is marked satisfied by the Runtime from the observation it cites,
+    # never by the model, which is why the new `status` field accepts only `open` and
+    # `blocked`. (Earlier six: `dependency_install` gained a `system_packages`
     # field (a wheel can need a shared library pip cannot supply); `domain_guide` gained
     # wording that a guide id is a document name rather than a tool name -- a Run once
     # called it 124 times treating the id as a capability; `artifacts_inspect` and
@@ -37,10 +42,12 @@ EXPECTED_LEGACY_CONTRACT_SHA256 = (
     # filesystem for a raster that was never mounted); `environment_check` gained
     # descriptions on both fields plus the promise that clears a `code_run` refusal; and
     # `work_plan` joined the visible set with the evidence-linked plan.
-    "481d5360601e78a05b06c8c7df65d3667ca9af16157500f4fdd00e893be7ceb0"
+    "a82b9fcd7cbdd7bab09bff81c5981606efa20a6524d1153bc8c0ee39fe8d20fb"
 )
-# Raised by the changes above and by `work_plan` joining the visible set.
-EXPECTED_VISIBLE_SCHEMA_CHARS = 16056
+# Raised by the changes above, by `work_plan` joining the visible set, and by the
+# four task-state fields it gained -- the point of the number is that it only ever
+# moves when a capability is deliberately added, so a silent schema change fails here.
+EXPECTED_VISIBLE_SCHEMA_CHARS = 18093
 
 
 class KernelContractTests(unittest.TestCase):

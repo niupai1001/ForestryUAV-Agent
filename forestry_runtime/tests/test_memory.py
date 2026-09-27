@@ -203,5 +203,50 @@ class MemoryManagerTests(unittest.TestCase):
                 self.assertGreater(len(read["chunks"]), 1)
 
 
+class MemoryRecallTests(unittest.TestCase):
+    """Memory is recalled per query, not injected wholesale.
+
+    The old behaviour put every confirmed memory into every request. A project that
+    had once noted "源目录只读" carried that sentence into every later question, while
+    the one memory that actually bore on the question sat somewhere in a list of
+    twenty. These tests pin the difference: relevant in, irrelevant out.
+    """
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.manager = MemoryManager(self.temporary.name)
+        self.project = self.manager.create_project("alice", "白桦项目")
+        self.manager.add_memory("alice", self.project["id"], "源目录只读", True)
+        self.manager.add_memory("alice", self.project["id"], "NDVI 阈值取 0.4", True)
+
+    def tearDown(self):
+        self.temporary.cleanup()
+
+    def test_only_memories_bearing_on_the_query_are_recalled(self):
+        found = self.manager.recall_memories("alice", self.project["id"], "阈值")
+        self.assertEqual(len(found), 1)
+        self.assertIn("NDVI", found[0]["content"])
+
+    def test_an_unrelated_query_recalls_nothing(self):
+        self.assertEqual(
+            self.manager.recall_memories("alice", self.project["id"], "投影坐标系"),
+            [],
+        )
+
+    def test_recall_is_ranked_and_bounded(self):
+        for index in range(10):
+            self.manager.add_memory(
+                "alice", self.project["id"], f"阈值相关记忆 {index}", True
+            )
+        found = self.manager.recall_memories("alice", self.project["id"], "阈值", limit=3)
+        self.assertEqual(len(found), 3)
+
+    def test_an_empty_query_is_not_a_license_to_return_everything(self):
+        self.assertEqual(self.manager.recall_memories("alice", self.project["id"], ""), [])
+
+    def test_the_full_list_is_still_available_for_management(self):
+        self.assertEqual(len(self.manager.memories("alice", self.project["id"])), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

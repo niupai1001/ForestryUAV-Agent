@@ -513,10 +513,18 @@ class ContextCompiler:
         *,
         run_facts: Callable[[], dict] | None = None,
         project_context: Callable[[], dict] | None = None,
+        retrieval: Callable[[str], Any] | None = None,
+        task_state: Callable[[], dict] | None = None,
     ):
         self.toolbox = toolbox
         self.run_facts = run_facts
         self.project_context = project_context
+        #: One callable returning a ``RetrievalResult``: tools, code, memory,
+        #: knowledge and failures fused and budgeted behind a single contract.
+        self.retrieval = retrieval
+        #: What the Run's own task state says, so "what is still open" is stated by
+        #: the plan store rather than re-derived by the model each request.
+        self.task_state = task_state
 
     def compile(self, query: str, tool_defs: list, history_messages: int) -> tuple[list[str], dict, int]:
         parts: list[str] = []
@@ -538,6 +546,13 @@ class ContextCompiler:
         plan_text, plan_revision = _work_plan_part(self.toolbox)
         if plan_text:
             parts.append(plan_text)
+        # Retrieved evidence sits between the plan and the volatile facts: it is
+        # answerable to this one query, unlike the catalogue, and it is evidence with
+        # a reference, unlike the facts. Placed here so a citation in the plan and a
+        # candidate below it are visible in the same request.
+        retrieval_part, retrieval_info = self._retrieval_part(query)
+        if retrieval_part:
+            parts.append(retrieval_part)
 
         attachments = self.toolbox.attachment_context()
         grants = self.toolbox.workspaces.list_grants(
@@ -566,13 +581,16 @@ class ContextCompiler:
         )
         if self.run_facts:
             facts["run"] = self.run_facts()
+        task_state = self._task_state()
+        if task_state:
+            facts["task_state"] = task_state
         if project:
             facts["project"] = {
                 key: project.get(key) for key in (
                     "project_id", "project_name", "instruction_revision",
                 ) if project.get(key) is not None
             } | {
-                "confirmed_memories": project.get("confirmed_memories") or [],
+                "confirmed_memories": self._memories(project, retrieval_info),
                 "knowledge_sources": project.get("knowledge_sources") or [],
             }
         parts.append(
@@ -598,7 +616,97 @@ class ContextCompiler:
             "plan_revision": plan_revision,
             "plan_present": bool(plan_text),
         }
+        manifest.update(retrieval_info)
+        manifest["task_state"] = task_state.get("completion") if task_state else None
         return parts, manifest, len(instruction)
+
+    @staticmethod
+    def _memories(project: dict, retrieval_info: dict) -> list[dict]:
+        """Which confirmed memories this request carries.
+
+        The whole list used to be injected on every request. Twenty memories are
+        twenty constraints the model now has to hold in mind, and most of them have
+        nothing to do with what was asked -- a project that once noted "源目录只读"
+        had that sentence in front of the model for every later question, relevant or
+        not, while the one memory that *was* relevant was buried at position nine.
+
+        So: when this request was answered by retrieval, only what retrieval found is
+        carried, and an empty result means none of them bears on this query. When no
+        retrieval ran, the full list is still carried -- the older behaviour is a
+        worse default, not a broken one, and losing memories entirely would be worse
+        than injecting too many.
+        """
+        found = retrieval_info.get("memories")
+        if found is None:
+            return list(project.get("confirmed_memories") or [])
+        return found
+
+    # ------------------------------------------------------------------ retrieval
+
+    def _retrieval_part(self, query: str) -> tuple[str, dict]:
+        """Fused evidence for this query, or nothing when no fabric is wired.
+
+        The contract is deliberately one callable: the compiler does not know which
+        sources exist, and must not. A retrieval that returns nothing is reported as
+        nothing -- an empty result must never look like "no evidence was needed".
+        """
+        info = {
+            "retrieval_mode": None,
+            "retrieval_count": 0,
+            "retrieval_sources": [],
+            "retrieval_dropped": 0,
+            # ``None`` rather than ``[]``: "no retrieval ran" and "retrieval found
+            # nothing" lead to different choices about what memories to carry.
+            "memories": None,
+        }
+        if not callable(self.retrieval):
+            return "", info
+        try:
+            result = self.retrieval(query)
+        except Exception:
+            # A broken retriever must not remove the rest of the request: the Run
+            # still has its plan, its facts and its tools.
+            return "", info
+        if result is None:
+            return "", info
+        manifest = getattr(result, "manifest", None) or {}
+        candidates = list(getattr(result, "candidates", []) or [])
+        sources = sorted({item.source_type for item in candidates})
+        info = {
+            "retrieval_mode": "fused",
+            "retrieval_count": len(candidates),
+            "retrieval_sources": sources,
+            "retrieval_dropped": int(manifest.get("dropped_for_budget", 0) or 0),
+            "memories": [
+                {"id": item.id, "content": item.content[:300]}
+                for item in candidates if item.source_type == "memory"
+            ],
+        }
+        # Set before the emptiness test on purpose: "retrieval ran and found
+        # nothing" and "no retrieval ran" must remain distinguishable, because the
+        # first means no memory bears on this query and the second means nobody asked.
+        try:
+            from .retrieval.models import render as _render_retrieval
+            body = _render_retrieval(result)
+        except Exception:
+            body = ""
+        if not body:
+            return "", info
+        return (
+            "Evidence retrieved for this request. Each line carries the source type "
+            "and the reference to fetch or cite it; a line is not a tool result and "
+            "does not count as evidence until the tool it names returns it.\n\n" + body,
+            info,
+        )
+
+    def _task_state(self) -> dict:
+        """What the Run still owes, read from the plan store that owns it."""
+        if callable(self.task_state):
+            try:
+                return dict(self.task_state() or {})
+            except Exception:
+                return {}
+        return _task_state_facts(self.toolbox)
 
 
 def reachable_inputs(*, attachments: list, grants: list, workspace,
@@ -742,6 +850,41 @@ def _work_plan_part(toolbox) -> tuple[str, int]:
         "selected method changes.\n\n" + text,
         revision,
     )
+
+
+def _task_state_facts(toolbox) -> dict:
+    """The Run's own account of what is still owed, as facts rather than prose.
+
+    Read from the plan store because the plan owns it: a second copy of "what is
+    open" would drift from the first within one revision. Empty when no plan has been
+    recorded -- absence of a plan is not a claim that nothing is owed.
+    """
+    reader = getattr(toolbox, "_plan_store", None)
+    if not callable(reader):
+        return {}
+    try:
+        plan = reader().load()
+    except Exception:
+        return {}
+    try:
+        state = plan.completion_state()
+        open_ids = [str(item.get("id")) for item in plan.open_requirements()]
+        blocked_ids = [str(item.get("id")) for item in plan.blocked_requirements()]
+    except Exception:
+        return {}
+    if state == "unknown" and not open_ids and not blocked_ids:
+        return {}
+    facts = {
+        "completion": state,
+        "open_requirements": open_ids[:10],
+        "blocked_requirements": blocked_ids[:10],
+    }
+    facts["note"] = (
+        "Satisfaction is settled by observations, not by the plan: a requirement "
+        "becomes satisfied only when the evidence it cites exists in the ledger. "
+        "A request may not be reported finished while `completion` is open or blocked."
+    )
+    return facts
 
 
 def _project_instruction_part(project: dict) -> str:

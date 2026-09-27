@@ -902,6 +902,15 @@ class RasterCapability:
                         - src.transform.b * src.transform.d
                     ) if projected else None
                 )
+                # Captured while the source is open: the product must be verifiable
+                # against the grid it came from, and the claim has to be made with
+                # the real values rather than remembered later.
+                source_grid = {
+                    'crs': str(src.crs) if src.crs else None,
+                    'width': src.width,
+                    'height': src.height,
+                    'pixel_size': list(src.res),
+                }
                 area_units = (
                     src.crs.linear_units + '^2' if projected else None
                 )
@@ -917,7 +926,24 @@ class RasterCapability:
             )
             with temp_path.open('rb') as stream:
                 output_asset = self.register(
-                    stream, output_name, 'image/tiff', resolved.source_asset_id()
+                    stream, output_name, 'image/tiff', resolved.source_asset_id(),
+                    metadata={
+                        'derived_from': dict(resolved.reference),
+                        'semantics': {
+                            'quantity': 'canopy_candidate_mask',
+                            'kind': 'mask',
+                            'valid_range': [0.0, 1.0],
+                            # The fraction the mask actually encodes, so a verifier
+                            # can check the coverage claim against the file.
+                            'fractions': {
+                                'canopy': (
+                                    candidate_count / valid_count
+                                    if valid_count else 0.0
+                                ),
+                            },
+                            'grid': dict(source_grid),
+                        },
+                    },
                 )
             return {
                 'mask': output_asset,
@@ -999,6 +1025,14 @@ class RasterCapability:
                 )
                 profile.pop('photometric', None)
                 profile.pop('interleave', None)
+                # Captured while the source is open: the product declares the grid it
+                # must sit on, so a verifier can hold it to that claim.
+                source_grid = {
+                    'crs': str(src.crs) if src.crs else None,
+                    'width': src.width,
+                    'height': src.height,
+                    'pixel_size': list(src.res),
+                }
 
                 handle = tempfile.NamedTemporaryFile(
                     suffix='.tif', dir=self.store.root, delete=False
@@ -1072,7 +1106,21 @@ class RasterCapability:
             )
             with temp_path.open('rb') as stream:
                 output_asset = self.register(
-                    stream, output_name, 'image/tiff', resolved.source_asset_id()
+                    stream, output_name, 'image/tiff', resolved.source_asset_id(),
+                    # What these values are, declared by the producer that computed
+                    # them. A verifier can only check a product against a claim, and
+                    # this is the claim: NDVI is bounded by construction, and the
+                    # product must sit on the source grid. Declared here rather than
+                    # inferred from the filename, which would be a guess.
+                    metadata={
+                        'derived_from': dict(resolved.reference),
+                        'semantics': {
+                            'quantity': 'ndvi',
+                            'kind': 'index',
+                            'valid_range': [-1.0, 1.0],
+                            'grid': dict(source_grid),
+                        },
+                    },
                 )
             return {
                 'ndvi': output_asset,

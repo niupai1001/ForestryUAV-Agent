@@ -2,7 +2,12 @@ services:
   runtime:
     build:
       context: .
-      target: core
+      # `core` has no scientific stack, so building it while
+      # REMOTE_SENSING_PLUGINS_ENABLED=true makes the coordinator die on import --
+      # the plugin imports numpy at load time, not at call time. The default follows
+      # the plugin switch, which is the setting that decides whether the stack is
+      # needed. Set RUNTIME_IMAGE_TARGET=core only with the plugin switched off.
+      target: ${RUNTIME_IMAGE_TARGET:-remote-sensing}
     container_name: forestry-runtime
     ports:
       - "127.0.0.1:8010:8010"

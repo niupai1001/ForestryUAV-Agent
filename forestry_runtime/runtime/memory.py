@@ -243,6 +243,33 @@ class MemoryManager:
         with self.db() as conn:
             return [dict(row) for row in conn.execute("SELECT * FROM memories WHERE project_id=? AND state='confirmed' ORDER BY updated_at DESC", (project_id,)).fetchall()]
 
+    def recall_memories(self, owner: str, project_id: str, query: str,
+                        limit: int = 5) -> list[dict]:
+        """Confirmed memories that bear on this query, most relevant first.
+
+        ``memories()`` answers "what has this project confirmed", which is the right
+        question for a management screen and the wrong one for a request: injected
+        whole, twenty memories are twenty things the model must now be careful about,
+        whether or not any of them has to do with what was asked.
+
+        The corpus is a few dozen rows, so this is a scored scan rather than an index
+        -- adding an FTS table to answer "which of these thirty sentences mentions
+        this" would be machinery for a problem that does not exist yet.
+        """
+        self._project(owner, project_id)
+        terms = _tokens(query or "")
+        if not terms:
+            return []
+        scored: list[tuple[float, dict]] = []
+        for row in self.memories(owner, project_id):
+            haystack = str(row.get("content") or "").casefold()
+            score = float(sum(len(term) for term in terms if term in haystack))
+            if score <= 0:
+                continue
+            scored.append((score, row))
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        return [dict(row) | {"rank": score} for score, row in scored[:limit]]
+
     def add_memory(self, owner: str, project_id: str, content: str, confirmed: bool) -> dict:
         self._project(owner, project_id)
         if not confirmed:

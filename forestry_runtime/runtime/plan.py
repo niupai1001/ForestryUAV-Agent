@@ -38,6 +38,16 @@ MAX_TEXT = 2000
 MAX_ITEMS = 16
 LEDGER_LIMIT = 400
 
+#: The states one requirement of the user's request can be in. Kept to three because
+#: the question the completion check asks is binary -- "may this be reported as done"
+#: -- and a fourth state would only give the model somewhere to hide a stalled task.
+REQUIREMENT_STATUSES = ("open", "satisfied", "blocked")
+
+#: A requirement is only ever marked satisfied by the Runtime, when the evidence it
+#: cites exists in the ledger. A model writing `status="satisfied"` directly is the
+#: premature-completion defect in a structured form, so it is not accepted.
+MODEL_WRITABLE_STATUSES = ("open", "blocked")
+
 #: A citation the Runtime issued for one tool call that actually returned.
 OBSERVATION_PREFIX = "obs_"
 #: A citation for a document body that was actually returned to the model.
@@ -199,6 +209,14 @@ class WorkPlan:
     candidates: list[dict] = field(default_factory=list)
     open_questions: list[dict] = field(default_factory=list)
     acceptance: list[str] = field(default_factory=list)
+    #: What the user actually asked for, split into parts that can be separately
+    #: satisfied. This is what "done" is measured against: a tool succeeding is not
+    #: the same thing as one of these being met, and finishing one is not finishing
+    #: the request.
+    requirements: list[dict] = field(default_factory=list)
+    constraints: list[str] = field(default_factory=list)
+    blockers: list[str] = field(default_factory=list)
+    waiting_for: list[str] = field(default_factory=list)
     selected: str = ""
     selection_reason: str = ""
     revision: int = 0
@@ -213,6 +231,10 @@ class WorkPlan:
             "candidates": list(self.candidates),
             "open_questions": list(self.open_questions),
             "acceptance": list(self.acceptance),
+            "requirements": list(self.requirements),
+            "constraints": list(self.constraints),
+            "blockers": list(self.blockers),
+            "waiting_for": list(self.waiting_for),
             "selected": self.selected,
             "selection_reason": self.selection_reason,
             "updated_at": self.updated_at,
@@ -222,8 +244,32 @@ class WorkPlan:
     def empty(self) -> bool:
         return not any((
             self.objective, self.outputs, self.inputs, self.candidates,
-            self.open_questions, self.acceptance,
+            self.open_questions, self.acceptance, self.requirements,
+            self.constraints, self.blockers, self.waiting_for,
         ))
+
+    # ------------------------------------------------------------- task state
+
+    def open_requirements(self) -> list[dict]:
+        return [item for item in self.requirements if item.get("status") != "satisfied"]
+
+    def blocked_requirements(self) -> list[dict]:
+        return [item for item in self.requirements if item.get("status") == "blocked"]
+
+    def completion_state(self) -> str:
+        """Whether this request may be reported as finished.
+
+        Returned as one of three words rather than a boolean, because "blocked" and
+        "not yet finished" need different responses from the model and collapsing them
+        into False is how a Run ends by declaring success over an unmet requirement.
+        """
+        if not self.requirements:
+            return "unknown"
+        if self.blocked_requirements():
+            return "blocked"
+        if self.open_requirements():
+            return "open"
+        return "complete"
 
     def render(self) -> str:
         """A compact rendering for the model request, bounded on purpose.
@@ -268,6 +314,39 @@ class WorkPlan:
                 )
         if self.acceptance:
             lines.append("Acceptance: " + "; ".join(_clean(item, 200) for item in self.acceptance[:8]))
+        if self.requirements:
+            # Rendered before the closing line and after the evidence, so "what is
+            # still owed" is the last thing the model reads. `satisfied` is only ever
+            # set by the Runtime from the ledger, so this section cannot be written
+            # into a false sense of completion.
+            lines.append("Requirements (what the user asked for, one line each):")
+            for item in self.requirements[:12]:
+                mark = {"satisfied": "[done]", "blocked": "[blocked]"}.get(
+                    str(item.get("status") or ""), "[open]",
+                )
+                lines.append(
+                    f"- {mark} {_clean(item.get('id'), 30)}: {_clean(item.get('text'), 200)}"
+                    + (f" [{_clean(item.get('evidence'), 120)}]" if item.get("evidence") else "")
+                )
+            state = self.completion_state()
+            if state == "open":
+                lines.append(
+                    "Not finished: " + ", ".join(
+                        _clean(item.get("id"), 30) for item in self.open_requirements()[:8]
+                    ) + " are still open. Do not report the request as complete."
+                )
+            elif state == "blocked":
+                lines.append(
+                    "Blocked: " + ", ".join(
+                        _clean(item.get("id"), 30) for item in self.blocked_requirements()[:8]
+                    ) + " cannot be met with the current evidence."
+                )
+        if self.constraints:
+            lines.append("Constraints: " + "; ".join(_clean(item, 160) for item in self.constraints[:8]))
+        if self.blockers:
+            lines.append("Blockers: " + "; ".join(_clean(item, 200) for item in self.blockers[:8]))
+        if self.waiting_for:
+            lines.append("Waiting for: " + "; ".join(_clean(item, 200) for item in self.waiting_for[:8]))
         if self.selected and self.selection_reason:
             lines.append(
                 f"Selected {_clean(self.selected, 60)} because "
@@ -303,6 +382,10 @@ class PlanStore:
             candidates=[item for item in (data.get("candidates") or []) if isinstance(item, dict)],
             open_questions=[item for item in (data.get("open_questions") or []) if isinstance(item, dict)],
             acceptance=_clean_list(data.get("acceptance")),
+            requirements=[item for item in (data.get("requirements") or []) if isinstance(item, dict)],
+            constraints=_clean_list(data.get("constraints")),
+            blockers=_clean_list(data.get("blockers")),
+            waiting_for=_clean_list(data.get("waiting_for")),
             selected=_clean(data.get("selected"), 60),
             selection_reason=_clean(data.get("selection_reason")),
             revision=int(data.get("revision") or 0),
@@ -334,7 +417,8 @@ class PlanStore:
     def revise(
         self, *, objective: str | None = None, outputs=None, inputs=None,
         candidates=None, open_questions=None, acceptance=None, selected: str | None = None,
-        reason: str | None = None, replace: bool = False,
+        reason: str | None = None, replace: bool = False, requirements=None,
+        constraints=None, blockers=None, waiting_for=None,
     ) -> WorkPlan:
         """Apply one revision, refusing claims the ledger cannot support.
 
@@ -355,6 +439,14 @@ class PlanStore:
             current.candidates = self._validated_candidates(candidates)
         if open_questions is not None:
             current.open_questions = self._validated_questions(open_questions)
+        if requirements is not None:
+            current.requirements = self._validated_requirements(requirements)
+        if constraints is not None:
+            current.constraints = _clean_list(constraints)
+        if blockers is not None:
+            current.blockers = _clean_list(blockers)
+        if waiting_for is not None:
+            current.waiting_for = _clean_list(waiting_for)
 
         if selected is not None:
             target = _clean(selected, 60)
@@ -474,6 +566,99 @@ class PlanStore:
             })
         return items
 
+    def _validated_requirements(self, raw) -> list[dict]:
+        """Split the user's request into parts that can be separately satisfied.
+
+        The model may open a requirement and may mark one blocked, but it cannot mark
+        one satisfied: that is decided by :meth:`settle_requirements` from the ledger.
+        Allowing the model to write its own completion ticket is the premature-stop
+        defect given a structured place to live.
+        """
+        items = []
+        seen: set[str] = set()
+        for entry in _clean_list(raw):
+            if isinstance(entry, str):
+                entry = {"text": entry}
+            if not isinstance(entry, dict):
+                raise PlanError("A requirement must be an object or a string.",
+                                code="plan_invalid_requirement")
+            text = _clean(entry.get("text"))
+            if not text:
+                raise PlanError("A requirement needs `text` describing one part of "
+                                "what the user asked for.", code="plan_invalid_requirement")
+            identifier = _clean(entry.get("id"), 30) or ("r%d" % (len(items) + 1))
+            if identifier in seen:
+                raise PlanError(
+                    f"Requirement id {identifier!r} is used twice; ids must be distinct "
+                    "so one can be satisfied without the other.",
+                    code="plan_duplicate_requirement", id=identifier,
+                )
+            seen.add(identifier)
+            status = _clean(entry.get("status"), 20).casefold() or "open"
+            if status not in MODEL_WRITABLE_STATUSES:
+                raise PlanError(
+                    f"Requirement {identifier} was submitted as {status!r}. Only "
+                    f"{' and '.join(MODEL_WRITABLE_STATUSES)} can be set here; "
+                    "'satisfied' is decided by the Runtime from the evidence the "
+                    "requirement cites.",
+                    code="plan_requirement_status_not_writable", id=identifier,
+                    status=status,
+                )
+            # Not validated against the ledger here, unlike a condition or a candidate.
+            # Those cite evidence that must already exist, because they claim something
+            # was seen. A requirement cites the observation that *will* satisfy it, so
+            # it is a target rather than a claim -- and it simply never settles if that
+            # observation is never produced.
+            evidence = _clean(entry.get("evidence"), 300)
+            items.append({
+                "id": identifier, "text": text, "status": status, "evidence": evidence,
+            })
+        return items
+
+    def settle_requirements(self) -> WorkPlan:
+        """Mark satisfied every requirement whose cited evidence now exists.
+
+        This is the completion signal, and it is deliberately mechanical: a requirement
+        is satisfied when the observation or document it points at was actually
+        produced by this Run. Nothing here asks the model whether it thinks it is
+        finished, because a Run that ended early always thought it was finished.
+
+        A requirement with no citation cannot be settled and stays open -- an
+        unpointed requirement is a claim, not a completion.
+        """
+        current = self.load()
+        if not current.requirements:
+            return current
+        changed = False
+        for item in current.requirements:
+            if item.get("status") == "satisfied":
+                continue
+            citation = str(item.get("evidence") or "").strip()
+            if not citation:
+                continue
+            tokens = [token for token in citation.replace(";", " ").replace(",", " ").split() if token]
+            documents = [token for token in tokens if token.startswith(DOCUMENT_PREFIXES)]
+            observations = [token for token in tokens if token.startswith(OBSERVATION_PREFIX)]
+            if not documents and not observations:
+                continue
+            if observations:
+                _, unknown = self.ledger.observations_exist(observations)
+                if unknown:
+                    continue
+            if documents:
+                _, unknown = self.ledger.documents_returned(documents)
+                if unknown:
+                    continue
+            item["status"] = "satisfied"
+            changed = True
+        if not changed:
+            return current
+        current.revision += 1
+        current.updated_at = time.time()
+        self._write(current)
+        self._append_history(current)
+        return current
+
     def _require_evidence(self, citation: str, kind: str, label: str) -> None:
         """Accept only citations the Runtime actually issued.
 
@@ -527,7 +712,9 @@ class PlanStore:
 __all__ = [
     "DOCUMENT_PREFIXES",
     "MAX_ITEMS",
+    "MODEL_WRITABLE_STATUSES",
     "OBSERVATION_PREFIX",
+    "REQUIREMENT_STATUSES",
     "ObservationLedger",
     "PlanError",
     "PlanStore",
