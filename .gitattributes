@@ -1,0 +1,25 @@
+# Line endings are pinned here instead of being left to each machine's
+# core.autocrlf. Before this file every commit printed "LF will be replaced by
+# CRLF" for most of the tree: the Windows working copy and the Linux CI check out
+# the same file with different bytes, so a one-line edit can read as a whole-file
+# change and two machines can report conflicts that are not about code at all.
+#
+# Last matching rule wins, so the Windows-native entry points below override the
+# LF default on purpose.
+* text=auto eol=lf
+
+# cmd.exe is the least forgiving reader in the tree; a batch file with LF-only
+# line endings can mis-seek on labels.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets are never line-ending converted and never diffed as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.tif binary
+*.tiff binary
+*.las binary
+*.npz binary
+*.zip binary
