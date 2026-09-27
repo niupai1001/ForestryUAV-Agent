@@ -136,7 +136,21 @@ $env:AGENT_JOB_CPUS = if ($envValues['AGENT_JOB_CPUS']) { $envValues['AGENT_JOB_
 $env:AGENT_JOB_MEMORY = if ($envValues['AGENT_JOB_MEMORY']) { $envValues['AGENT_JOB_MEMORY'] } else { '6g' }
 $env:AGENT_JOB_PIDS = if ($envValues['AGENT_JOB_PIDS']) { $envValues['AGENT_JOB_PIDS'] } else { '256' }
 $env:AGENT_MAX_ACTIVE_JOBS = if ($envValues['AGENT_MAX_ACTIVE_JOBS']) { $envValues['AGENT_MAX_ACTIVE_JOBS'] } else { '1' }
-$ollamaModel = if ($envValues['OLLAMA_MODEL']) { $envValues['OLLAMA_MODEL'] } else { 'qwen3.8:27b' }
+# The model the container actually asks for is compose.yaml's
+# `${OLLAMA_MODEL:-<default>}`, resolved from this same .env. Reading that default
+# out of compose.yaml rather than repeating it here is what keeps this preflight
+# from checking -- and pulling -- a different model than the Runtime runs. That
+# mismatch is invisible until inference fails, because /health only asks whether
+# Ollama answers at all.
+function Get-ComposeModelDefault {
+    foreach ($line in Get-Content -LiteralPath (Join-Path $PSScriptRoot 'compose.yaml') -Encoding UTF8) {
+        if ($line -match '^\s*OLLAMA_MODEL:\s*\$\{OLLAMA_MODEL:-([^}]+)\}') { return $Matches[1].Trim() }
+        if ($line -match '^\s*OLLAMA_MODEL:\s*([^#\s]+)\s*$') { return $Matches[1].Trim() }
+    }
+    return 'qwen3.5:4b'
+}
+
+$ollamaModel = if ($envValues['OLLAMA_MODEL']) { $envValues['OLLAMA_MODEL'] } else { Get-ComposeModelDefault }
 $remoteSensingEnabled = ($envValues['REMOTE_SENSING_PLUGINS_ENABLED'] -eq 'true')
 
 # --- Host bridge -----------------------------------------------------------

@@ -9,7 +9,7 @@ services:
     env_file: .env
     environment:
       OLLAMA_URL: http://host.docker.internal:11434
-      OLLAMA_MODEL: qwen3.8:27b
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3.8:27b}
       HOST_BRIDGE_URL: ${HOST_BRIDGE_URL:-http://host.docker.internal:8011}
       HOST_BRIDGE_KEY: ${HOST_BRIDGE_KEY}
       RUNTIME_DATA_HOST_ROOT: ${RUNTIME_DATA_HOST_ROOT}

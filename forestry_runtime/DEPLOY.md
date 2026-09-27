@@ -11,8 +11,8 @@ React 工作台由镜像内的 `frontend` 构建阶段编译。
 | Runtime + 工作台 | 容器 `forestry-runtime` | 8010 | Docker Desktop |
 | Host Bridge | 宿主机 Python 进程 | 8011（仅 127.0.0.1） | Python 3.11+ |
 | 评分看板（可选） | 宿主机 Python 进程 | 8012（仅 127.0.0.1） | Python 3.11+ |
-| 代码作业容器 | Docker | — | 镜像 `python:3.12-slim` |
-| 推理模型 | 宿主机 Ollama | 11434 | `qwen3.8:27b` |
+| 代码作业容器 | Docker | — | 镜像由 `.env` 的 `AGENT_JOB_IMAGE` 决定，默认 `forestry_runtime-runtime:latest` |
+| 推理模型 | 宿主机 Ollama | 11434 | 由 `.env` 的 `OLLAMA_MODEL` 决定（未设置时用 `compose.yaml` 的默认值） |
 
 Host Bridge 必须留在宿主机，不进容器：它要按用户授权直接读写宿主目录，并用 Docker
 创建作业容器；一旦放进容器，宿主机盘符到容器路径的映射就因机器而异，无法通用部署。
@@ -23,7 +23,8 @@ Host Bridge 必须留在宿主机，不进容器：它要按用户授权直接�
    <https://www.docker.com/products/docker-desktop/>，安装后启动一次，确认
    `docker info` 有输出。
 2. **Ollama for Windows**：<https://ollama.com/download>
-   安装后执行 `ollama pull qwen3.8:27b`（约 17.7 GB）。`setup.ps1` 也会自动补拉。
+   先决定这台机器用哪个模型，写进 `.env` 的 `OLLAMA_MODEL`（例如 `qwen3.5:4b`），
+   再执行 `ollama pull <那个模型>`。`setup.ps1` 会读取同一个值并自动补拉。
 3. **Python 3.11+**：<https://www.python.org/downloads/>
    安装时勾选 *Add python.exe to PATH*。Host Bridge 只用标准库，不需要 pip 安装任何包。
 
@@ -135,7 +136,7 @@ robocopy "旧机器\forestry_runtime\data" "新机器\forestry_runtime\data" /E 
 | `A Python 3 interpreter is required` | 宿主机没装 Python 或没加入 PATH；装完重开终端 |
 | `Host bridge did not start` | 看 `data\host-bridge-error.log`，多为 8011 端口被占用 |
 | `Ollama is not running and ollama.exe was not found` | 安装 Ollama 后重跑 `start.cmd` |
-| 模型未安装 | 执行 `ollama pull qwen3.8:27b`，或用 `start.cmd -SkipModelPull` 跳过自动拉取 |
+| 模型未安装 | `setup.ps1` 会按 `.env` 的 `OLLAMA_MODEL` 自动拉取；想跳过用 `start.cmd -SkipModelPull`。模型与本机实际下载的不一致时，`/health` 仍会显示 `model_reachable: true`，要到推理时才会失败 |
 | `Docker Desktop Linux engine is unavailable` | 手动启动 Docker Desktop，等它完全就绪后重跑 |
 | Docker 启动后引擎立刻退出，日志里有 `检测到 localhost 代理配置，但未镜像到 WSL` | 见下方「本地代理导致 WSL 起不来」 |
 | 构建卡在 `npm ci` / 前端报错 | 首次构建需联网；确认能访问 Docker Hub 与 npm registry |
