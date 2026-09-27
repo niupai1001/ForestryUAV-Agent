@@ -21,13 +21,15 @@ from .fabric import CODE_ENV_FLAG, ENV_FLAG, build, enabled, retrieve
 from .fusion import diversify, rrf_fuse
 from .models import SOURCE_TYPES, Candidate, RetrievalQuery, RetrievalResult, render
 from .retrievers import (
-    FailureRetriever, MemoryRetriever, ToolRetriever, score_text, terms_of,
+    DomainRetriever, FailureRetriever, MemoryRetriever, ToolRetriever, score_text,
+    terms_of,
 )
 from .router import RetrievalRouter
 
 __all__ = [
-    "CODE_ENV_FLAG", "ENV_FLAG", "SOURCE_TYPES", "Candidate", "FailureRetriever",
-    "MemoryRetriever", "RetrievalQuery", "RetrievalResult", "RetrievalRouter",
-    "ToolRetriever", "apply_budget", "build", "diversify", "enabled",
-    "estimate_tokens", "render", "retrieve", "rrf_fuse", "score_text", "terms_of",
+    "CODE_ENV_FLAG", "ENV_FLAG", "SOURCE_TYPES", "Candidate", "DomainRetriever",
+    "FailureRetriever", "MemoryRetriever", "RetrievalQuery", "RetrievalResult",
+    "RetrievalRouter", "ToolRetriever", "apply_budget", "build", "diversify",
+    "enabled", "estimate_tokens", "render", "retrieve", "rrf_fuse", "score_text",
+    "terms_of",
 ]

@@ -179,5 +179,62 @@ class DispatchTest(unittest.TestCase):
         self.assertEqual(ExecutionScheduler(1).max_parallel_reads, 1)
 
 
+class ConcurrencyChainTest(unittest.TestCase):
+    """The switch has to move all three gates, or it promises what it cannot run.
+
+    Read slots alone are not enough: with ``parallel_tool_calls`` off the model never
+    asks, and with every tool a barrier the framework serialises the calls before the
+    scheduler sees a second one. Each test below fails if one gate is left behind.
+    """
+
+    def test_the_default_is_serial_everywhere(self) -> None:
+        from unittest import mock
+
+        from runtime.agent import _parallel_reads, _settings
+
+        with mock.patch.dict("os.environ", {"SCHEDULER_PARALLEL_READS": "1"}):
+            self.assertEqual(1, _parallel_reads())
+            self.assertFalse(_settings()["parallel_tool_calls"])
+            self.assertTrue(self._any_tool().sequential)
+
+    def test_the_switch_opens_the_model_licence_and_the_slots(self) -> None:
+        from unittest import mock
+
+        from runtime.agent import _parallel_reads, _settings
+        from runtime.scheduler import ExecutionScheduler
+
+        with mock.patch.dict("os.environ", {"SCHEDULER_PARALLEL_READS": "4"}):
+            self.assertEqual(4, _parallel_reads())
+            self.assertTrue(_settings()["parallel_tool_calls"])
+            self.assertEqual(4, ExecutionScheduler(_parallel_reads()).max_parallel_reads)
+
+    def test_the_switch_releases_the_per_tool_barrier(self) -> None:
+        from unittest import mock
+
+        with mock.patch.dict("os.environ", {"SCHEDULER_PARALLEL_READS": "4"}):
+            self.assertFalse(self._any_tool().sequential)
+
+    def test_delegation_stays_a_barrier_even_when_reads_overlap(self) -> None:
+        """A child runs model requests against the same workspace; it must not overlap."""
+        from unittest import mock
+
+        from runtime.agent import _delegate_tool
+
+        with mock.patch.dict("os.environ", {"SCHEDULER_PARALLEL_READS": "4"}):
+            tool = _delegate_tool() if callable(_delegate_tool) else None
+        self.assertIsNotNone(tool)
+        self.assertTrue(tool.sequential)
+
+    @staticmethod
+    def _any_tool():
+        from runtime.agent import _tool
+        from pydantic import BaseModel
+
+        class _Args(BaseModel):
+            path: str = ""
+
+        return _tool("fs_read", _Args, "Read a file.")
+
+
 if __name__ == "__main__":
     unittest.main()

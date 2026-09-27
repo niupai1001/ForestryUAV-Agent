@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 
 from .models import RetrievalQuery
-from .retrievers import FailureRetriever, MemoryRetriever, ToolRetriever
+from .retrievers import DomainRetriever, FailureRetriever, MemoryRetriever, ToolRetriever
 from .router import RetrievalRouter
 
 ENV_FLAG = "RETRIEVAL_FABRIC_ENABLED"
@@ -36,6 +36,18 @@ def build(toolbox, *, code=None, memory=None, failures=None, tools=None) -> Retr
     """
     router = RetrievalRouter()
     router.register("tool", tools if tools is not None else ToolRetriever())
+
+    # Domain groups are a capability like any other, so they enter the same list
+    # instead of being applied as a pre-pass. Imported here rather than at module
+    # scope because ``domain_registry`` scores with this package's own scorer.
+    try:
+        from ..domain_registry import plugin_enabled
+        if plugin_enabled("remote-sensing"):
+            router.register("domain", DomainRetriever())
+    except Exception:
+        # A plugin that will not import costs the Run that plugin's groups. The
+        # rest of the fabric -- tools, memory, failures -- stays intact.
+        pass
 
     store = failures
     if store is None:

@@ -20,7 +20,8 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from runtime.agent import _verification_payload
+from runtime.agent import _artifact_path, _verification_payload
+from runtime.storage import Store
 from runtime.verification import (
     Check, RunFacts, STATE_FAILED, STATE_UNVERIFIED, STATE_VERIFIED,
     VerificationService, VerifierRegistry, clamp, fold,
@@ -328,6 +329,97 @@ class ReportShapeTest(unittest.TestCase):
         rendered = _service().evaluate(_facts()).render()
         self.assertIn(STATE_UNVERIFIED, rendered)
         self.assertNotIn("success", rendered.lower())
+
+
+class RealProductWiringTest(unittest.TestCase):
+    """A product a Run actually created, verified without anyone handing it a path.
+
+    The bug this exists to catch was invisible for as long as tests built artifacts by
+    hand: they put ``"path"`` on the artifact dict, which is the one field the store
+    never sets. An asset stored by content has no ``path`` and no usable
+    ``managed_path``, so reading either left the verifier with no file -- no file means
+    no measurement, so every real delivery was reported ``delivered_unverified`` while
+    every unit test reported ``verified_complete``.
+
+    So this test builds the artifact the way the runtime does -- through a ``Store`` --
+    and asks the real payload function what the run may claim.
+    """
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.store = Store(self.root / "assets")
+        self.product = self.root / "canopy_mask.tif"
+        self._write_geotiff(self.product)
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    @staticmethod
+    def _write_geotiff(path: Path) -> None:
+        import numpy as np
+        import rasterio
+        from rasterio.transform import from_origin
+
+        with rasterio.open(
+            path, "w", driver="GTiff", width=8, height=8, count=1, dtype="float32",
+            crs="EPSG:32650", transform=from_origin(0.0, 0.0, 1.0, 1.0),
+        ) as target:
+            target.write(np.full((8, 8), 0.25, dtype="float32"), 1)
+
+    def _created(self) -> list[dict]:
+        """An asset as the store returns it: no ``path`` key anywhere."""
+        with self.product.open("rb") as stream:
+            return [self.store.put(
+                stream, "canopy_mask.tif", "alice", "image/tiff",
+                metadata={
+                    "semantics": {
+                        "quantity": "canopy_candidate_mask", "kind": "mask",
+                        "valid_range": [0.0, 1.0], "fractions": {"canopy": 0.25},
+                        "grid": {"crs": "EPSG:32650", "width": 8, "height": 8,
+                                 "pixel_size": [1.0, 1.0]},
+                    },
+                },
+            )]
+
+    def _box(self, created):
+        store = self.store
+
+        class _Box:
+            chat_id = "chat"
+            owner = "alice"
+
+            def __init__(self):
+                self.created = created
+                self.store = store
+
+            def _plan_store(self):
+                raise AttributeError("no plan recorded")
+
+        return _Box()
+
+    def test_the_store_is_the_only_place_the_path_comes_from(self) -> None:
+        asset = self._created()[0]
+        self.assertIsNone(asset.get("path"))
+        self.assertFalse(asset.get("managed_path"))
+        resolved = _artifact_path(self._box([]), asset)
+        self.assertTrue(resolved and Path(resolved).is_file(), resolved)
+
+    def test_a_product_created_by_the_runtime_is_verified_not_just_delivered(self) -> None:
+        created = self._created()
+        payload = _verification_payload(
+            self._box(created), SimpleNamespace(observation_log=[], pause_blocker=None),
+        )
+        self.assertIsNotNone(payload, "verification produced no payload at all")
+        self.assertEqual(payload["state"], STATE_VERIFIED, payload["reasons"])
+
+    def test_a_claim_the_file_contradicts_is_failed_not_verified(self) -> None:
+        created = self._created()
+        created[0]["metadata"]["semantics"]["fractions"]["canopy"] = 0.9
+        payload = _verification_payload(
+            self._box(created), SimpleNamespace(observation_log=[], pause_blocker=None),
+        )
+        self.assertEqual(payload["state"], STATE_FAILED, payload["reasons"])
 
 
 if __name__ == "__main__":

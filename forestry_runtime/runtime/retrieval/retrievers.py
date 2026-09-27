@@ -186,6 +186,32 @@ class ToolRetriever:
         ]
 
 
+class DomainRetriever:
+    """Domain tool groups, on the same ranked list as every other capability.
+
+    Without this the domain groups were decided by a pre-pass inside the agent that
+    nobody outside the call could see: which schemas are undeferred was chosen by
+    one scorer, while what the request was judged to be about was chosen by another,
+    and the two could disagree silently. Registering them here means a group has to
+    compete with tools, memory and failures for the budget like anything else, and
+    the ranking that produced the context is the ranking that opened the schema.
+
+    ``domain_registry`` is imported inside the call, not at module scope: it scores
+    with ``score_text`` from this module, so a top-level import between the two is a
+    cycle whichever way round it is written.
+    """
+
+    source_type = "tool"
+
+    def retrieve(self, query: str, top_k: int = 10) -> list[Candidate]:
+        try:
+            from ..domain_registry import domain_candidates
+            return list(domain_candidates(query, top_k=top_k))
+        except Exception:
+            # A broken group costs the Run that group, not its whole tool set.
+            return []
+
+
 class MemoryRetriever:
     """Project memory and knowledge, through the manager that already owns it.
 
@@ -231,5 +257,5 @@ class MemoryRetriever:
         return candidates
 
 
-__all__ = ["FailureRetriever", "MemoryRetriever", "ToolRetriever", "score_text",
-           "terms_of"]
+__all__ = ["DomainRetriever", "FailureRetriever", "MemoryRetriever", "ToolRetriever",
+           "score_text", "terms_of"]

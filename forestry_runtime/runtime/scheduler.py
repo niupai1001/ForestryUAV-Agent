@@ -1,10 +1,13 @@
 """Decide which calls may run at the same time, from what they touch.
 
-Every call is currently serial: ``parallel_tool_calls`` is off, each tool is declared
-``sequential``, and the agent runs at ``max_concurrency=1``. That is safe and it is
-also why four independent directory reads take four times as long as they need to --
-and, worse, why the only way to express "these two are independent" was to not express
-it at all.
+By default every call is serial, and it takes one setting to change that:
+``SCHEDULER_PARALLEL_READS`` defaults to 1, which leaves the model's
+``parallel_tool_calls`` off and every tool a barrier. That is safe and it is also why
+four independent directory reads take four times as long as they need to -- and, worse,
+why the only way to express "these two are independent" was to not express it at all.
+The three gates move together, because any one of them left behind makes the others
+unreachable: read slots the model never asks for, or calls the framework has already
+serialised before the scheduler sees a second one.
 
 The opposite mistake would be worse: two writes to one file interleaved, or an install
 racing a code run against the environment it is changing. So concurrency is decided by
@@ -22,12 +25,12 @@ how a lock gets held across a model round-trip and the Run deadlocks.
 
 **Integration state.** The scheduler is in the tool dispatch path: ``_execute_tool``
 builds a ``CallPlan`` per call from the tool's declaration and runs the call through
-it. Concurrency is still *off* -- the Agent issues one call per request and
-``SCHEDULER_PARALLEL_READS`` defaults to 1, so every call runs alone and behaviour is
-unchanged from the serial baseline. That is deliberate: turning concurrency on is a
-behavioural change with its own measurement, and the baseline this repo is graded
-against was captured serially. Wiring the scheduler in first means turning it on later
-is one setting, not a rewrite of the dispatch loop.
+it. Concurrency is *available but off*: ``SCHEDULER_PARALLEL_READS`` above 1 opens the
+read slots, lets the model emit parallel calls, and stops declaring every tool a
+barrier, so overlapping reads actually happen. It stays at 1 by default because
+turning concurrency on is a behavioural change with its own measurement, and the
+baseline this repo is graded against was captured serially. Wiring the scheduler in
+first means turning it on later is one setting, not a rewrite of the dispatch loop.
 
 Only the call itself is scheduled. Dedup, the failure preflight and the stall guards
 are decisions about *whether* to call, and they run before the scheduler is consulted:

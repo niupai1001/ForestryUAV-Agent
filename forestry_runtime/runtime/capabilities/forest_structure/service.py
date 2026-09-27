@@ -240,6 +240,23 @@ class ForestStructureCapability:
                     dsm.transform.a * dsm.transform.e
                     - dsm.transform.b * dsm.transform.d
                 )
+                # Captured while the DSM is open: the CHM inherits this grid, and a
+                # height model on the wrong grid is a different surface, not a
+                # slightly wrong one.
+                chm_grid = {
+                    'crs': str(dsm.crs) if dsm.crs else None,
+                    'width': dsm.width,
+                    'height': dsm.height,
+                    'pixel_size': list(dsm.res),
+                }
+                # The range the computation itself produced. Declaring it is the
+                # claim a verifier checks the written file against: negative values
+                # are preserved by design, so the low bound is whatever the differencing
+                # actually yielded -- not zero, which would quietly fail every CHM
+                # built over a slightly misaligned DTM.
+                chm_range = [
+                    float(np.min(observed)), float(np.max(observed)),
+                ]
 
             output_name = f'{Path(dsm_asset.get("name") or dsm_path.name).stem}_chm.tif'
             with temp_path.open('rb') as stream:
@@ -250,6 +267,12 @@ class ForestStructureCapability:
                         'dsm_reference': dict(dsm_resolved.reference),
                         'dtm_reference': dict(dtm_resolved.reference),
                         'vertical_reference': vertical_reference,
+                        'semantics': {
+                            'quantity': 'canopy_height',
+                            'kind': 'height',
+                            'valid_range': chm_range,
+                            'grid': dict(chm_grid),
+                        },
                     },
                 )
             return {
@@ -460,6 +483,15 @@ class ForestStructureCapability:
                     )
                 valid_count = int(np.count_nonzero(valid))
                 labelled_count = int(np.count_nonzero(labels))
+                # The label raster sits on the CHM grid it segmented; ids run
+                # 0 (no candidate) .. candidate_count, and that upper bound is the
+                # claim a verifier can hold the written file to.
+                label_grid = {
+                    'crs': str(src.crs) if src.crs else None,
+                    'width': src.width,
+                    'height': src.height,
+                    'pixel_size': list(src.res),
+                }
 
             stem = Path(asset.get('name') or path.name).stem
             with temp_path.open('rb') as stream:
@@ -469,6 +501,12 @@ class ForestStructureCapability:
                     metadata={
                         'algorithm': 'CHM_LOCAL_MAXIMA_WATERSHED',
                         'parameter_source': parameter_source,
+                        'semantics': {
+                            'quantity': 'upper_canopy_candidate_id',
+                            'kind': 'label',
+                            'valid_range': [0, int(candidate_count)],
+                            'grid': dict(label_grid),
+                        },
                     },
                 )
             crowns = self.register(
@@ -478,6 +516,17 @@ class ForestStructureCapability:
                 }, ensure_ascii=False).encode('utf-8')),
                 f'{stem}_candidate_crowns.geojson', 'application/geo+json',
                 label_asset['id'],
+                metadata={
+                    # The count is the headline number of canopy statistics, so it
+                    # is the claim most worth holding the file to: one crown polygon
+                    # per candidate the watershed actually found.
+                    'semantics': {
+                        'quantity': 'tree_candidate_crowns',
+                        'kind': 'features',
+                        'feature_count': len(crown_features),
+                        'geometry_type': 'Polygon',
+                    },
+                },
             )
             tops = self.register(
                 io.BytesIO(json.dumps({
@@ -486,6 +535,14 @@ class ForestStructureCapability:
                 }, ensure_ascii=False).encode('utf-8')),
                 f'{stem}_candidate_tops.geojson', 'application/geo+json',
                 label_asset['id'],
+                metadata={
+                    'semantics': {
+                        'quantity': 'tree_candidate_tops',
+                        'kind': 'features',
+                        'feature_count': len(point_features),
+                        'geometry_type': 'Point',
+                    },
+                },
             )
             return {
                 'labels': label_asset,

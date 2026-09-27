@@ -288,6 +288,27 @@ class RuntimeTests(unittest.TestCase):
             self.assertTrue(np.isnan(ds.read(1)[0, 0]))
             self.assertEqual(str(ds.crs), 'EPSG:32650')
 
+        # What the producer claims about what it wrote, per band: a verifier has
+        # nothing to check this product against otherwise, and one global range
+        # would be a false claim over three different quantities.
+        semantics = (data['inversion'].get('metadata') or {}).get('semantics') or {}
+        self.assertEqual('prosail_inversion', semantics.get('quantity'))
+        self.assertEqual('EPSG:32650', (semantics.get('grid') or {}).get('crs'))
+        bands = semantics.get('bands') or {}
+        self.assertEqual({'prosail_lai', 'prosail_cab', 'spectral_RMSE'}, set(bands))
+        # The estimate is a weighted mean of LUT rows, so it cannot leave the range
+        # the LUT sampled. That is the sampled hull, not the configured [2, 4] --
+        # a Latin hypercube need not land on its own endpoints, and claiming a bound
+        # no row reached would be a claim the product cannot be held to.
+        for name, (low, high) in (('prosail_lai', (2.0, 4.0)),
+                                  ('prosail_cab', (35.0, 45.0))):
+            declared_low, declared_high = bands[name]['valid_range']
+            self.assertGreaterEqual(declared_low, low)
+            self.assertLessEqual(declared_high, high)
+            self.assertLess(declared_low, declared_high)
+        # A root-mean-square error is bounded below and not above.
+        self.assertEqual([0.0, None], bands['spectral_RMSE']['valid_range'])
+
     def test_inspect_raster_checks_alpha_and_red_nir_overlap(self):
         path = Path(self.temp.name) / 'conditions.tif'
         red = np.array(

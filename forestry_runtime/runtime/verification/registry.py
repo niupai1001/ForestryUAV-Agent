@@ -79,6 +79,12 @@ class VerifierRegistry:
     def verdicts(self, artifacts: list[dict], task: str = "") -> list[Check]:
         """One semantic check per artifact that has a verifier.
 
+        Every verifier that covers an artifact is consulted, not just the first.
+        Verifiers registered for everything filter internally by what the artifact
+        actually is -- a raster verifier returns nothing for a GeoJSON, and vice
+        versa -- so first-match-wins would silently appoint the raster verifier as
+        the judge of files it cannot even read.
+
         Artifacts with no verifier are simply absent from the result -- the caller
         decides what that means, and it means ``not_run``.
         """
@@ -88,30 +94,32 @@ class VerifierRegistry:
         for artifact in artifacts:
             if not isinstance(artifact, dict):
                 continue
-            verifier = self.verifier_for(artifact)
-            if verifier is None or verifier.fn is None:
-                continue
-            name = _text(artifact.get("name") or artifact.get("asset_id"), 120)
-            try:
-                produced = verifier.fn(artifact, task)
-            except Exception as exc:  # noqa: BLE001 - a raising verifier must not pass
-                checks.append(Check(
-                    layer="semantic", name=f"{verifier.name}:{name}", outcome="not_run",
-                    detail=f"verifier raised {type(exc).__name__}: {str(exc)[:200]}",
-                ))
-                continue
-            if produced is None:
-                continue
-            # One verifier may answer several questions about one artifact. An empty
-            # list is "this artifact is not mine", which is not the same as "nothing
-            # to check" -- that is a ``not_run`` check, and it has to be reported.
-            for check in produced if isinstance(produced, list) else [produced]:
-                if not isinstance(check, Check):
+            for verifier in self._verifiers:
+                if not verifier.covers(artifact) or verifier.fn is None:
                     continue
-                if not check.name.startswith(verifier.name):
-                    check.name = f"{verifier.name}:{check.name}"
-                check.layer = "semantic"
-                checks.append(check)
+                name = _text(artifact.get("name") or artifact.get("asset_id"), 120)
+                try:
+                    produced = verifier.fn(artifact, task)
+                except Exception as exc:  # noqa: BLE001 - a raising verifier must not pass
+                    checks.append(Check(
+                        layer="semantic", name=f"{verifier.name}:{name}",
+                        outcome="not_run",
+                        detail=f"verifier raised {type(exc).__name__}: {str(exc)[:200]}",
+                    ))
+                    continue
+                if produced is None:
+                    continue
+                # One verifier may answer several questions about one artifact. An
+                # empty list is "this artifact is not mine", which is not the same
+                # as "nothing to check" -- that is a ``not_run`` check, and it has
+                # to be reported.
+                for check in produced if isinstance(produced, list) else [produced]:
+                    if not isinstance(check, Check):
+                        continue
+                    if not check.name.startswith(verifier.name):
+                        check.name = f"{verifier.name}:{check.name}"
+                    check.layer = "semantic"
+                    checks.append(check)
         return checks
 
 

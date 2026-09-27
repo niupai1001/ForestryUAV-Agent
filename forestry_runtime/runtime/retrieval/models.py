@@ -14,7 +14,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-SOURCE_TYPES = ("tool", "code", "memory", "knowledge", "artifact", "failure", "task_state")
+#: The sources a router will accept. ``domain`` is a source of *capabilities* --
+#: the optional plugin tool groups -- and its candidates are still typed ``tool``,
+#: because what a domain group offers the model is a tool, not a new kind of
+#: evidence. It is registered separately from ``tool`` only so the two do not
+#: overwrite each other.
+SOURCE_TYPES = (
+    "tool", "code", "memory", "knowledge", "artifact", "failure", "task_state",
+    "domain",
+)
 
 
 @dataclass

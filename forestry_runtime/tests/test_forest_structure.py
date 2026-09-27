@@ -162,6 +162,31 @@ class ForestStructureTests(unittest.TestCase):
             self.assertEqual(len(payload["features"]), 2)
             self.assertEqual(payload["coordinate_reference_system"], "EPSG:4326")
 
+            # Every product declares what its values are, because a verifier can only
+            # check a file against a claim. The CHM claims its measured range and the
+            # DSM grid; the label raster claims its id bound; the GeoJSONs claim the
+            # candidate count -- the headline number of canopy statistics.
+            chm_semantics = built["data"]["chm"]["metadata"]["semantics"]
+            self.assertEqual(chm_semantics["quantity"], "canopy_height")
+            self.assertEqual(chm_semantics["kind"], "height")
+            self.assertEqual(chm_semantics["grid"]["width"], 64)
+            self.assertEqual(chm_semantics["grid"]["height"], 64)
+            self.assertEqual(len(chm_semantics["valid_range"]), 2)
+
+            label_semantics = candidates["data"]["labels"]["metadata"]["semantics"]
+            self.assertEqual(label_semantics["kind"], "label")
+            self.assertEqual(label_semantics["valid_range"], [0, 2])
+
+            crown_semantics = candidates["data"]["candidate_crowns"][
+                "metadata"]["semantics"]
+            self.assertEqual(crown_semantics["feature_count"], 2)
+            self.assertEqual(crown_semantics["geometry_type"], "Polygon")
+
+            top_semantics = candidates["data"]["candidate_tops"][
+                "metadata"]["semantics"]
+            self.assertEqual(top_semantics["feature_count"], 2)
+            self.assertEqual(top_semantics["geometry_type"], "Point")
+
             labels_id = candidates["data"]["labels"]["id"]
             summary = tools.execute("summarize_forest_structure", {
                 "chm_asset_id": chm_id,

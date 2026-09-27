@@ -252,7 +252,22 @@ TOOL_SIDE_EFFECTS: dict[str, str] = _tool_side_effects()
 #: the path, not in the way. Raising it is what turns concurrency on, and that is a
 #: behavioural change with its own measurement, so it is a setting rather than a
 #: constant baked into the dispatch loop.
-SCHEDULER_PARALLEL_READS = int(os.getenv("SCHEDULER_PARALLEL_READS", "1") or "1")
+def _parallel_reads() -> int:
+    """How many read-class calls may run at once. ``1`` means strictly serial.
+
+    One switch has to move three things at once, or it promises concurrency it
+    cannot deliver: the scheduler's read slots, the model's licence to emit
+    parallel calls, and the per-tool barrier flag. Leaving any one of them at its
+    serial default makes the other two dead code -- the model never asks, or the
+    framework serialises the calls before the scheduler ever sees a second one.
+
+    It is read per call rather than frozen at import so that a test, or an operator
+    changing the setting between Runs, moves all three together.
+    """
+    return int(os.getenv("SCHEDULER_PARALLEL_READS", "1") or "1")
+
+
+SCHEDULER_PARALLEL_READS = _parallel_reads()
 
 
 def _call_plan(name: str, arguments: dict, *, domain: bool = False) -> "CallPlan":
@@ -270,7 +285,7 @@ def _scheduler(deps: "AgentDependencies") -> ExecutionScheduler:
     """The Run's scheduler, created once. Same shape as ``_preflight``."""
     if deps.scheduler is not None:
         return deps.scheduler
-    deps.scheduler = ExecutionScheduler(SCHEDULER_PARALLEL_READS)
+    deps.scheduler = ExecutionScheduler(_parallel_reads())
     return deps.scheduler
 
 
@@ -602,7 +617,11 @@ def _settings() -> dict:
     return {
         "temperature": float(os.getenv("OLLAMA_TEMPERATURE", "0.2")),
         "max_tokens": int(os.getenv("OLLAMA_OUTPUT_TOKENS", "8192")),
-        "parallel_tool_calls": False,
+        # The model is only allowed to ask for parallel calls when the scheduler can
+        # run them. Telling it otherwise produces calls the Runtime then has to
+        # serialise anyway, and a tool result that arrives out of the order the
+        # model emitted it is worse than one that arrives late.
+        "parallel_tool_calls": _parallel_reads() > 1,
         "timeout": 180,
         "extra_body": {
             "think": os.getenv("OLLAMA_THINK", "true").lower() == "true",
@@ -964,7 +983,12 @@ def _tool(name: str, model, description: str, *, domain: bool = False, deferred:
         description=description,
         json_schema=inline_schema(model.model_json_schema()),
         takes_ctx=True,
-        sequential=True,
+        # A barrier tool runs alone, so leaving this on unconditionally would
+        # serialise every call inside the framework before the scheduler sees it,
+        # and the scheduler's read slots would be unreachable. With the switch on,
+        # the scheduler is what decides what may overlap, because it is the only
+        # part that knows which concurrency class a call belongs to.
+        sequential=_parallel_reads() <= 1,
     )
     tool.defer_loading = deferred
     return tool
@@ -1083,11 +1107,22 @@ def _delegate_tool() -> Tool:
         description=DELEGATE_DESCRIPTION,
         json_schema=inline_schema(DelegateInput.model_json_schema()),
         takes_ctx=True,
+        # A barrier even with the switch on, and deliberately not derived from it:
+        # a child runs its own model requests against the same workspace, so
+        # overlapping it with a parent call would interleave two trajectories and
+        # let the child's writes land while the parent is mid-step.
         sequential=True,
     )
 
 
-def _tools(use_tools: bool, user_text: str = "") -> tuple[list[Tool], int, int]:
+def _tools(use_tools: bool, user_text: str = "", *, selected: set[str] | None = None) -> tuple[list[Tool], int, int]:
+    """The tool set for one Run.
+
+    ``selected`` is the routing verdict: when retrieval decided which capabilities
+    bear on this request, that decision is what undeferring is based on. It is not
+    the same object as the keyword pre-pass below, and passing it is what keeps the
+    schema and the context answering from one ranking instead of two.
+    """
     if not use_tools:
         return [], 0, 0
     tools = [
@@ -1111,7 +1146,9 @@ def _tools(use_tools: bool, user_text: str = "") -> tuple[list[Tool], int, int]:
 
     if plugin_enabled("remote-sensing"):
         from .capabilities.domain_runtime import DEFINITIONS
-        initially_selected = matching_domain_tools(user_text)
+        initially_selected = (
+            selected if selected is not None else matching_domain_tools(user_text)
+        )
 
         group_by_tool = {
             tool_name: group
@@ -1130,7 +1167,51 @@ def _tools(use_tools: bool, user_text: str = "") -> tuple[list[Tool], int, int]:
     return tools, visible_count, visible_schema_chars
 
 
-def _retrieval(box, deps=None):
+def _fabric_router(box, deps=None):
+    """One router per Run, or ``None`` when the fabric is off.
+
+    Built once and shared by the context compiler and by tool routing. Building it
+    twice would not just be wasteful: with code intelligence on, ``build`` indexes
+    the workspace, and a second router would pay for that index a second time and
+    hand the two consumers two independently ranked views of one request.
+    """
+    if not retrieval_fabric.enabled():
+        return None
+    preflight = getattr(deps, "failure_preflight", None)
+    try:
+        return retrieval_fabric.build(box, failures=getattr(preflight, "store", None))
+    except Exception:
+        return None
+
+
+def _routing_selection(router, text: str) -> set[str] | None:
+    """Which tools the ranked evidence says this request bears on.
+
+    ``None`` means "routing did not decide", which is deliberately different from an
+    empty set: with the fabric off, or with a retrieval that raised, domain
+    selection falls back to the keyword pre-pass rather than deferring everything.
+    A Run that loses its routing must not also lose its schemas.
+    """
+    if router is None or not (text or "").strip():
+        return None
+    try:
+        result = retrieval_fabric.retrieve(router, text, top_k=12)
+    except Exception:
+        return None
+    selected: set[str] = set()
+    for candidate in getattr(result, "candidates", ()) or ():
+        reference = getattr(candidate, "exact_reference", None) or {}
+        tool = reference.get("tool")
+        if tool:
+            selected.add(str(tool))
+        # A domain group stands for several tools; undeferring the group's name
+        # would undefer nothing, so the group is expanded to its members.
+        for member in (reference.get("tools") or ()):
+            selected.add(str(member))
+    return selected or None
+
+
+def _retrieval(box, deps=None, router=None):
     """One retrieval call for this Run, or ``None`` when the fabric is off.
 
     Built per Run, from the toolbox this Run owns, so no source can outlive the
@@ -1138,10 +1219,10 @@ def _retrieval(box, deps=None):
     deliberate: the compiler then omits the retrieval section entirely, and a request
     with no retrieved evidence does not look like one that searched and found nothing.
     """
-    if not retrieval_fabric.enabled():
+    if router is None:
+        router = _fabric_router(box, deps)
+    if router is None:
         return None
-    preflight = getattr(deps, "failure_preflight", None)
-    router = retrieval_fabric.build(box, failures=getattr(preflight, "store", None))
 
     def retrieve_for(query: str):
         try:
@@ -1152,6 +1233,57 @@ def _retrieval(box, deps=None):
             return None
 
     return retrieve_for
+
+
+def _done_event(box, deps, state: str, **extra) -> dict:
+    """The terminal event, carrying what the Run may claim about what it produced.
+
+    Attached on **every** ending, not only on a clean one. Ending paused, cancelled or
+    failed with no verification at all was the silent case this layer exists to close:
+    a Run that wrote two files and then hit a guard reported ``state=paused`` and
+    nothing else, so nothing said "these files do not answer the task". The state field
+    already says how the Run ended; what was missing is what its artifacts are worth.
+    """
+    payload: dict = {"type": "done", "artifacts": box.created, "state": state}
+    try:
+        verification = _verification_payload(box, deps)
+    except Exception:
+        # Verification observes; it never decides how a Run ends, and it must never
+        # be the reason a terminal event is not emitted at all.
+        verification = None
+    if verification:
+        payload["verification"] = verification
+    payload.update(extra)
+    return payload
+
+
+def _artifact_path(box, asset: dict) -> str | None:
+    """Where the bytes of a produced asset actually are.
+
+    Asked from the store, not read off the asset dict: an asset stored by content has
+    no ``path`` key at all, and ``managed_path`` is only populated for assets
+    registered *by* path from outside. Reading ``asset.get("path")`` here returned
+    ``None`` for every product a Run ever created, which silently disabled the whole
+    verification layer -- no file, no ``product_qa``, so every delivery was reported
+    ``delivered_unverified`` no matter what its producer had declared. The unit tests
+    never caught it because they hand the verifier an artifact with a path already on
+    it.
+    """
+    identifier = str(asset.get("id") or "")
+    store = getattr(box, "store", None)
+    owner = getattr(box, "owner", "")
+    if store is not None and identifier:
+        try:
+            resolved = store.path(identifier, owner)
+            if resolved is not None:
+                return str(resolved)
+        except Exception:
+            pass
+    for key in ("managed_path", "path"):
+        value = asset.get(key)
+        if value:
+            return str(value)
+    return None
 
 
 def _verification_payload(box, deps) -> dict | None:
@@ -1184,7 +1316,7 @@ def _verification_payload(box, deps) -> dict | None:
             if not isinstance(asset, dict):
                 continue
             try:
-                path = asset.get("path")
+                path = _artifact_path(box, asset)
                 descriptor = describe_artifact(
                     asset, box.chat_id,
                     path=Path(str(path)) if path else None,
@@ -1339,10 +1471,11 @@ async def stream_agent(
         def publish_job_status(payload: dict) -> None:
             publish({"type": "job_status", **payload})
         box.publish_job_status = publish_job_status
-    tools, _, _ = _tools(use_tools, latest_user)
+    router = _fabric_router(box, deps)
+    tools, _, _ = _tools(use_tools, latest_user, selected=_routing_selection(router, latest_user))
     compiler = ContextCompiler(
         box, run_facts=run_facts, project_context=project_context,
-        retrieval=_retrieval(box, deps),
+        retrieval=_retrieval(box, deps, router),
     )
     estimator = TokenEstimator()
     standalone_lifecycle_events: list[dict] = []
@@ -1639,7 +1772,7 @@ async def stream_agent(
     history.extend(_chat_messages(messages))
     if not history:
         yield {"type": "error", "content": "Run has no model input.", "state": "failed"}
-        yield {"type": "done", "artifacts": box.created, "state": "failed"}
+        yield _done_event(box, deps, "failed")
         return
 
     token = CancellationToken()
@@ -1734,10 +1867,10 @@ async def stream_agent(
                   yield {"type": "message", "content": result.output}
               usage = result.usage
               usage_data = asdict(usage) if is_dataclass(usage) else {}
-              verification = _verification_payload(box, deps)
-              yield {"type": "done", "artifacts": box.created, "usage": usage_data,
-                     **({"verification": verification} if verification else {}),
-                     **({"blocked_by": deps.pause_blocker} if deps.pause_reason else {})}
+              yield _done_event(
+                  box, deps, "done", usage=usage_data,
+                  **({"blocked_by": deps.pause_blocker} if deps.pause_reason else {}),
+              )
     except UsageLimitExceeded:
         reason = f"已用完本轮的 {max_requests} 次模型调用预算。"
         # The budget is spent, but the model is the one holding the account of what it
@@ -1757,7 +1890,7 @@ async def stream_agent(
             # itself.
             yield {"type": "error", "content": reason + "现场已保存，可补充要求后继续。",
                    "state": "paused"}
-        yield {"type": "done", "artifacts": box.created, "state": "paused"}
+        yield _done_event(box, deps, "paused")
     except AgentPaused as exc:
         # A guard rail stopped the turn. The guard has two shapes and they need
         # different handling:
@@ -1785,7 +1918,7 @@ async def stream_agent(
             yield {"type": "message", "content": statement}
         else:
             yield {"type": "error", "content": _pause_account(reason, deps), "state": "paused"}
-        yield {"type": "done", "artifacts": box.created, "state": "paused"}
+        yield _done_event(box, deps, "paused")
     except ContextBudgetExceeded as exc:
         # A recoverable pause with an explicit blocking reason, not a generic
         # failure: the user can trim instructions, raise the window, or continue
@@ -1797,15 +1930,15 @@ async def stream_agent(
             "blocked_by": "context_budget",
             "context_budget": exc.ledger,
         }
-        yield {"type": "done", "artifacts": box.created, "state": "paused"}
+        yield _done_event(box, deps, "paused")
     except RunCancelled:
         yield {"type": "error", "content": "任务已取消；不会启动后续行动。", "state": "canceled"}
-        yield {"type": "done", "artifacts": box.created, "state": "canceled"}
+        yield _done_event(box, deps, "canceled")
     except ModelAPIError as exc:
         yield {"type": "error", "content": f"模型服务失败：{exc}", "state": "failed"}
-        yield {"type": "done", "artifacts": box.created, "state": "failed"}
+        yield _done_event(box, deps, "failed")
     except UnexpectedModelBehavior as exc:
         yield {"type": "error", "content": f"模型响应无法执行：{exc}", "state": "failed"}
-        yield {"type": "done", "artifacts": box.created, "state": "failed"}
+        yield _done_event(box, deps, "failed")
     finally:
         watcher.cancel()

@@ -283,6 +283,30 @@ class ProsailCapability:
                 output_names = [
                     f'prosail_{name}' for name in target_parameters
                 ] + ['spectral_RMSE']
+                # What each band of this product is, written by the producer that
+                # computed it. A verifier can only check a product against a claim,
+                # and one global range would be a false claim here: LAI, Cab and an
+                # RMSE are different quantities with different bounds. The parameter
+                # bounds are not guessed -- the estimate is a weighted mean of LUT
+                # rows, so it cannot leave the range the LUT actually sampled.
+                source_grid = {
+                    'crs': str(src.crs) if src.crs else None,
+                    'width': int(src.width), 'height': int(src.height),
+                }
+                declared_bands = {
+                    f'prosail_{name}': {
+                        'valid_range': [
+                            float(np.min(parameter_values[name])),
+                            float(np.max(parameter_values[name])),
+                        ],
+                    }
+                    for name in target_parameters if name in parameter_values
+                }
+                declared_bands['spectral_RMSE'] = {
+                    # A root-mean-square error cannot be negative and has no useful
+                    # upper bound: a poor fit is a finding, not a rule violation.
+                    'valid_range': [0.0, None],
+                }
                 profile.update(
                     driver='GTiff', count=len(output_names),
                     dtype='float32', nodata=np.nan, compress='deflate',
@@ -406,7 +430,16 @@ class ProsailCapability:
             output_name = f'{Path(asset.get("name") or raster_path.name).stem}_prosail_inversion.tif'
             with temp_path.open('rb') as stream:
                 result_asset = self.register(
-                    stream, output_name, 'image/tiff', resolved.source_asset_id()
+                    stream, output_name, 'image/tiff', resolved.source_asset_id(),
+                    metadata={
+                        'derived_from': dict(resolved.reference),
+                        'semantics': {
+                            'quantity': 'prosail_inversion',
+                            'kind': 'continuous',
+                            'grid': source_grid,
+                            'bands': declared_bands,
+                        },
+                    },
                 )
             return {
                 'inversion': result_asset,

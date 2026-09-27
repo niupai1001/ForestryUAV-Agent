@@ -58,15 +58,29 @@ def _media_type(asset: dict) -> str | None:
     return guessed
 
 
-def product_qa(path: Path) -> dict | None:
+def product_qa(path: Path, *, media_type: str | None = None, name: str | None = None) -> dict | None:
     """Bands, grid, valid area and statistics for a GeoTIFF, or ``None``.
 
     Best-effort and bounded: the point is to make a product's own metadata and numbers
     observable next to the file, not to re-derive the analysis. Every number is
     measured from the file; a field that cannot be measured is absent rather than
     guessed.
+
+    What counts as a GeoTIFF is decided by the asset, not by the filename on disk:
+    the store keeps content under a name of its own (``.../asset_<id>/content``), so
+    every product a Run ever created arrived here with no ``.tif`` suffix and was
+    silently skipped. The blob's identity is recorded on the asset; the filename is
+    only where the store happened to put it.
     """
-    if path.suffix.lower() not in GEO_SUFFIXES:
+    suffix = str(path.suffix or "").casefold()
+    declared_name = str(name or "").casefold()
+    declared_media = str(media_type or "").casefold()
+    looks_geotiff = (
+        suffix in GEO_SUFFIXES
+        or declared_name.endswith(tuple(GEO_SUFFIXES))
+        or declared_media in ("image/tiff", "image/tif")
+    )
+    if not looks_geotiff:
         return None
     try:
         import numpy as np
@@ -192,7 +206,7 @@ def describe_artifact(
         if metadata.get(key) is not None:
             descriptor[key] = metadata[key]
     if product and exists and target is not None:
-        qa = product_qa(target)
+        qa = product_qa(target, media_type=media_type, name=name)
         if qa:
             descriptor["product_qa"] = qa
     return descriptor

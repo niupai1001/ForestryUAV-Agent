@@ -29,6 +29,7 @@ Three rules follow, and breaking any of them turns this into a guessing game:
 """
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from .models import Check
@@ -39,6 +40,12 @@ from .models import Check
 TOLERANCE = 1e-6
 
 GEO_SUFFIXES = (".tif", ".tiff")
+GEOJSON_SUFFIXES = (".geojson",)
+GEOJSON_MEDIA = ("application/geo+json",)
+#: A GeoJSON with a pathological feature count is not proof-worthy either way; the
+#: geometry scan is bounded so a corrupt file with ten million features cannot turn
+#: verification into a denial of service.
+GEOMETRY_SCAN_LIMIT = 500
 
 
 def _semantics(artifact: dict) -> dict:
@@ -93,10 +100,83 @@ def raster_semantics(artifact: dict, task: str = "") -> list[Check]:
 
     checks: list[Check] = []
     checks.append(_range_check(declared, qa, name))
+    checks.extend(_band_range_checks(declared, qa, name))
     checks.append(_grid_check(declared, qa, name))
     checks.append(_plausibility_check(declared, qa, name))
     checks.append(_fraction_check(declared, qa, name))
     return [check for check in checks if check is not None]
+
+
+def _measured_band(qa: dict, label: str) -> dict | None:
+    """The measured band a declaration refers to, or ``None`` if it is not there.
+
+    Matched on the band description -- which the producer writes, the same way it
+    writes the claim -- and then on position, so a declaration can name a band or
+    number it. Never matched on order alone: a product that silently reorders its
+    bands would then be checked against the wrong claim and pass.
+    """
+    wanted = str(label).strip().casefold()
+    for band in qa.get("bands") or []:
+        if not isinstance(band, dict):
+            continue
+        if str(band.get("description") or "").strip().casefold() == wanted:
+            return band
+    for band in qa.get("bands") or []:
+        if isinstance(band, dict) and str(band.get("index")) == wanted:
+            return band
+    return None
+
+
+def _band_range_checks(declared: dict, qa: dict, name: str) -> list[Check]:
+    """Per-band ranges, for a product whose bands are different quantities.
+
+    One range over every band is only a claim a single-quantity product can make.
+    An inversion raster carries a leaf area index, a chlorophyll content and an
+    RMSE side by side: folding them into one min/max would pass a file whose LAI
+    band holds reflectance, which is the exact failure a verifier exists to catch.
+    """
+    bands = declared.get("bands")
+    if not isinstance(bands, dict) or not bands:
+        return []
+    checks: list[Check] = []
+    for label, claim in bands.items():
+        bounds = claim.get("valid_range") if isinstance(claim, dict) else claim
+        if not isinstance(bounds, (list, tuple)) or len(bounds) != 2:
+            continue
+        band = _measured_band(qa, label)
+        if band is None:
+            checks.append(Check(
+                layer="semantic", name="raster_band_range", outcome="not_run",
+                detail=f"{name}: the declared band {label!r} was not found in the "
+                       "measured bands, so its range could not be checked",
+            ))
+            continue
+        low_declared, high_declared = bounds[0], bounds[1]
+        measured_low, measured_high = band.get("min"), band.get("max")
+        if not isinstance(measured_low, (int, float)) or not isinstance(measured_high, (int, float)):
+            checks.append(Check(
+                layer="semantic", name="raster_band_range", outcome="not_run",
+                detail=f"{name}: band {label!r} carries no measured extremes",
+            ))
+            continue
+        outcome, detail = "passed", (
+            f"{name}: band {label!r} sampled [{measured_low}, {measured_high}] "
+            f"within declared [{low_declared}, {high_declared}]"
+        )
+        if low_declared is not None and float(measured_low) < float(low_declared) - TOLERANCE:
+            outcome, detail = "failed", (
+                f"{name}: band {label!r} measured min {measured_low} is below the "
+                f"declared {low_declared}"
+            )
+        elif high_declared is not None and float(measured_high) > float(high_declared) + TOLERANCE:
+            outcome, detail = "failed", (
+                f"{name}: band {label!r} measured max {measured_high} exceeds the "
+                f"declared {high_declared}"
+            )
+        checks.append(Check(
+            layer="semantic", name="raster_band_range", outcome=outcome, detail=detail,
+        ))
+    return checks
 
 
 def _range_check(declared: dict, qa: dict, name: str) -> Check | None:
@@ -256,6 +336,91 @@ def _fraction_check(declared: dict, qa: dict, name: str) -> Check | None:
     return None
 
 
+def _is_geojson(artifact: dict) -> bool:
+    name = str(artifact.get("name") or "").casefold()
+    media = str(artifact.get("media_type") or "").casefold()
+    return name.endswith(GEOJSON_SUFFIXES) or media in GEOJSON_MEDIA
+
+
+def geojson_semantics(artifact: dict, task: str = "") -> list[Check]:
+    """Check a GeoJSON deliverable against the count its producer declared.
+
+    A canopy-statistics run's headline number is "N candidate trees", and that number
+    is exactly the kind of claim a file can contradict: the count in the summary, the
+    count in the GeoJSON, and the count the model says out loud are three copies of
+    one fact, and copies drift. The declared ``feature_count`` is the copy written by
+    the code that built the features; the file is the copy the user will open.
+    """
+    name = str(artifact.get("name") or "artifact")
+    if not _is_geojson(artifact):
+        return []
+    declared = _semantics(artifact)
+    if not declared:
+        return [Check(
+            layer="semantic", name="geojson_semantics", outcome="not_run",
+            detail=(f"{name} declares no semantics; the feature count cannot be "
+                    "checked against a claim"),
+        )]
+    path = artifact.get("path")
+    if not path:
+        return [Check(
+            layer="semantic", name="geojson_semantics", outcome="not_run",
+            detail=f"{name}: the file is not available to the verifier",
+        )]
+    try:
+        with open(str(path), encoding="utf-8") as handle:
+            data = json.load(handle)
+    except Exception as exc:
+        return [Check(
+            layer="semantic", name="geojson_semantics", outcome="failed",
+            detail=f"{name} does not parse as JSON: {type(exc).__name__}",
+        )]
+    if not isinstance(data, dict) or data.get("type") != "FeatureCollection":
+        return [Check(
+            layer="semantic", name="geojson_semantics", outcome="failed",
+            detail=f"{name}: expected a FeatureCollection, found "
+                   f"{type(data).__name__ if not isinstance(data, dict) else data.get('type')}",
+        )]
+    features = data.get("features")
+    if not isinstance(features, list):
+        return [Check(
+            layer="semantic", name="geojson_semantics", outcome="failed",
+            detail=f"{name}: the features entry is not an array",
+        )]
+
+    checks: list[Check] = []
+    declared_count = declared.get("feature_count")
+    if isinstance(declared_count, int) and not isinstance(declared_count, bool):
+        checks.append(Check(
+            layer="semantic", name="geojson_feature_count",
+            outcome="passed" if len(features) == declared_count else "failed",
+            detail=(f"{name}: {len(features)} features in the file, "
+                    f"{declared_count} declared"),
+        ))
+    geometry_type = declared.get("geometry_type")
+    if isinstance(geometry_type, str) and geometry_type:
+        scanned = features[:GEOMETRY_SCAN_LIMIT]
+        wrong = [
+            index for index, feature in enumerate(scanned)
+            if not isinstance(feature, dict)
+            or not isinstance(feature.get("geometry"), dict)
+            or str((feature.get("geometry") or {}).get("type")) != geometry_type
+        ]
+        if wrong:
+            checks.append(Check(
+                layer="semantic", name="geojson_geometry_type", outcome="failed",
+                detail=(f"{name}: feature(s) {wrong[:5]} do not carry "
+                        f"{geometry_type} geometry"),
+            ))
+        elif scanned:
+            checks.append(Check(
+                layer="semantic", name="geojson_geometry_type", outcome="passed",
+                detail=(f"{name}: all {len(scanned)} scanned features carry "
+                        f"{geometry_type} geometry"),
+            ))
+    return [check for check in checks if check is not None]
+
+
 def register_builtins(registry) -> None:
     """Put the built-in verifiers on a registry.
 
@@ -264,6 +429,7 @@ def register_builtins(registry) -> None:
     decided by whether its producer declared semantics.
     """
     registry.register("raster_semantics", raster_semantics)
+    registry.register("geojson_semantics", geojson_semantics)
 
 
 def default_registry():
@@ -280,6 +446,6 @@ def _text(value: Any, limit: int = 200) -> str:
 
 
 __all__ = [
-    "GEO_SUFFIXES", "TOLERANCE", "default_registry", "raster_semantics",
-    "register_builtins",
+    "GEOJSON_SUFFIXES", "GEO_SUFFIXES", "TOLERANCE", "default_registry",
+    "geojson_semantics", "raster_semantics", "register_builtins",
 ]
