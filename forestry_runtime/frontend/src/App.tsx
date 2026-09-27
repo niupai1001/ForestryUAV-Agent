@@ -5,6 +5,7 @@ import { ConversationPane } from './components/ConversationPane'
 import { ScorecardButton } from './components/ScorecardButton'
 import { SettingsPanel } from './components/SettingsPanel'
 import { TracePane } from './components/TracePane'
+import { deliveredArtifacts } from './eventViews'
 import { useRunStream } from './hooks/useRunStream'
 import type {
   Asset, Grant, InstructionPreview, KnowledgeSource, PendingUserMessage, Project,
@@ -147,6 +148,8 @@ export default function App() {
     () => pendingMessages.filter(item => item.chatId === chatId),
     [chatId, pendingMessages],
   )
+
+  const deliveries = useMemo(() => deliveredArtifacts(events), [events])
 
   const send = async (event: FormEvent) => {
     event.preventDefault()
@@ -472,7 +475,7 @@ export default function App() {
     </aside>
 
     <ConversationPane
-      run={run} events={events} pending={visiblePending} notice={notice}
+      run={run} events={events} artifacts={deliveries} pending={visiblePending} notice={notice}
       prompt={prompt} busy={busy} onPrompt={setPrompt} onSend={send}
       onControl={action => { void control(action) }}
     />

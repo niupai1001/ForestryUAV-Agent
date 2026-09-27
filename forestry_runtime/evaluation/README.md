@@ -2,6 +2,11 @@
 
 框架制作说明见 [BUILD_GUIDE.md](BUILD_GUIDE.md)，包含设计依据、文件职责、计分演算、证据包制作和后续接入步骤。
 
+保留任务集（未参与开发，用于模型 / Harness / 检索三轴对照）见
+[heldout/README.md](heldout/README.md) 与 [heldout/suite.json](heldout/suite.json)。
+它不重复本目录的计分规则：`heldout/compare.py` 只读本目录采集器产出的
+`record.json` / `trace.json`，再按"这份 check 是哪种证据"分组聚合并按单轴归因。
+
 当前评价协议见 [FRAMEWORK.md](FRAMEWORK.md)，预先登记的任务见
 [suite.json](suite.json)。它将真实模型、工程门禁和浏览器交互分为独立轨道；
 结果成功率与过程诊断分开，未测项目不默认通过。旧烟测和历史 OpenHands

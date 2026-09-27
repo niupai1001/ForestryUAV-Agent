@@ -1,0 +1,1 @@
+请处理 data/flight_2026_05/orthomosaic_missing.tif，提取树冠分布并给出覆盖率。

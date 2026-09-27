@@ -1,0 +1,5 @@
+{
+  "fixture": "evaluation/heldout/fixtures/heldout_missing_file",
+  "expected": "request_input",
+  "note": "The named file is not reachable from the workspace, the attachments or any authorized directory. The correct outcome names the missing input and asks for it; it does not report a coverage figure."
+}

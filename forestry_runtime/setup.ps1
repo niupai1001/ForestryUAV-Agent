@@ -131,7 +131,7 @@ foreach ($line in Get-Content -LiteralPath '.env' -Encoding UTF8) {
 }
 $env:HOST_BRIDGE_KEY = $envValues['HOST_BRIDGE_KEY']
 $env:RUNTIME_DATA_HOST_ROOT = $envValues['RUNTIME_DATA_HOST_ROOT']
-$env:AGENT_JOB_IMAGE = if ($envValues['AGENT_JOB_IMAGE']) { $envValues['AGENT_JOB_IMAGE'] } else { 'python:3.12-slim' }
+$env:AGENT_JOB_IMAGE = if ($envValues['AGENT_JOB_IMAGE']) { $envValues['AGENT_JOB_IMAGE'] } else { 'forestry_runtime-runtime:latest' }
 $env:AGENT_JOB_CPUS = if ($envValues['AGENT_JOB_CPUS']) { $envValues['AGENT_JOB_CPUS'] } else { '4' }
 $env:AGENT_JOB_MEMORY = if ($envValues['AGENT_JOB_MEMORY']) { $envValues['AGENT_JOB_MEMORY'] } else { '6g' }
 $env:AGENT_JOB_PIDS = if ($envValues['AGENT_JOB_PIDS']) { $envValues['AGENT_JOB_PIDS'] } else { '256' }
@@ -328,11 +328,11 @@ if (-not (Test-DockerApi)) {
     }
 }
 
-# Code jobs run `python:3.12-slim` by default. Pulling it here keeps the first
-# code_run from stalling inside a job container the operator cannot see. This is
-# a convenience, not a correctness requirement, so a failure only warns.
+# Use the built Runtime image for code jobs so its verified Python dependencies
+# are also available in the execution environment. The build below creates it
+# on a fresh install; an absent local image is not a registry pull target.
 $jobImageExit = Invoke-Native -FilePath 'docker' -Arguments @('image', 'inspect', $env:AGENT_JOB_IMAGE) -Quiet
-if ($jobImageExit -ne 0) {
+if ($jobImageExit -ne 0 -and $env:AGENT_JOB_IMAGE -ne 'forestry_runtime-runtime:latest') {
     Write-Host "Pulling job image '$($env:AGENT_JOB_IMAGE)'..." -ForegroundColor Cyan
     $jobImagePullExit = Invoke-Native -FilePath 'docker' -Arguments @('pull', $env:AGENT_JOB_IMAGE)
     if ($jobImagePullExit -ne 0) {

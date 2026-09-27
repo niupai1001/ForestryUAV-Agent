@@ -51,6 +51,9 @@ _REFERENCE_KEYS = (
     "job_id", "job_type", "state", "terminal", "exit_code", "needs_finalization",
     "artifact_id", "asset_id", "result_id", "source_id", "path", "reference",
     "artifacts", "created", "progress_percent", "wait_timed_out", "resource_busy",
+    # One input reference, usable unchanged by every file-consuming tool. Losing it
+    # to compaction is what makes the model re-identify a file it already resolved.
+    "exact_reference", "input_references", "exhausted_path", "total_human", "free_human",
 )
 _METRIC_HINTS = (
     "count", "total", "mean", "median", "min", "max", "std", "sum", "area",
@@ -528,6 +531,13 @@ class ContextCompiler:
         guide_part, guide_entries = _guide_catalogue_part(tool_defs)
         if guide_part:
             parts.append(guide_part)
+        # The plan sits between the reference material and the volatile facts: it is
+        # this Run's own reasoning, revised as observations arrive, and it is the only
+        # place where "why this method" is recorded. Placed after the catalogue so a
+        # plan can cite what the catalogue lists without the catalogue being evidence.
+        plan_text, plan_revision = _work_plan_part(self.toolbox)
+        if plan_text:
+            parts.append(plan_text)
 
         attachments = self.toolbox.attachment_context()
         grants = self.toolbox.workspaces.list_grants(
@@ -584,6 +594,8 @@ class ContextCompiler:
             "knowledge_source_count": len(project.get("knowledge_sources") or []),
             "domain_guide_count": len(guide_entries),
             "domain_guide_ids": [entry["id"] for entry in guide_entries],
+            "plan_revision": plan_revision,
+            "plan_present": bool(plan_text),
         }
         return parts, manifest, len(instruction)
 
@@ -662,15 +674,52 @@ def reachable_inputs(*, attachments: list, grants: list, workspace) -> dict:
         note = "Attached assets are addressed by asset_id, not by any path."
     else:
         note = "Authorized source directories are read-only and addressed by source_id."
-
     return {
         "roots": [workspace_entry, *asset_entries, *grant_entries],
         "workspace_root": workspace_root,
         "workspace_empty": workspace_entry["empty"],
         "asset_count": len(asset_entries),
         "source_grant_count": len(grant_entries),
+        "reference_form": (
+            "Every file-consuming tool accepts the same reference: {scope, path, "
+            "asset_id, source_id}. A tool result returns the one it resolved as "
+            "exact_reference; pass that object back unchanged instead of converting "
+            "between a path and an asset id."
+        ),
         "note": note,
     }
+
+
+def _work_plan_part(toolbox) -> tuple[str, int]:
+    """The Run's own plan, or nothing when it has not recorded one yet.
+
+    Read through the toolbox so the plan has one owner. A toolbox without the
+    capability -- a test double, or a Runtime with the plan tool switched off --
+    simply contributes nothing.
+    """
+    reader = getattr(toolbox, "current_plan_text", None)
+    if not callable(reader):
+        return "", 0
+    try:
+        text = str(reader() or "").strip()
+    except Exception:
+        return "", 0
+    if not text:
+        return "", 0
+    revision = 0
+    try:
+        store = toolbox._plan_store()
+        revision = int(store.load().revision)
+    except Exception:
+        revision = 0
+    return (
+        "The Run's current work plan follows. It records the delivery objective, the "
+        "conditions actually observed, the candidate methods and their preconditions, "
+        "the evidence still missing, and how the product will be accepted. Revise it "
+        "with work_plan when an observation changes it; state a reason when the "
+        "selected method changes.\n\n" + text,
+        revision,
+    )
 
 
 def _project_instruction_part(project: dict) -> str:
@@ -716,6 +765,9 @@ def _guide_catalogue_part(tool_defs: list) -> tuple[str, list[dict]]:
         "a missing guide, or a missing input for one method, does not rule out another "
         "method. Choose what the current inputs can support, and state the output "
         "definition and its uncertainty.",
+        "This is a listing, not the documents. A guide's content counts as evidence "
+        "only after domain_guide returns its body; the citation to record is the "
+        "`citation` field of that result.",
         "",
     ]
     for entry in entries:

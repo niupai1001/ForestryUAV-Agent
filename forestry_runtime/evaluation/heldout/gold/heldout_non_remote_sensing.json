@@ -1,0 +1,10 @@
+{
+  "fixture": "evaluation/heldout/fixtures/heldout_non_remote_sensing",
+  "region_totals": {
+    "north": 270,
+    "south": 200,
+    "east": 375
+  },
+  "highest": "east",
+  "note": "A non-remote-sensing task, so that a change made for imagery cannot be the reason the general capability passes."
+}

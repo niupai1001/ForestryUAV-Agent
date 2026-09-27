@@ -71,6 +71,31 @@ export type ConversationRow = {
   thinking: string
   pending?: boolean
 }
+export type ArtifactChecks = {
+  producer_reported_success: boolean
+  file_exists: boolean
+  server_can_read: boolean
+  browser_can_display: boolean
+  answers_task: boolean | null
+  answers_task_reason?: string
+  read_error?: string
+}
+export type ArtifactUrls = { inline_url: string | null; download_url: string }
+export type ArtifactDelivery = {
+  asset_id: string
+  name: string
+  media_type?: string | null
+  size_bytes?: number | null
+  sha256?: string | null
+  artifact_kind?: string | null
+  checks: ArtifactChecks
+  urls: ArtifactUrls
+  semantic_check?: { status: string; how: string }
+  derived_from?: unknown
+  preview_method?: string
+  bands_used?: number[] | null
+  product_qa?: Record<string, unknown>
+}
 export type Asset = {
   id: string
   name: string
@@ -79,6 +104,7 @@ export type Asset = {
   artifact_kind?: string
   sealed_at?: number | null
   verification?: { status?: string; [key: string]: unknown }
+  delivery?: ArtifactDelivery
 }
 export type Grant = { id: string; host_path: string; access: string; active: boolean }
 export type SettingsRow = {

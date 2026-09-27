@@ -51,16 +51,30 @@ def content(asset_id: str, owner: str = Depends(api.identity), store=Depends(api
     return FileResponse(store.path(asset_id, owner), filename=asset['name'], media_type='application/octet-stream')
 
 @router.get('/files/{chat_id}/{asset_id}')
-def local_file(chat_id: str, asset_id: str, owner: str = Depends(api.identity)):
+def local_file(
+    chat_id: str, asset_id: str, inline: int = 0, download: int = 0,
+    owner: str = Depends(api.identity),
+):
+    """Serve one asset, either as a file to save or as something to look at.
+
+    The route used to answer every request with ``application/octet-stream`` and an
+    attachment disposition. A registered PNG therefore reached the browser as a
+    download, which is why a preview that existed was still not visible. ``inline=1``
+    asks for the asset's own media type and an inline disposition; the file itself is
+    unchanged either way.
+    """
     sessions = api.sessions
     store = sessions.acquire(owner, chat_id)
     try:
         asset = store.get(asset_id, owner)
         path = store.path(asset_id, owner)
+        media_type = str(asset.get('media_type') or 'application/octet-stream')
+        disposition = 'inline' if inline and not download else 'attachment'
         # FileResponse opens and streams the path after this route returns. Keep
         # the session active until Starlette completes (or aborts) that send.
         return HeldFileResponse(
-            path, filename=asset['name'], media_type='application/octet-stream',
+            path, filename=asset['name'], media_type=media_type,
+            content_disposition_type=disposition,
             release=lambda: sessions.release(chat_id),
         )
     except Exception:

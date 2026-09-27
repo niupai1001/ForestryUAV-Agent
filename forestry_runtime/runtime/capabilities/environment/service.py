@@ -24,6 +24,13 @@ import time
 from ...kernel.protocol import SubmissionRefused, ToolPreconditionError
 from ...storage import AssetError
 from ...workspace import BridgeRequestError
+from shared.job_diagnostics import (
+    describe_resource_failure,
+    filesystem_evidence,
+    parse_marker,
+    parse_resource_failure,
+)
+from shared.job_diagnostics import FAILURE_MARKER, RESOURCE_MARKER
 from shared.outcome import missing_shared_library
 
 VERIFICATION_FILE = "environment.json"
@@ -137,9 +144,51 @@ def _reported_system_packages(output: str) -> set[str]:
     return set()
 
 
+def install_resource_evidence(observation: dict) -> dict | None:
+    """What the install container ran out of, and where, or ``None``.
+
+    Two sources are read and neither is guessed at: the job script's own structured
+    report (which knows the tmpdir, the pip cache and the container's capacity) and
+    the log text (which is where pip puts ``Errno 28`` when it is pip rather than
+    the script that noticed). A log that says nothing about a resource produces
+    ``None`` so the caller cannot turn silence into a diagnosis.
+    """
+    output = str(observation.get("output") or "")
+    reported = observation.get("resource")
+    if not isinstance(reported, dict):
+        reported = {}
+    failure_marker = parse_marker(output, FAILURE_MARKER) or {}
+    success_marker = parse_marker(output, RESOURCE_MARKER) or {}
+    detected = parse_resource_failure(output)
+    # The bridge already merged what it found; `detected` recomputes from the
+    # complete log, which is what the runtime holds even when the bridge was older.
+    merged: dict = {
+        key: value for key, value in (reported or {}).items()
+        if key not in {"filesystems", "container_space"}
+    }
+    for source in (failure_marker, detected or {}):
+        for key, value in source.items():
+            if value is not None:
+                merged[key] = value
+    if not merged:
+        return None
+    space = (
+        reported.get("container_space")
+        or failure_marker.get("space")
+        or success_marker.get("space")
+        or {}
+    )
+    merged["container_space"] = space
+    merged["filesystems"] = filesystem_evidence(space)
+    merged["exhausted_path"] = merged.get("exhausted_path") or merged.get("filename")
+    if not merged.get("kind"):
+        merged["kind"] = "resource_limit"
+    merged["detail"] = describe_resource_failure(merged)
+    return merged
+
+
 class EnvironmentCapability:
     """Shared environment bookkeeping for install, execution, and checks."""
-
     # -------------------------------------------------------------- bookkeeping
 
     def _environment_path(self) -> Path:
@@ -289,8 +338,15 @@ class EnvironmentCapability:
             })
         return {
             "image": report.get("image"),
+            "base_image": report.get("base_image"),
+            "image_source": report.get("image_source"),
             "dependency_mount": report.get("dependency_mount"),
             "pythonpath": report.get("pythonpath"),
+            "scratch_mount": report.get("scratch_mount"),
+            "scratch_host_path": report.get("scratch_host_path"),
+            "container": report.get("container") or {},
+            "space": report.get("space") or [],
+            "limits": report.get("limits") or {},
             "exit_code": report.get("exit_code"),
             "modules": rows,
             "checked_at": time.time(),
@@ -382,6 +438,35 @@ class EnvironmentCapability:
             "modules": probe.get("modules") or [],
             "checked_at": probe.get("checked_at"),
         }
+        # The environment a code job will actually use, stated as measured facts:
+        # the image that job runs (which is not the configured base image once an
+        # install has committed one), the dependency directory, and the capacity of
+        # the writable locations. "Which image, which packages, how much scratch"
+        # is one question, and answering it from inference is what made a full
+        # scratch disk look like an unbuildable requirement.
+        if probe.get("image"):
+            scratch = next(
+                (row for row in probe.get("space") or []
+                 if row.get("path") == probe.get("scratch_mount")),
+                None,
+            )
+            result["execution_environment"] = {
+                "job_image": probe.get("image"),
+                "base_image": probe.get("base_image"),
+                "image_source": probe.get("image_source"),
+                "dependency_directory": "/deps",
+                "scratch_mount": probe.get("scratch_mount"),
+                "scratch_host_path": probe.get("scratch_host_path"),
+                "scratch_capacity": scratch,
+                "filesystems": probe.get("space") or [],
+                "limits": probe.get("limits") or {},
+                "python": (probe.get("container") or {}).get("python"),
+                "platform": (probe.get("container") or {}).get("platform"),
+                "note": (
+                    "Capacity is measured inside the container a job runs in; a host "
+                    "figure for the same filesystem would be a different number."
+                ),
+            }
         if requested:
             result["importable"] = [
                 item["module"] for item in result["modules"] if item.get("importable")
@@ -632,6 +717,26 @@ class EnvironmentCapability:
                 "exit_code": observation.get("exit_code"),
                 "missing_from_manifest": missing,
             }
+        # A capacity failure is a property of the container, not of the package, and
+        # the repair is different: the 512 MiB scratch disk inside the install
+        # container was once exhausted while the host had tens of gigabytes free, and
+        # the failure was reported as an unexplained "install_failed". The evidence
+        # here names the path that ran out and the capacity it ran out of.
+        resource = install_resource_evidence(observation)
+        if resource:
+            failure["code"] = (
+                "install_failed_no_space"
+                if resource.get("kind") == "no_space_left_on_device"
+                else f"install_failed_{resource.get('kind')}"
+            )
+            failure["resource"] = resource
+            failure["message"] = describe_resource_failure(resource)
+            failure["guidance"] = (
+                "This is a storage limit in the job container, not an unbuildable "
+                "requirement. Report the exhausted path and its capacity; do not "
+                "request the same package set again without changing where the job "
+                "writes."
+            )
         # Raising (rather than returning a failure dict) keeps `outcome_ok` false:
         # the tool dispatcher wraps the return value in `{"ok": True, "data": ...}`,
         # which would otherwise report a blocked installation as a success.

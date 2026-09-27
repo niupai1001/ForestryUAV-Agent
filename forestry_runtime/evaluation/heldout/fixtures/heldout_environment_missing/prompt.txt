@@ -1,0 +1,1 @@
+请用 `geopandas` 与 `shapely` 把 points.csv 转成带缓冲区的面要素，并交付 GeoJSON。

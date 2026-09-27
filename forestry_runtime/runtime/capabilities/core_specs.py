@@ -17,6 +17,7 @@ def load_specs() -> tuple[ToolSpec, ...]:
     from .job_cancel.tool import SPECS as cancel_specs
     from .job_status.tool import SPECS as status_specs
     from .knowledge_search.tool import SPECS as knowledge_specs
+    from .work_plan.tool import SPECS as plan_specs
 
     return (
         *fs_specs,
@@ -28,6 +29,7 @@ def load_specs() -> tuple[ToolSpec, ...]:
         *artifact_specs,
         *knowledge_specs,
         *guide_specs,
+        *plan_specs,
     )
 
 

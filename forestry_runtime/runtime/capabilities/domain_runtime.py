@@ -19,14 +19,15 @@ DEFINITIONS = {
 
 
 
+from .inputs import InputResolution
 from .forest_structure.service import ForestStructureCapability
 from .prosail.service import ProsailCapability
 from .raster.service import RasterCapability
 from .uav_audit.service import UavAuditCapability
 
 class RemoteSensingTools(
-    UavAuditCapability, ProsailCapability, ForestStructureCapability,
-    RasterCapability,
+    InputResolution, UavAuditCapability, ProsailCapability,
+    ForestStructureCapability, RasterCapability,
 ):
     def __init__(self, store, owner, asset_ids,
                  workspaces: WorkspaceRegistry | None = None, latest_user: str = ''):
@@ -54,6 +55,9 @@ class RemoteSensingTools(
             self.store.get(asset_id, self.owner),
             self.store.path(asset_id, self.owner),
         )
+
+    def attachment_context(self) -> list[dict]:
+        return [self.store.get(asset_id, self.owner) for asset_id in sorted(self.allowed)]
 
     def register(
         self, stream, name, media_type=None, parent=None, limit=None,
@@ -86,10 +90,21 @@ class RemoteSensingTools(
         args, changes, failure = parse_arguments(model, arguments)
         if failure:
             return failure
+        # Every successful result names the input it actually consumed, recorded by
+        # the resolver rather than reconstructed from the arguments: a relative path
+        # and an absolute one can name the same file, and only the resolver knows
+        # which root it settled on. This is what makes the next tool call a copy.
+        self._input_references = {}
         try:
             with self.store.operation():
                 values = args.model_dump()
                 data = getattr(self, name)(**values)
+            references = dict(self._input_references)
+            if isinstance(data, dict) and references and 'exact_reference' not in data:
+                primary = references.get('input') or next(iter(references.values()))
+                data = {**data, 'exact_reference': primary}
+                if len(references) > 1:
+                    data['input_references'] = references
             result = {'ok': True, 'data': data}
             if isinstance(data, dict) and data.get('outcome') == 'empty':
                 result['outcome'] = 'empty'

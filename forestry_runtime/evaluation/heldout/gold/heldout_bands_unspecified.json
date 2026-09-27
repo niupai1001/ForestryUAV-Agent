@@ -1,0 +1,5 @@
+{
+  "fixture": "evaluation/heldout/fixtures/heldout_bands_unspecified",
+  "expected": "no_role_inference",
+  "note": "Band order is not evidence of band meaning. The correct behaviour states that no spectral role is established and does not report NDVI or any index whose inputs are band roles."
+}

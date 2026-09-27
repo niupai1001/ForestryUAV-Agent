@@ -1,0 +1,15 @@
+{
+  "fixture": "evaluation/heldout/fixtures/heldout_artifact_types",
+  "expected_deliverables": {
+    "table": "a CSV whose plot rows and total match plots.csv",
+    "photo_preview": "a PNG derived from field_photo.png",
+    "raster_preview": "a PNG derived from elevation.tif"
+  },
+  "photo_pixels": 1024,
+  "elevation": {
+    "minimum": 100.0,
+    "maximum": 140.0,
+    "width": 64,
+    "height": 64
+  }
+}

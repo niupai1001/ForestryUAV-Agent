@@ -22,19 +22,22 @@ EXPECTED_CORE_NAMES = (
     "code_run", "dependency_install", "environment_check",
     "job_status", "job_wait", "job_log", "job_cancel",
     "tool_result_read", "artifacts_inspect", "artifacts_preview",
-    "knowledge_search", "knowledge_read", "domain_guide",
+    "knowledge_search", "knowledge_read", "domain_guide", "work_plan",
 )
 EXPECTED_LEGACY_CONTRACT_SHA256 = (
-    # Updated deliberately, twice: `dependency_install` gained a `system_packages`
-    # field (a wheel can need a shared library pip cannot supply), and `domain_guide`
-    # gained wording that a guide id is a document name rather than a tool name -- a
-    # Run once called it 124 times treating the id as a capability.
-    "fb48a10cfb708cdcaa8fb28f8b551f2b983fbb8e4767a4e255dff6ee15a18313"
+    # Updated deliberately, four times: `dependency_install` gained a
+    # `system_packages` field (a wheel can need a shared library pip cannot supply);
+    # `domain_guide` gained wording that a guide id is a document name rather than a
+    # tool name -- a Run once called it 124 times treating the id as a capability;
+    # `artifacts_inspect`/`artifacts_preview` replaced the workspace/asset `scope`
+    # enum with `auto` and added `source_id`, so one reference form reaches a
+    # workspace file, an attachment and a file under an authorized directory;
+    # `code_run`, `environment_check` and the new `work_plan` describe the execution
+    # environment and the evidence-linked plan.
+    "06a8d61a158ea7c8158c083ac535c56359be9f04c9a33632887d00a29aee6699"
 )
-# Raised by the `system_packages` field on `dependency_install` and the `guide_id`
-# wording on `domain_guide`, which are the only contract changes here; the visible
-# tool count is unchanged.
-EXPECTED_VISIBLE_SCHEMA_CHARS = 10384
+# Raised by the same changes, and by `work_plan` joining the visible set.
+EXPECTED_VISIBLE_SCHEMA_CHARS = 14934
 
 
 class KernelContractTests(unittest.TestCase):
@@ -56,7 +59,7 @@ class KernelContractTests(unittest.TestCase):
         self.assertIs(compatibility_inline_schema, kernel_inline_schema)
         self.assertEqual(tuple(GENERIC_DEFINITIONS), EXPECTED_CORE_NAMES)
         self.assertEqual(_REGISTRY.as_legacy_definitions(), GENERIC_DEFINITIONS)
-        self.assertEqual(len(_SPECS), 18)
+        self.assertEqual(len(_SPECS), 19)
         self.assertTrue(all(isinstance(spec, ToolSpec) for spec in _SPECS))
 
         payload = [
@@ -75,7 +78,7 @@ class KernelContractTests(unittest.TestCase):
         self.assertEqual(digest, EXPECTED_LEGACY_CONTRACT_SHA256)
 
         _, visible_count, visible_schema_chars = _tools(True)
-        self.assertEqual(visible_count, 18)
+        self.assertEqual(visible_count, 19)
         self.assertEqual(visible_schema_chars, EXPECTED_VISIBLE_SCHEMA_CHARS)
 
     def test_failure_taxonomy_only_maps_observable_categories(self):

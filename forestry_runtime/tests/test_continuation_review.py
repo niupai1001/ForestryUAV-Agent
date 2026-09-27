@@ -75,7 +75,9 @@ class ContinuationReviewTests(unittest.TestCase):
             [e["decision"] for e in events if e["type"] == "continuation_review"],
             ["reconsider", "stop"],
         )
-        self.assertEqual(events[-1]["state"], "paused")
+        self.assertEqual(events[-1]["type"], "done")
+        self.assertNotEqual(events[-1].get("state"), "paused")
+        self.assertEqual(events[-1].get("blocked_by"), "continuation_review")
         self.assertTrue(any("附加文件" in e.get("content", "") for e in events))
         blocked = [e for e in events if e["type"] == "tool_end" and
                    e.get("result", {}).get("failure", {}).get("code", "").startswith("continuation_")]

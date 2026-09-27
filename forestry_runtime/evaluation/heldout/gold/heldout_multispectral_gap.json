@@ -1,0 +1,6 @@
+{
+  "fixture": "evaluation/heldout/fixtures/heldout_multispectral_gap",
+  "expected": "refuse",
+  "missing": "an NIR observation",
+  "note": "NDVI needs red and near-infrared. The declared band descriptions name Red and Green only, so the correct outcome is to report the missing band, not to substitute a visible band and call the result NDVI."
+}
