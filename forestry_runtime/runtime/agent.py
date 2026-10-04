@@ -64,7 +64,7 @@ from .context import (
     reachable_inputs,
 )
 from .continuation_review import ContinuationReview, ReviewDecision, review_proposed_action
-from .failure import FailurePreflight, FailureStore, ResourceVersions
+from .failure import FailurePreflight, FailureStore
 from .scheduler import ExecutionScheduler, plan_for
 from .subagents import (
     DelegateInput, DelegationContract, POLICIES, SubagentResult, SubagentRunner,
@@ -169,9 +169,21 @@ class AgentDependencies:
     #: Failures as facts about resources, not a count of identical calls. Created on
     #: first use because it needs the workspace, which not every caller has.
     failure_preflight: FailurePreflight | None = None
+    #: Signature of the verification feedback already injected into a request this
+    #: Run. The report is recomputed as facts change, and re-injecting an unchanged
+    #: one on every request would just be noise the model learns to skip; a *changed*
+    #: signature means the facts moved and the model should see the new state.
+    verification_reported: str = ""
     #: Decides which calls may overlap, from what they touch. Created on first use
     #: because it owns asyncio primitives, which belong to the running loop.
     scheduler: ExecutionScheduler | None = None
+    #: Identifier of the agent run these deps serve, for records that have to name
+    #: their origin (a delegated child cites its parent run).
+    agent_run_id: str | None = None
+    #: Resource boundary for delegated children, enforced at dispatch: a call that
+    #: names a resource outside the scope is refused before it runs. Prompting the
+    #: child to "stay in scope" is not enforcement; this is.
+    resource_scope: tuple[str, ...] = ()
 
 
 def _preflight(deps: AgentDependencies) -> FailurePreflight | None:
@@ -180,7 +192,11 @@ def _preflight(deps: AgentDependencies) -> FailurePreflight | None:
         return deps.failure_preflight
     workspace = getattr(getattr(deps, "toolbox", None), "workspace", None)
     try:
-        deps.failure_preflight = FailurePreflight(FailureStore(workspace), ResourceVersions())
+        # The store's version table is loaded from the workspace and writes every
+        # bump through, so a resumed Run meets the resource versions the last Run
+        # left behind; an empty in-process table would unlock every recorded
+        # failure whose version sat above zero.
+        deps.failure_preflight = FailurePreflight(FailureStore(workspace))
     except Exception:
         # Discovery must never be able to stop a Run; without a record the Runtime
         # falls back to the counter-based guard it used before.
@@ -202,11 +218,19 @@ def _read_only_tools() -> frozenset[str]:
     Read from ``side_effect`` rather than listed by hand, so a tool added with
     ``SideEffect.NONE`` is covered automatically and a tool that gains a side effect
     stops being deduplicated without anyone remembering to edit a list here.
+
+    Two live observations are excluded even though they declare no side effect: a
+    job (``job_status``/``job_wait``) and the execution environment
+    (``environment_check``). Their answer moves without any evidence or environment
+    generation bump -- a job goes running -> succeeded, an install lands -- so a
+    repeat served from the read cache would hand back a stale fact about a job that
+    has since settled. They must re-observe the host every time.
     """
     try:
         from .capabilities.core_specs import load_specs
         return frozenset(
-            spec.name for spec in load_specs() if spec.side_effect.value == "none"
+            spec.name for spec in load_specs()
+            if spec.side_effect.value == "none" and spec.verification not in {"job", "sandbox"}
         )
     except Exception:
         # Discovery must never be able to stop a Run; an empty set simply means no
@@ -214,9 +238,10 @@ def _read_only_tools() -> frozenset[str]:
         return frozenset()
 
 
-#: Recomputed once per process. `job_status`/`job_wait` are included deliberately:
-#: their result is a fact about a job, and repeating the question while the job has
-#: not moved returns the same fact.
+#: Recomputed once per process. Job observations and the environment check are
+#: deliberately *excluded*: their answer is a fact that moves while the job or the
+#: environment changes, so a repeat must re-observe the host rather than be served
+#: from the read cache.
 PURE_READ_TOOLS: frozenset[str] = _read_only_tools()
 
 
@@ -390,6 +415,17 @@ def _prerequisite_key(failure: dict) -> str | None:
 
 
 def _record_prerequisite_failure(deps: AgentDependencies, failure: dict) -> None:
+    """Remember one more failure of the same prerequisite, per evidence version.
+
+    The record feeds two consumers: ``_observation_addresses_failed_path`` (a
+    successful observation of a failed path is new evidence) and the stall account
+    any other pause quotes. It no longer stops the Run at three: a count-based
+    pause is not a safety boundary -- safety lives in the write locks, the
+    environment mutual exclusion and the permission boundary -- and three identical
+    misses often preceded the very observation that would have reopened the path.
+    The Run's request budget bounds how long repetition may continue, and the
+    version guard keeps the count honest across evidence changes.
+    """
     key = _prerequisite_key(failure)
     if key is None:
         return
@@ -398,16 +434,6 @@ def _record_prerequisite_failure(deps: AgentDependencies, failure: dict) -> None
     prior = deps.prerequisite_failures.get(key) or {}
     count = int(prior.get("count") or 0) + 1 if prior.get("version") == version else 1
     deps.prerequisite_failures[key] = {"version": version, "count": count, "failure": source}
-    if count >= 3:
-        deps.pause_blocker = "prerequisite_stalled"
-        deps.pause_reason = (
-            "同一个前提 " + key + " 已连续三次失败，且证据没有变化。"
-            "本轮不再执行新的工具调用。"
-            + _stall_account(deps, failure=source, count=count)
-            + "请用中文向用户说明：失败的到底是哪个前提（依赖安装、文件路径、"
-            "权限还是环境）、已尝试过什么、观察到什么证据、你自己判断它是否属于"
-            "用户必须提供的东西；不要把 Runtime 的这段文字原样复述，也不要声称已完成。"
-        )
 
 
 def _observe(
@@ -563,17 +589,62 @@ def _chat_messages(messages: list[dict]) -> list[ModelRequest | ModelResponse]:
     return converted
 
 
-def _model() -> OpenAIChatModel:
+def _setting_override(store, key: str):
+    """A value written through the settings surface, if one applies here.
+
+    Only an explicit override -- the workbench panel or an evaluation arm
+    writing ``PUT /settings`` -- comes back; environment values and registry
+    defaults are deliberately excluded, because the model-call and budget
+    readers already resolve both from their own sources.  This keeps one
+    direction of precedence without duplicating the registry's fallback logic:
+    an override outranks everything, and anything else stays where it was.
+    """
+    from .settings import BY_KEY, SettingError
+
+    if store is None:
+        return None
+    loader = getattr(store, "setting_overrides", None)
+    if not callable(loader):
+        return None
+    try:
+        overrides = loader()
+    except Exception:
+        return None
+    setting = BY_KEY.get(key)
+    if setting is None or key not in (overrides or {}):
+        return None
+    try:
+        value = setting.coerce(overrides[key])
+    except SettingError:
+        return None
+    if setting.kind == "int":
+        return int(value)
+    if setting.kind == "float":
+        return float(value)
+    if setting.kind == "bool":
+        return value.lower() == "true"
+    return value
+
+
+def _setting_active(store, key: str, fallback):
+    """The override when one exists, otherwise the caller's own reading."""
+    value = _setting_override(store, key)
+    return fallback if value is None else value
+
+
+def _model(store=None) -> OpenAIChatModel:
     base_url = os.getenv("OLLAMA_URL", "http://host.docker.internal:11434").rstrip("/") + "/v1"
     profile = OpenAIModelProfile(
         supports_tools=True,
         supports_thinking=True,
-        thinking_always_enabled=os.getenv("OLLAMA_THINK", "true").lower() == "true",
+        thinking_always_enabled=_setting_active(
+            store, "OLLAMA_THINK", os.getenv("OLLAMA_THINK", "true").lower() == "true"
+        ),
         openai_chat_thinking_field="reasoning",
         openai_chat_send_back_thinking_parts="field",
     )
     return OpenAIChatModel(
-        os.getenv("OLLAMA_MODEL", "qwen3.8:27b"),
+        _setting_active(store, "OLLAMA_MODEL", os.getenv("OLLAMA_MODEL", "qwen3.8:27b")),
         provider=OpenAIProvider(base_url=base_url, api_key="ollama"),
         profile=profile,
     )
@@ -613,10 +684,14 @@ def _setting_value(store, key: str, default=None):
     return value
 
 
-def _settings() -> dict:
+def _settings(store=None) -> dict:
     return {
-        "temperature": float(os.getenv("OLLAMA_TEMPERATURE", "0.2")),
-        "max_tokens": int(os.getenv("OLLAMA_OUTPUT_TOKENS", "8192")),
+        "temperature": _setting_active(
+            store, "OLLAMA_TEMPERATURE", float(os.getenv("OLLAMA_TEMPERATURE", "0.2"))
+        ),
+        "max_tokens": _setting_active(
+            store, "OLLAMA_OUTPUT_TOKENS", int(os.getenv("OLLAMA_OUTPUT_TOKENS", "8192"))
+        ),
         # The model is only allowed to ask for parallel calls when the scheduler can
         # run them. Telling it otherwise produces calls the Runtime then has to
         # serialise anyway, and a tool result that arrives out of the order the
@@ -624,8 +699,15 @@ def _settings() -> dict:
         "parallel_tool_calls": _parallel_reads() > 1,
         "timeout": 180,
         "extra_body": {
-            "think": os.getenv("OLLAMA_THINK", "true").lower() == "true",
-            "options": {"num_ctx": int(os.getenv("OLLAMA_CONTEXT", "32768"))},
+            "think": _setting_active(
+                store, "OLLAMA_THINK", os.getenv("OLLAMA_THINK", "true").lower() == "true"
+            ),
+            # Same clamp as the budget side, so the window the model is told
+            # about and the window the budget compactor plans for cannot drift
+            # apart when an override moves one of them.
+            "options": {"num_ctx": context_limit_tokens(
+                _setting_override(store, "OLLAMA_CONTEXT")
+            )},
         },
     }
 
@@ -735,10 +817,77 @@ def _bounded_tool_result(output: dict, persist=None, limit: int | None = None) -
     return bounded
 
 
+def _normalize_scope_entry(value: str) -> str:
+    """One spelling per scope entry, matching how resource keys are compared."""
+    text = str(value or "").strip().casefold()
+    while "//" in text:
+        text = text.replace("//", "/")
+    while "\\\\" in text:
+        text = text.replace("\\\\", "\\")
+    return text.rstrip("/\\")
+
+
+def _within_scope(arguments: dict, scope: tuple[str, ...]) -> bool:
+    """Whether every resource this call names stays inside the delegation's scope.
+
+    Deliberately one-sided. Absolute paths and identifiers are checked against the
+    scope and refused when they fall outside it; relative paths are let through,
+    because "cannot tell" is not evidence of violation, and refusing a call the
+    scope never meant to exclude is how a boundary starts deleting work. The
+    direction of the error is chosen to match the risk: an over-broad read costs
+    one tool call, a refused correct one costs the delegation.
+    """
+    entries = [_normalize_scope_entry(item) for item in scope or ()]
+    entries = [item for item in entries if item]
+    if not entries:
+        return True
+    for field_name in ("path", "folder_path"):
+        value = arguments.get(field_name)
+        if not isinstance(value, str) or not value.strip():
+            continue
+        text = _normalize_scope_entry(value)
+        # Only anchored paths are decidable against the scope; a bare relative
+        # name resolves against a root the boundary cannot see from here.
+        anchored = bool(text) and (":" in text[:3] or text.startswith(("/", "\\")))
+        if not anchored:
+            continue
+        inside = any(text == item or text.startswith(item + "/") or text.startswith(item + "\\")
+                     for item in entries)
+        if not inside:
+            return False
+    for field_name in ("source_id", "asset_id", "guide_id", "artifact_id", "job_id"):
+        value = arguments.get(field_name)
+        if isinstance(value, str) and value.strip():
+            if value.strip().casefold() not in entries:
+                return False
+    return True
+
+
 async def _execute_tool(ctx: RunContext[AgentDependencies], name: str, arguments: dict, domain: bool) -> dict:
     deps = ctx.deps
     if deps.cancelled():
         return normalize_result({"ok": False, "error": "Run canceled before tool execution"})
+
+    # A delegated child holds a resource scope. It is enforced here, at the one
+    # place every call passes, rather than in the child's prompt: a boundary that
+    # only exists in prose is a suggestion.
+    if deps.resource_scope and not _within_scope(arguments or {}, deps.resource_scope):
+        refused = normalize_result({
+            "ok": False,
+            "outcome_ok": False,
+            "error": "This call names a resource outside the scope this delegation granted.",
+            "failure": {
+                "stage": "agent_control",
+                "code": "outside_scope",
+                "scope": list(deps.resource_scope)[:10],
+                "detail": (
+                    "stay inside the scope the delegation set; if the work needs "
+                    "something outside it, report that as an open question instead"
+                ),
+            },
+        })
+        _observe(deps, name, arguments, ok=False, failure=refused["failure"])
+        return refused
 
     # The fingerprint carries the *environment* generation as well as the arguments.
     # A failed call is only hopeless while nothing it depends on has changed, and the
@@ -757,9 +906,14 @@ async def _execute_tool(ctx: RunContext[AgentDependencies], name: str, arguments
         for field in ("path", "folder_path")
     )
     # Whether this call can still say something new is answered from the record of
-    # what has already failed about the resource it names -- not from how many times
-    # it has been tried. The counter is kept only so the pause instruction can quote
-    # how long the Run has been going round.
+    # what has already failed about the resource it names. A declined call is answered
+    # with the reason every time it is re-submitted, but the Run is no longer stopped
+    # by a count of consecutive declines: that pause was not a safety boundary
+    # (safety lives in the write locks, the environment mutual exclusion and the
+    # permission boundary), and it fired on a Run that was often one observation away
+    # from legitimately changing the world. Repeating a declined call costs the calls
+    # it costs; the Run's own request budget, not a counter, is the bound on how long
+    # that may continue.
     preflight = _preflight(deps)
     decision = preflight.check(name, arguments) if preflight is not None else None
     if decision is not None and decision.blocked:
@@ -794,14 +948,6 @@ async def _execute_tool(ctx: RunContext[AgentDependencies], name: str, arguments
         })
         _record_prerequisite_failure(deps, blocked["failure"])
         _observe(deps, name, arguments, ok=False, failure=blocked["failure"])
-        if deps.blocked_failures >= 3 and deps.pause_reason is None:
-            deps.pause_blocker = "identical_failed_call"
-            deps.pause_reason = (
-                "同一个失败调用被重复提交三次，且没有新的执行证据，本轮不再执行它。"
-                + _stall_account(deps, failure=blocked["failure"], count=deps.blocked_failures)
-                + "请用中文向用户说明：这个调用本来要取得什么、它失败的原因是什么、"
-                "你已经换了哪些办法、以及需要用户提供什么才能继续；不要原样复述 Runtime 的这段话。"
-            )
         return blocked
 
     deps.blocked_failures = 0
@@ -820,14 +966,12 @@ async def _execute_tool(ctx: RunContext[AgentDependencies], name: str, arguments
         served = deps.read_results.get(read_signature)
         if served is not None:
             deps.stale_reads += 1
-            if deps.stale_reads >= 3 and deps.pause_reason is None:
-                deps.pause_blocker = "repeated_read"
-                deps.pause_reason = (
-                    "同一次读取已重复三次，内容没有变化，本轮不再重复读取。"
-                    + _stall_account(deps)
-                    + "请直接根据已经读到的内容继续，或用中文说明缺什么、需要用户提供什么；"
-                    "不要原样复述 Runtime 的这段话。"
-                )
+            # Counted for the stall account, but no longer paused on: the marker
+            # below already denies the repeat its payload, so a stuck loop costs
+            # cheap answers rather than re-sent bodies, and the Run's request
+            # budget -- not a hard count -- decides when it ends. The count-based
+            # pause was not a safety boundary and fired on Runs one observation
+            # away from legitimately needing the read again.
             _observe(deps, name, arguments, ok=True, summary="重复读取（内容未变）")
             return normalize_result({
                 "ok": True,
@@ -1027,10 +1171,34 @@ async def _run_child(parent: AgentDependencies, contract: DelegationContract) ->
         # told only "failed" will try the same delegation again with new wording.
         return SubagentResult(status="blocked", summary=why)
 
+    # The contract cites where it came from: the parent run that issued it and the
+    # plan revision that was current when it did. An unset revision means "no plan
+    # yet", which is a fact about the parent, not an error.
+    try:
+        plan = parent.toolbox._plan_store().load()
+        contract.task_state_revision = int(getattr(plan, "revision", 0) or 0)
+    except Exception:
+        contract.task_state_revision = 0
+    contract.parent_run_id = str(getattr(parent, "agent_run_id", "") or "")
+
+    # The child's observations are recorded in the shared ledger; snapshotting it
+    # around the run is what separates what *this* delegation established from
+    # what the parent already knew.
+    ledger = getattr(parent.toolbox, "ledger", None)
+    known_before = set()
+    try:
+        known_before = set((ledger.known().get("observations") or {}).keys())
+    except Exception:
+        known_before = set()
+
     child = AgentDependencies(
         toolbox=parent.toolbox,
         cancelled=parent.cancelled,
         pause_requested=parent.pause_requested,
+        agent_run_id=contract.parent_run_id or None,
+        # Enforced at dispatch, not in the prompt: a call naming a resource
+        # outside this scope is refused before it runs.
+        resource_scope=tuple(contract.resource_scope or ()),
     )
     names = set(contract.effective_tools())
     tools = [
@@ -1076,9 +1244,19 @@ async def _run_child(parent: AgentDependencies, contract: DelegationContract) ->
         status = "failed"
 
     produced = [item for item in (created or []) if id(item) not in before]
+    evidence_ids: list[str] = []
+    if ledger is not None:
+        try:
+            known_after = (ledger.known().get("observations") or {})
+            evidence_ids = [
+                str(key) for key, entry in known_after.items()
+                if key not in known_before and isinstance(entry, dict) and entry.get("ok")
+            ]
+        except Exception:
+            evidence_ids = []
     return fold_result(
         status=status, output=output, observations=child.observation_log,
-        artifacts=produced,
+        artifacts=produced, evidence_ids=evidence_ids,
     )
 
 
@@ -1177,7 +1355,13 @@ def _fabric_router(box, deps=None):
     """
     if not retrieval_fabric.enabled():
         return None
+    # The failure store is created lazily on first tool execution, which is *after*
+    # this router is built -- so reading it off the deps here would silently register
+    # no failure source at all. Creating it now is free (no I/O until the version
+    # table is touched) and the failure record joins the first request's retrieval.
     preflight = getattr(deps, "failure_preflight", None)
+    if preflight is None and deps is not None:
+        preflight = _preflight(deps)
     try:
         return retrieval_fabric.build(box, failures=getattr(preflight, "store", None))
     except Exception:
@@ -1218,6 +1402,14 @@ def _retrieval(box, deps=None, router=None):
     project it belongs to. Returning ``None`` rather than an empty fabric is
     deliberate: the compiler then omits the retrieval section entirely, and a request
     with no retrieved evidence does not look like one that searched and found nothing.
+
+    The query is directed, not frozen: the compiler joins the plan store's unmet
+    requirement texts to the user's words on every step (``ContextCompiler.
+    _directed_query``), so what the sources are re-read *for* tracks the remaining
+    work instead of the original request. What is deliberately *not* done here is
+    model-written query rewriting -- a per-step model call to phrase the question
+    would spend exactly the requests this layer exists to save, and needs its own
+    measurement before it earns a place in the request path.
     """
     if router is None:
         router = _fabric_router(box, deps)
@@ -1300,12 +1492,25 @@ def _verification_payload(box, deps) -> dict | None:
     registered by default.
     """
     try:
+        log = list(getattr(deps, "observation_log", None) or [])
+        # Only failures that were never recovered count. A run that fell once and
+        # then succeeded with the same tool is a run that *worked*, and reporting
+        # its final state as "failed" because the ledger keeps history was the bug:
+        # the execution layer is about how the run ended, not about every stumble
+        # along the way. A later success of the same tool is the strongest fact
+        # available that the earlier failure stopped mattering.
+        last_ok_index: dict[str, int] = {}
+        for index, entry in enumerate(log):
+            if entry.get("ok"):
+                last_ok_index.setdefault(str(entry.get("tool") or ""), index)
         failures: list[str] = []
         blocked: list[str] = []
-        for entry in getattr(deps, "observation_log", None) or []:
+        for index, entry in enumerate(log):
             if entry.get("ok"):
                 continue
             name = str(entry.get("tool") or "")
+            if name in last_ok_index and last_ok_index[name] > index:
+                continue
             if entry.get("code") == "duplicate_failed_call":
                 blocked.append(name)
             else:
@@ -1368,6 +1573,114 @@ def _verification_payload(box, deps) -> dict | None:
         "reasons": report.reasons[:4],
         "next_actions": report.next_actions[:3],
     }
+
+
+#: Verification checks a model can act on while the Run is still going. The
+#: plan-state checks are excluded on purpose: what the plan still owes is already
+#: in every request as ``task_state``, and stating it twice teaches the model to
+#: read neither.
+FIXABLE_CHECKS = frozenset({
+    "no_failed_tool_calls", "no_blocked_calls",
+    "artifact_files_exist", "artifact_files_readable",
+    "producer_reported_success", "product_qa_readable",
+    "product_has_crs", "product_has_valid_pixels",
+})
+
+
+def _verification_feedback(box, deps):
+    """A per-request hook that hands verification failures back to the model.
+
+    Verification used to speak only once, in the terminal event -- an honest
+    verdict nobody could act on, because by then there was no next request left
+    to act in. Closing the loop means evaluating while the Run can still fix
+    things: each time a request is compiled, the facts gathered so far answer the
+    three-layer question, and a *fixable* failure is injected together with the
+    actions that would clear it. Injected once per distinct failure set, not on
+    every request: an unchanged report repeated request after request is noise,
+    and noise is how a model learns to ignore verification.
+
+    Only failures are injected. A passing or merely-unverified Run has nothing to
+    do, and stating ``delivered_unverified`` is the terminal event's job -- doing
+    it mid-run would only invite the model to argue with a label.
+    """
+
+    def feedback() -> dict | None:
+        try:
+            # Same rule as the terminal payload: a failure a later success of the
+            # same tool recovered from is not an open wound. The two readers of
+            # the observation log must not disagree about which stumbles matter.
+            log = list(getattr(deps, "observation_log", None) or [])
+            last_ok_index: dict[str, int] = {}
+            for index, entry in enumerate(log):
+                if entry.get("ok"):
+                    last_ok_index.setdefault(str(entry.get("tool") or ""), index)
+            failures: list[str] = []
+            blocked: list[str] = []
+            for index, entry in enumerate(log):
+                if entry.get("ok"):
+                    continue
+                name = str(entry.get("tool") or "")
+                if name in last_ok_index and last_ok_index[name] > index:
+                    continue
+                if entry.get("code") == "duplicate_failed_call":
+                    blocked.append(name)
+                else:
+                    failures.append(name)
+
+            artifacts = []
+            for asset in list(getattr(box, "created", None) or [])[:10]:
+                if not isinstance(asset, dict):
+                    continue
+                try:
+                    path = _artifact_path(box, asset)
+                    descriptor = describe_artifact(
+                        asset, box.chat_id,
+                        path=Path(str(path)) if path else None,
+                        # Mid-run feedback asks what the model can fix now; the
+                        # measured product read belongs to the terminal report,
+                        # which runs once with the whole Run behind it.
+                        product=False,
+                    )
+                    if path:
+                        descriptor["path"] = str(path)
+                    artifacts.append(descriptor)
+                except Exception:
+                    continue
+
+            if not artifacts and not failures and not blocked:
+                return None
+            facts = RunFacts(
+                tool_failures=failures, blocked_calls=blocked, artifacts=artifacts,
+            )
+            report = VerificationService(default_registry()).evaluate(facts)
+            fixable = sorted(
+                check for check in
+                (check.name for check in report.checks if check.blocking)
+                if check in FIXABLE_CHECKS
+            )
+            if not fixable:
+                return None
+            signature = "|".join(fixable)
+            if signature == str(getattr(deps, "verification_reported", "")):
+                return None
+            deps.verification_reported = signature
+            return {
+                "state": report.state,
+                "fixing": fixable,
+                "reasons": [
+                    (check.detail or check.name) for check in report.checks
+                    if check.blocking and check.name in FIXABLE_CHECKS
+                ][:4],
+                "next_actions": report.next_actions[:3],
+                "note": "these checks failed while the Run can still act: fix "
+                        "them before reporting completion",
+            }
+        except Exception:
+            # Feedback observes; a broken feedback path must never break the
+            # request it would have informed.
+            return None
+
+    return feedback
 
 
 async def _final_statement(
@@ -1460,6 +1773,7 @@ async def stream_agent(
         toolbox=box,
         cancelled=cancelled,
         pause_requested=pause_requested,
+        agent_run_id=agent_run_id,
         begin_action=begin_action,
         mark_attempt_started=mark_attempt_started,
         finish_action=finish_action,
@@ -1476,6 +1790,7 @@ async def stream_agent(
     compiler = ContextCompiler(
         box, run_facts=run_facts, project_context=project_context,
         retrieval=_retrieval(box, deps, router),
+        verification=_verification_feedback(box, deps),
     )
     estimator = TokenEstimator()
     standalone_lifecycle_events: list[dict] = []
@@ -1499,12 +1814,27 @@ async def stream_agent(
     def record_ledger(ledger: dict) -> None:
         deps.context_ledger = ledger
 
+    # Resolve the run's window accounting once, from the same source the model
+    # call itself uses: an evaluation arm (or the panel) moving OLLAMA_CONTEXT
+    # through an override must move the budget compactor with it, or the run
+    # plans for the deployment's window and overflows the override's smaller
+    # one with silently truncated requests.
+    budget_window = context_limit_tokens(_setting_override(store, "OLLAMA_CONTEXT"))
+    budget_reserve = output_reserve_tokens(_setting_override(store, "OLLAMA_OUTPUT_TOKENS"))
+    budget_margin = _setting_override(store, "CONTEXT_SAFETY_MARGIN_TOKENS")
+    budget_utilisation = _setting_override(store, "CONTEXT_UTILISATION")
     budget_compaction = RequestBudgetCompaction(
         estimator=estimator,
         file_key=file_key,
-        keep_pairs=int(os.getenv("CONTEXT_KEEP_TOOL_PAIRS", "4")),
-        ledger_keep_messages=int(os.getenv("CONTEXT_KEEP_MESSAGES", "6")),
+        keep_pairs=_setting_active(store, "CONTEXT_KEEP_TOOL_PAIRS",
+                                   int(os.getenv("CONTEXT_KEEP_TOOL_PAIRS", "4"))),
+        ledger_keep_messages=_setting_active(store, "CONTEXT_KEEP_MESSAGES",
+                                             int(os.getenv("CONTEXT_KEEP_MESSAGES", "6"))),
         record=record_ledger,
+        window=budget_window,
+        reserve=budget_reserve,
+        margin_override=budget_margin,
+        utilisation_override=budget_utilisation,
     )
 
     async def before_model_request(ctx, request_context):
@@ -1559,8 +1889,8 @@ async def stream_agent(
                 extra_text="\n\n".join(runtime_facts),
             )
         )
-        output_reserve = output_reserve_tokens()
-        window = context_limit_tokens()
+        output_reserve = budget_reserve
+        window = budget_window
         manifest.update({
             "compaction": ledger.get("compaction"),
             "context_breakdown": breakdown,
@@ -1569,9 +1899,11 @@ async def stream_agent(
             "estimated_total_tokens": estimated + output_reserve,
             "context_limit_tokens": window,
             "output_reserve_tokens": output_reserve,
-            "safety_margin_tokens": safety_margin_tokens(window),
+            "safety_margin_tokens": safety_margin_tokens(window, override=budget_margin),
             "input_budget_tokens": ledger.get("input_budget_tokens")
-            or input_budget_tokens(limit=window, reserve=output_reserve),
+            or input_budget_tokens(limit=window, reserve=output_reserve,
+                                   margin=budget_margin if budget_margin is not None
+                                   else safety_margin_tokens(window)),
             "estimated_input_tokens_before_compaction": ledger.get("estimated_input_tokens_before"),
             "tokens_reclaimed": ledger.get("tokens_reclaimed"),
             "compaction_tiers_applied": ledger.get("compaction_tiers_applied"),
@@ -1739,8 +2071,8 @@ async def stream_agent(
     # The harness pass anchors on provider-reported usage and is a cheap first
     # move; the Runtime pass below is the one that guarantees the final budget
     # and records the accounting, so it must run after it.
-    context_window = context_limit_tokens()
-    reserve = output_reserve_tokens()
+    context_window = budget_window
+    reserve = budget_reserve
     anchor_target = max(
         4000,
         min(
@@ -1757,7 +2089,7 @@ async def stream_agent(
     ))
     capabilities.append(budget_compaction)
     agent = Agent(
-        model=model or _model(),
+        model=model or _model(store),
         instructions=SYSTEM,
         deps_type=AgentDependencies,
         tools=tools,
@@ -1791,7 +2123,7 @@ async def stream_agent(
     standalone_started_calls: dict[str, float] = {}
     result_event = None
     max_requests = max_requests or _setting_value(store, "AGENT_MAX_ROUNDS")
-    model_settings_for_run = _settings() if model is None else None
+    model_settings_for_run = _settings(store) if model is None else None
     review_enabled = continuation_reviewer is not None or (
         model is None and _setting_value(store, "CONTINUATION_REVIEW_ENABLED", True)
     )
@@ -1879,7 +2211,7 @@ async def stream_agent(
         # -- so one tool-less request turns that into an answer for the user instead of
         # a template sentence from the Runtime.
         statement = await _final_statement(
-            model=model or _model(), instructions=SYSTEM, history=history,
+            model=model or _model(store), instructions=SYSTEM, history=history,
             reason=reason, model_settings=model_settings_for_run,
         )
         if statement:
@@ -1911,7 +2243,7 @@ async def stream_agent(
         statement = None
         if deps.final_response_offered_at <= deps.model_request_number:
             statement = await _final_statement(
-                model=model or _model(), instructions=SYSTEM, history=history,
+                model=model or _model(store), instructions=SYSTEM, history=history,
                 reason=reason + _stall_account(deps), model_settings=model_settings_for_run,
             )
         if statement:

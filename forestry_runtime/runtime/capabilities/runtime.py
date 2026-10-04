@@ -1,8 +1,11 @@
 """Capability composition and protocol dispatch for the agent adapter."""
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import shutil
+import tempfile
 from pathlib import Path
 
 from ..kernel.protocol import ToolPreconditionError, execution_failure, normalize_result, parse_arguments
@@ -29,6 +32,16 @@ _SPECS = load_specs()
 _REGISTRY = build_registry(_SPECS)
 install_runtime_registry(_REGISTRY, if_empty=True)
 GENERIC_DEFINITIONS = _REGISTRY.as_legacy_definitions()
+
+#: Tools that change nothing, read from the same declarations the scheduler uses
+#: rather than listed here. Their identical repeat already carries its own answer
+#: (`already_read` from the agent's read cache) or is a legitimate second question
+#: about something still moving (`job_status` while a job runs), so repeating one
+#: is not what repetition feedback is for. A tool that gains a side effect starts
+#: being counted without anyone remembering to edit a list.
+_SIDE_EFFECT_FREE_TOOLS = frozenset(
+    spec.name for spec in _SPECS if spec.side_effect.value == "none"
+)
 
 
 def documents_in_result(name: str, data) -> list[str]:
@@ -83,7 +96,6 @@ class RuntimeTools(
         self.publish_job_status = None
         self.created: list[dict] = []
         self._domain = None
-        self._observations: dict[str, str | None] = {}
         self._knowledge_queries: list[str] = []
         # What this workspace can cite as evidence: one entry per tool call that
         # returned, plus every document body that was actually handed over. The plan
@@ -91,9 +103,36 @@ class RuntimeTools(
         # the guide" checkable rather than rhetorical.
         self.ledger = ObservationLedger(self.workspace / ".runtime" / "observations.json")
         self._work_plan_store = None
+        # The code-intelligence service, when this Run has one. ``None`` is the
+        # normal state: a Run that never asks a code question does not pay for an
+        # index. It is created by the retrieval fabric when code answers are
+        # enabled, and handed back here so file writes can invalidate it -- the one
+        # channel a capability has to a source registered inside the router.
+        self._code_intelligence = None
         self.input_paths = self._materialise_attachments()
 
     # ---------------------------------------------------------------- evidence
+
+    def _invalidate_code_index(self, target) -> None:
+        """A workspace file changed; what the code index says about it is stale.
+
+        Only a service this Run already holds is notified. Creating one here would
+        index the whole workspace on every write -- and would be pointless, because
+        a Run with no index has nothing to invalidate: the first index it ever
+        builds reads the current bytes and is correct by construction. Non-Python
+        files are skipped for the same reason: the symbol index never held them.
+        """
+        service = self._code_intelligence
+        if service is None:
+            return
+        if str(getattr(target, "suffix", "")).casefold() != ".py":
+            return
+        try:
+            service.invalidate(str(target))
+        except Exception:
+            # Stale code answers are worse than none but never worse than a failed
+            # write: the edit succeeded, and the index must not take that down.
+            pass
 
     def record_observation(self, name: str, arguments: dict, result: dict) -> dict:
         """Issue an observation id for a call that returned, and attach it.
@@ -113,18 +152,88 @@ class RuntimeTools(
         failure = result.get("failure") if isinstance(result, dict) else None
         if not summary and isinstance(failure, dict):
             summary = f"failure={failure.get('code')}"
-        identifier = self.ledger.record(
+        identifier, occurrences = self.ledger.record_with_occurrences(
             name, arguments or {}, ok=bool(result.get("ok")) if isinstance(result, dict) else False,
             summary=summary, documents=documents,
         )
         if isinstance(result, dict):
             # Always at the top level, so a refusal carries a citable id too -- "this
             # file is not a GeoTIFF" is an observation a plan may rest on -- and again
-            # inside `data` when there is one, where a rendered result shows it.
+            # inside `data` when there is one, where a result rendered shows it.
             result["observation_id"] = identifier
             if isinstance(result.get("data"), dict):
                 result["data"].setdefault("observation_id", identifier)
+            repeat = self._repetition_note(name, identifier, occurrences, result)
+            if repeat is not None:
+                result["repeat"] = repeat
+                if isinstance(result.get("data"), dict):
+                    result["data"].setdefault("repeat", repeat)
+        if isinstance(result, dict) and result.get("ok"):
+            # Settle the plan here, not only when the model next calls `work_plan`.
+            # Settlement used to wait for the model to revise its own plan, so a
+            # requirement whose evidence already existed stayed open until the model
+            # remembered to look -- and a model that believed it was done had every
+            # reason not to look. A failed call settles nothing: it is a fact, not a
+            # completion.
+            self._settle_requirements()
         return result
+
+    @staticmethod
+    def _repetition_note(name: str, identifier: str, occurrences: int, result: dict) -> dict | None:
+        """Tell a repeated successful call that it is a repeat -- nothing more.
+
+        The case this fills is the one that had no feedback at all. A repeated
+        *failed* call is declined by the failure preflight, and a repeated read is
+        answered from the Run's own cache with `already_read`. But a call that
+        succeeded and is issued again byte-for-byte was answered "ok" every time,
+        so from inside the Run each repetition looked indistinguishable from the
+        first: in one Run a 4b model wrote the same report to the same path
+        nineteen times and never once read a line saying it had already been
+        written, until the request budget ran out and the Run stopped for a
+        reason unrelated to the work.
+
+        Refusing the second write would be wrong -- writing the same bytes twice
+        is sometimes exactly what a Run intends, and only the model knows whether
+        it meant to change something. So nothing is declined and no Run is paused;
+        what changes is that the loop can no longer be invisible. A write whose
+        bytes differ gets a different observation id, so it is never counted here.
+        """
+        if occurrences < 2 or not (isinstance(result, dict) and result.get("ok")):
+            return None
+        if name in _SIDE_EFFECT_FREE_TOOLS:
+            # See the note on the constant: these already carry their own answer.
+            return None
+        return {
+            "count": occurrences,
+            "observation_id": identifier,
+            "note": (
+                f"重复调用：本次调用（工具与参数完全相同）在本 Run 中已成功执行 "
+                f"{occurrences} 次，结果已记账为 {identifier}。再执行一次会得到完全相同的"
+                f"结果，也不会对目标产生任何新的改变。若你期望的变化没有发生，需要改变的是"
+                f"参数内容；否则请直接引用上面的 observation_id 继续后续步骤，不要再重复本调用。"
+            ),
+        }
+
+    def _settle_requirements(self) -> None:
+        """Re-settle plan requirements from the evidence this Run now holds.
+
+        Best effort and silent on absence: most Runs have no plan, and an
+        observational bookkeeping failure must never fail the tool call that
+        produced the evidence.
+        """
+        plan_store = getattr(self, "_plan_store", None)
+        if not callable(plan_store):
+            return
+        try:
+            store = plan_store()
+            plan = store.load()
+            if not plan.requirements:
+                return
+            if not any(item.get("status") != "satisfied" for item in plan.requirements):
+                return
+            store.settle_requirements()
+        except Exception:
+            return
 
     # An uploaded asset is stored *beside* the workspace, and a job container mounts
     # only the workspace. Without the copy below every raster, archive or binary the
@@ -135,8 +244,29 @@ class RuntimeTools(
     # budget walking the filesystem looking for a file that was never mounted.
     # Materialising attachments into one obvious directory is what makes an
     # attachment and a workspace file the same thing to the agent.
+    @staticmethod
+    def _content_digest(path: Path) -> str:
+        """SHA-256 of a file, streamed so a large raster is never loaded whole."""
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+
     def _materialise_attachments(self) -> dict[str, str]:
-        """Copy this chat's attached assets to ``<workspace>/inputs/`` once."""
+        """Copy this chat's attached assets to ``<workspace>/inputs/<asset_id>/`` once.
+
+        The target path is derived from the asset id, not the file name, so two
+        attachments that share a name -- or a name and a size -- cannot collide, and
+        the mapping is stable across turns and enumeration order: the name never
+        carries the identity of the content. A manifest records each asset's id,
+        content hash, target path and size. Reuse is decided by comparing the
+        recorded identity and size against the source (the asset is immutable per id,
+        so the hash is recorded for provenance rather than recomputed every turn); a
+        fresh copy goes through a temporary file and an atomic rename so an
+        interrupted copy never leaves a half-written file the agent then reads as the
+        attachment.
+        """
         if not self.allowed:
             return {}
         directory = self.workspace / "inputs"
@@ -144,8 +274,15 @@ class RuntimeTools(
             directory.mkdir(parents=True, exist_ok=True)
         except OSError:
             return {}
+        manifest_path = directory / ".manifest.json"
+        manifest: dict = {}
+        try:
+            data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                manifest = data
+        except (OSError, ValueError):
+            manifest = {}
         placed: dict[str, str] = {}
-        taken: set[str] = set()
         for asset_id in sorted(self.allowed):
             try:
                 asset = self.store.get(asset_id, self.owner)
@@ -157,23 +294,37 @@ class RuntimeTools(
             name = str(asset.get("name") or source.name).replace("\\", "/").rsplit("/", 1)[-1]
             if not name or name in {".", ".."}:
                 name = asset_id
-            if name.casefold() in taken:
-                name = f"{asset_id[-8:]}-{name}"
-            taken.add(name.casefold())
-            target = directory / name
+            relative = f"inputs/{asset_id}/{name}"
+            target = directory / asset_id / name
+            previous = manifest.get(asset_id) or {}
+            if (
+                previous.get("path") == relative
+                and target.is_file()
+                and target.stat().st_size == source.stat().st_size
+            ):
+                placed[asset_id] = relative
+                continue
+            digest = self._content_digest(source)
             try:
-                # Size comparison keeps this idempotent across turns without hashing
-                # a multi-hundred-megabyte raster on every model request.
-                if not target.is_file() or target.stat().st_size != source.stat().st_size:
-                    shutil.copyfile(source, target)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                fd, tmp_name = tempfile.mkstemp(dir=str(target.parent), prefix=".tmp-")
+                os.close(fd)
+                shutil.copyfile(source, tmp_name)
+                os.replace(tmp_name, target)
             except OSError:
                 continue
-            placed[asset_id] = f"inputs/{name}"
+            manifest[asset_id] = {
+                "asset_id": asset_id, "name": name, "hash": digest,
+                "path": relative, "size": source.stat().st_size,
+            }
+            placed[asset_id] = relative
+        try:
+            manifest_path.write_text(
+                json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        except OSError:
+            pass
         return placed
-
-    @staticmethod
-    def _call_key(name: str, arguments: dict) -> str:
-        return name + ":" + json.dumps(arguments, ensure_ascii=False, sort_keys=True)
 
     @staticmethod
     def _version(path: Path) -> str:
@@ -181,11 +332,15 @@ class RuntimeTools(
         return f"{stat.st_size}:{stat.st_mtime_ns}"
 
     def observation_key(self, name: str, arguments: dict) -> str | None:
+        """A version-bearing identity for a read, recomputed on every call.
+
+        The version is the file's current size and mtime, so a read of a changed
+        file -- or of a file that has since been deleted -- yields a different key.
+        The key is deliberately not memoised: caching the first version would lock a
+        later identical read to the stale identity of a file that has since moved.
+        """
         if name not in {"fs_read", "fs_list", "fs_search", "tool_result_read"}:
             return None
-        call_key = self._call_key(name, arguments)
-        if call_key in self._observations:
-            return self._observations[call_key]
         values = dict(arguments)
         if name == "tool_result_read":
             result_id = str(values.get("result_id") or "")
@@ -247,8 +402,6 @@ class RuntimeTools(
             with self.store.operation():
                 data = getattr(self, name)(**values)
             result = {"ok": True, "data": data}
-            if name in {"fs_read", "fs_list", "fs_search", "tool_result_read"}:
-                self._observations[self._call_key(name, values)] = self.observation_key(name, values)
             if changes:
                 result["argument_normalization"] = changes
             result = normalize_result(result)

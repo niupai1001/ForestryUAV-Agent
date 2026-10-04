@@ -11,16 +11,23 @@ to break:
 * a semantic verdict that failed can never yield ``verified_complete``, even when the
   caller asks for it;
 * structure with no semantic truth value is ``delivered_unverified``, including when
-  the verifier blew up, and including when no verifier exists at all.
+  the verifier blew up, and including when no verifier exists at all;
+* a passing check against the producer's *own declaration* is still not
+  ``verified_complete`` -- self-consistency is agreement between copies, not truth.
+  Only facts carrying task truth (``task_truth=True``) may reach it, which for a
+  real Run is never the case: the Runtime holds no gold reference.
 """
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from runtime.agent import _artifact_path, _verification_payload
+from runtime.agent import (
+    _artifact_path, _verification_feedback, _verification_payload,
+)
 from runtime.storage import Store
 from runtime.verification import (
     Check, RunFacts, STATE_FAILED, STATE_UNVERIFIED, STATE_VERIFIED,
@@ -103,7 +110,7 @@ class ClampTest(unittest.TestCase):
         self.assertEqual(clamp(STATE_VERIFIED, report), STATE_UNVERIFIED)
 
     def test_a_verified_report_may_be_claimed_as_verified(self) -> None:
-        report = _service("passed").evaluate(_facts())
+        report = _service("passed").evaluate(_facts(task_truth=True))
         self.assertEqual(report.state, STATE_VERIFIED)
         self.assertEqual(clamp(STATE_VERIFIED, report), STATE_VERIFIED)
 
@@ -120,9 +127,19 @@ class StateTest(unittest.TestCase):
         self.assertTrue(any("no verifier" in reason for reason in report.reasons))
 
     def test_a_passing_verifier_reaches_verified_complete(self) -> None:
-        report = _service("passed").evaluate(_facts())
+        report = _service("passed").evaluate(_facts(task_truth=True))
         self.assertEqual(report.state, STATE_VERIFIED)
         self.assertTrue(report.verified)
+
+    def test_a_passing_verifier_without_task_truth_stays_unverified(self) -> None:
+        """The verifier's verdict is real, but what it checked was agreement with
+        the producer's declaration. Without task truth the honest state is the
+        middle one, whatever the score."""
+        report = _service("passed").evaluate(_facts())
+        self.assertEqual(report.state, STATE_UNVERIFIED)
+        self.assertTrue(any(
+            "self-consistency" in reason or "task truth" in reason
+            for reason in report.reasons), report.reasons)
 
     def test_a_failed_tool_call_makes_the_run_failed(self) -> None:
         report = _service("passed").evaluate(_facts(tool_failures=["code_run"]))
@@ -276,16 +293,22 @@ class RunReportingTest(unittest.TestCase):
         )
         self.assertEqual(payload["state"], STATE_FAILED)
 
-    def test_a_declared_product_can_reach_verified_complete(self) -> None:
-        """End to end: a declared GeoTIFF can now actually be verified."""
+    def test_a_declared_product_without_task_truth_is_not_reported_complete(self) -> None:
+        """End to end: a declared GeoTIFF that matches its own declaration is
+        self-consistent, and the Runtime still reports ``delivered_unverified``
+        because nothing compared it against the task. Reaching
+        ``verified_complete`` requires truth the Runtime does not have."""
         asset = dict(self._asset())
         asset["metadata"] = {"semantics": {
             "quantity": "canopy_candidate_mask", "kind": "mask",
             "valid_range": [0.0, 1.0], "fractions": {"canopy": 0.25},
         }}
         payload = _verification_payload(self._box([asset]), self._deps())
-        self.assertEqual(payload["state"], STATE_VERIFIED, payload["reasons"])
-        self.assertTrue(payload["verified"])
+        self.assertEqual(payload["state"], STATE_UNVERIFIED, payload["reasons"])
+        self.assertFalse(payload["verified"])
+        self.assertTrue(any(
+            "task truth" in reason or "self-consistency" in reason
+            for reason in payload["reasons"]), payload["reasons"])
 
     def test_a_turn_that_delivered_nothing_reports_no_verification_state(self) -> None:
         self.assertIsNone(
@@ -297,6 +320,18 @@ class RunReportingTest(unittest.TestCase):
         deps = self._deps([{"tool": "code_run", "ok": False, "code": "runtime_error"}])
         payload = _verification_payload(self._box([self._asset()]), deps)
         self.assertEqual(payload["state"], STATE_FAILED)
+
+    def test_a_failure_recovered_by_a_later_success_no_longer_fails(self) -> None:
+        """The execution layer is about how the run *ended*, not every stumble:
+        the same tool succeeding after a failure is the strongest fact available
+        that the failure stopped mattering, so the ledger's history must not hold
+        the final state hostage to it."""
+        deps = self._deps([
+            {"tool": "code_run", "ok": False, "code": "runtime_error"},
+            {"tool": "code_run", "ok": True, "summary": "path=canopy_mask.tif"},
+        ])
+        payload = _verification_payload(self._box([self._asset()]), deps)
+        self.assertEqual(payload["state"], STATE_UNVERIFIED, payload["reasons"])
 
     def test_a_declined_repeat_call_is_reported_as_failed(self) -> None:
         deps = self._deps([{"tool": "fs_read", "ok": False,
@@ -321,7 +356,7 @@ class ReportShapeTest(unittest.TestCase):
         self.assertTrue(any("verifier" in action for action in report.next_actions))
 
     def test_the_report_is_serialisable_by_layer(self) -> None:
-        payload = _service("passed").evaluate(_facts()).as_dict()
+        payload = _service("passed").evaluate(_facts(task_truth=True)).as_dict()
         self.assertEqual(set(payload["layers"]), {"execution", "structural", "semantic"})
         self.assertTrue(payload["verified"])
 
@@ -405,13 +440,19 @@ class RealProductWiringTest(unittest.TestCase):
         resolved = _artifact_path(self._box([]), asset)
         self.assertTrue(resolved and Path(resolved).is_file(), resolved)
 
-    def test_a_product_created_by_the_runtime_is_verified_not_just_delivered(self) -> None:
+    def test_a_product_created_by_the_runtime_is_self_consistent_still_unverified(self) -> None:
+        """The store resolves the real path, the declaration is held to, the file
+        matches it -- and the state is still the middle one, because the Runtime
+        holds no task truth. That is the honest ceiling for a real Run."""
         created = self._created()
         payload = _verification_payload(
             self._box(created), SimpleNamespace(observation_log=[], pause_blocker=None),
         )
         self.assertIsNotNone(payload, "verification produced no payload at all")
-        self.assertEqual(payload["state"], STATE_VERIFIED, payload["reasons"])
+        self.assertEqual(payload["state"], STATE_UNVERIFIED, payload["reasons"])
+        self.assertTrue(any(
+            "self-consistency" in reason or "task truth" in reason
+            for reason in payload["reasons"]), payload["reasons"])
 
     def test_a_claim_the_file_contradicts_is_failed_not_verified(self) -> None:
         created = self._created()
@@ -420,6 +461,92 @@ class RealProductWiringTest(unittest.TestCase):
             self._box(created), SimpleNamespace(observation_log=[], pause_blocker=None),
         )
         self.assertEqual(payload["state"], STATE_FAILED, payload["reasons"])
+
+
+class FeedbackLoopTest(unittest.TestCase):
+    """The repair half of verification: failures reach the model while it can act.
+
+    A verdict delivered only in the terminal event is an honest report nobody can
+    use -- the Run is over, there is no next request to fix anything in. These
+    tests pin the per-request hook: a fixable failure is handed back with its
+    actions, once per distinct failure set, and a failure the Run already
+    recovered from is not reported at all.
+    """
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.product = Path(self.temp.name) / "result.txt"
+        self.product.write_text("ok", encoding="utf-8")
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def _box(self):
+        return SimpleNamespace(
+            chat_id="chat",
+            owner="alice",
+            created=[{"id": "as_9", "name": "result.txt", "path": str(self.product)}],
+            workspace=Path(self.temp.name),
+            attachment_context=lambda: [],
+            workspaces=SimpleNamespace(list_grants=lambda owner, chat_id: []),
+        )
+
+    def _deps(self, log):
+        return SimpleNamespace(
+            observation_log=log, pause_blocker=None, verification_reported="",
+        )
+
+    def test_an_unrecovered_failure_is_handed_back_with_actions(self) -> None:
+        deps = self._deps([{"tool": "code_run", "ok": False, "code": "runtime_error"}])
+        feedback = _verification_feedback(self._box(), deps)
+        payload = feedback()
+        self.assertIsNotNone(payload)
+        self.assertIn("no_failed_tool_calls", payload["fixing"])
+        self.assertTrue(payload["next_actions"], "a fix without a next action is a dead end")
+
+    def test_the_same_failure_set_is_injected_once(self) -> None:
+        deps = self._deps([{"tool": "code_run", "ok": False, "code": "runtime_error"}])
+        feedback = _verification_feedback(self._box(), deps)
+        self.assertIsNotNone(feedback())
+        self.assertIsNone(feedback(),
+                          "an unchanged report repeated every request is noise")
+
+    def test_a_recovered_failure_is_not_reported(self) -> None:
+        deps = self._deps([
+            {"tool": "code_run", "ok": False, "code": "runtime_error"},
+            {"tool": "code_run", "ok": True, "summary": "path=result.txt"},
+        ])
+        feedback = _verification_feedback(self._box(), deps)
+        self.assertIsNone(feedback())
+
+    def test_no_artifact_and_no_failure_is_silence(self) -> None:
+        box = self._box()
+        box.created = []
+        feedback = _verification_feedback(box, self._deps([]))
+        self.assertIsNone(feedback(),
+                          "a run with nothing to fix owes the model no feedback")
+
+    def test_compile_carries_the_feedback_then_deduplicates(self) -> None:
+        from runtime.context import ContextCompiler
+
+        deps = self._deps([{"tool": "code_run", "ok": False, "code": "runtime_error"}])
+        box = self._box()
+        compiler = ContextCompiler(box, verification=_verification_feedback(box, deps))
+
+        def facts_of(parts):
+            return next(
+                json.loads(part.split("\n", 1)[1]) for part in parts
+                if part.startswith("Runtime facts")
+            )
+
+        parts, manifest, _ = compiler.compile("q", [], 1)
+        first = facts_of(parts)
+        self.assertIn("verification", first)
+        self.assertIn("no_failed_tool_calls", first["verification"]["fixing"])
+        self.assertTrue(manifest["verification_feedback"])
+        parts, manifest, _ = compiler.compile("q", [], 1)
+        self.assertNotIn("verification", facts_of(parts))
+        self.assertFalse(manifest["verification_feedback"])
 
 
 if __name__ == "__main__":

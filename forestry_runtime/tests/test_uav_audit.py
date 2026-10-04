@@ -139,6 +139,11 @@ class UavAuditTests(unittest.TestCase):
             )
             self.assertEqual(len(result["acquisition_groups"]), 3)
             self.assertIn("保持独立", result["separation_rule"])
+            # The manifest walked every file under this folder and may claim
+            # completeness of that scope; it may not claim the observation as a
+            # whole is complete -- unrecognised roles stay outside the claim.
+            self.assertTrue(result["scope_complete"])
+            self.assertNotIn("observation_complete", result)
 
 
 if __name__ == "__main__":

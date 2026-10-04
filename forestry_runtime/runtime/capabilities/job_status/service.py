@@ -128,13 +128,41 @@ class JobStatusCapability:
             result.setdefault("exit_code", None)
         if result.get("state") == "failed":
             library = missing_shared_library(str(result.get("output") or ""))
-            result["job_failure"] = {
-                "reason": "missing_env" if library else "unknown",
-                "code": "missing_shared_library" if library else "job_failed",
-                "exit_code": result.get("exit_code"),
-                **({"missing": [{"kind": "shared_library", "name": library}]}
-                   if library else {}),
-            }
+            limits = result.get("limits") or {}
+            ceiling = limits.get("memory_human") or "容器的内存上限"
+            if result.get("oom_killed"):
+                # The process was killed before it could print anything, so the
+                # log carries no cause and the exit code (137) is shared with any
+                # other SIGKILL. Naming the limit is the difference between the
+                # model rewriting the algorithm and retrying the same one.
+                result["job_failure"] = {
+                    "reason": "out_of_memory",
+                    "code": "container_memory_limit",
+                    "exit_code": result.get("exit_code"),
+                    "limit": limits,
+                    "message": (
+                        f"作业因超出内存上限被杀死（OOM，退出码 "
+                        f"{result.get('exit_code')}），容器内存上限为 {ceiling}。"
+                        "这不是环境问题，是这段代码一次持有的数据超过了上限："
+                        "请分块处理、只保留需要的字段、避免先把全部要素合并成一个"
+                        "几何对象再做大半径 buffer，并在每步之后释放中间变量。"
+                        "不要原样重试。"
+                    ),
+                }
+            elif library:
+                result["job_failure"] = {
+                    "reason": "missing_env",
+                    "code": "missing_shared_library",
+                    "exit_code": result.get("exit_code"),
+                    "missing": [{"kind": "shared_library", "name": library}],
+                }
+            else:
+                result["job_failure"] = {
+                    "reason": "unknown",
+                    "code": "job_failed",
+                    "exit_code": result.get("exit_code"),
+                    **({"limit": limits} if limits else {}),
+                }
         return result
 
     def _publish_status(self, result: dict) -> None:
@@ -154,6 +182,40 @@ class JobStatusCapability:
 
     # ------------------------------------------------------------------- tools
 
+    def _finalize_observation(self, job_id: str, result: dict, *, explicit: bool, cursor: int) -> dict:
+        """Decorate and register an already-obtained status observation.
+
+        ``job_status`` and ``job_wait`` both obtain a raw status dict from the
+        bridge. This turns that dict into the tool's public answer -- decorating the
+        failure fields, recording the cursor, and (on terminal) registering the job's
+        artifacts -- *without touching the host again*. ``job_wait`` depends on this:
+        its last observation is already in hand, and re-polling through ``job_status``
+        would advance the cursor past the log tail the wait just delivered and then
+        overwrite that tail with the merged output.
+        """
+        result = self._decorate(job_id, result)
+        result["cursor"] = {
+            "requested_offset": cursor,
+            "next_offset": int(result.get("offset", cursor)),
+            "explicit": explicit,
+            "replay_available": True,
+        }
+        if not explicit:
+            self._set_cursor(job_id, int(result.get("offset", cursor)), state=result.get("state"))
+        if result.get("terminal"):
+            result["artifacts"] = self._register_job_artifacts(job_id)
+            if result.get("job_type") == "install":
+                manifest = self.workspace / ".runtime" / "deps" / "installed-packages.json"
+                if manifest.is_file():
+                    try:
+                        result["installed_packages"] = json.loads(
+                            manifest.read_text(encoding="utf-8")
+                        )[:500]
+                    except ValueError:
+                        result["installed_packages"] = None
+        self._publish_status(result)
+        return result
+
     def job_status(self, job_id, offset=None, wait_seconds=0):
         """Poll once. Without an explicit offset, continue from the saved cursor."""
         explicit = offset is not None
@@ -169,28 +231,7 @@ class JobStatusCapability:
                 break
             time.sleep(min(2, max(0, deadline - time.monotonic())))
         self.records.update(job_id, result["state"])
-        result = self._decorate(job_id, result)
-        result["cursor"] = {
-            "requested_offset": cursor,
-            "next_offset": int(result.get("offset", cursor)),
-            "explicit": explicit,
-            "replay_available": True,
-        }
-        if not explicit:
-            self._set_cursor(job_id, int(result.get("offset", cursor)), state=result.get("state"))
-        if result["terminal"]:
-            result["artifacts"] = self._register_job_artifacts(job_id)
-            if result.get("job_type") == "install":
-                manifest = self.workspace / ".runtime" / "deps" / "installed-packages.json"
-                if manifest.is_file():
-                    try:
-                        result["installed_packages"] = json.loads(
-                            manifest.read_text(encoding="utf-8")
-                        )[:500]
-                    except ValueError:
-                        result["installed_packages"] = None
-        self._publish_status(result)
-        return result
+        return self._finalize_observation(job_id, result, explicit=explicit, cursor=cursor)
 
     def job_wait(self, job_id, timeout_seconds=300, offset=None):
         """Wait inside this tool call until the job settles or the budget expires.
@@ -238,14 +279,18 @@ class JobStatusCapability:
         combined = "".join(chunks)
         if not combined:
             combined = result.get("output") or ""
-        # `job_status` builds a fresh status dict, so the outcome observed during
-        # the wait has to be carried across explicitly rather than inferred later.
         timed_out = bool(result.get("wait_timed_out"))
-        # Re-read through `job_status` for cursor, artifacts and manifest handling.
-        latest = self.job_status(job_id, offset=cursor)
-        latest["output"] = combined
-        latest = self._decorate(job_id, latest)
-        latest["offset"] = max(cursor, int(latest.get("offset", cursor)))
+        # If the wait was interrupted before the first poll, `result` is still empty;
+        # give the observation the keys a status dict always carries so the caller
+        # reads a non-terminal, still-running answer instead of a KeyError.
+        result.setdefault("terminal", False)
+        result.setdefault("state", "running")
+        # `result` is the wait loop's last observation and already holds the terminal
+        # state and offset. Finalize from it directly; re-polling through `job_status`
+        # would advance the cursor past the log tail the loop just delivered and then
+        # overwrite that tail with `combined`, permanently skipping it.
+        result["output"] = combined
+        latest = self._finalize_observation(job_id, result, explicit=False, cursor=cursor)
         latest["waited_seconds"] = round(timeout - max(0.0, deadline - time.monotonic()), 3)
         latest["wait_timeout_seconds"] = timeout
         latest["log_chars"] = len(combined)

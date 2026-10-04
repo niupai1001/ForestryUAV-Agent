@@ -105,14 +105,31 @@ class RepeatedReadTests(unittest.TestCase):
         self.assertNotIn("already_read", again["data"])
 
     def test_a_new_environment_reopens_the_read(self):
-        toolbox = _ReadToolbox("environment_check", {"modules": []})
+        toolbox = _ReadToolbox("fs_read", {"text": "a"})
         deps = _deps(toolbox)
-        _call(deps, "environment_check", {"modules": ["rasterio"]})
+        _call(deps, "fs_read", {"path": "notes.txt"})
         # An install landed; the same question now has a different answer.
         deps.environment_generation += 1
-        again = _call(deps, "environment_check", {"modules": ["rasterio"]})
+        again = _call(deps, "fs_read", {"path": "notes.txt"})
         self.assertEqual(toolbox.executions, 2)
         self.assertNotIn("already_read", again["data"])
+
+    def test_job_and_environment_observations_are_never_cached(self):
+        """A job or the environment can move without a generation bump, so a
+        repeat must re-observe the host rather than be served from the cache."""
+        for tool, args in (
+            ("job_status", {"job_id": "job_abc"}),
+            ("job_wait", {"job_id": "job_abc", "timeout_seconds": 1}),
+            ("environment_check", {"modules": ["rasterio"]}),
+        ):
+            with self.subTest(tool=tool):
+                toolbox = _ReadToolbox(tool, {"state": "running"})
+                deps = _deps(toolbox)
+                first = _call(deps, tool, args)
+                self.assertNotIn("already_read", first["data"], tool)
+                second = _call(deps, tool, args)
+                self.assertNotIn("already_read", second["data"], tool)
+                self.assertEqual(toolbox.executions, 2, tool)
 
     def test_a_write_tool_is_never_answered_from_the_record(self):
         """Side effects must still happen: the guard covers reads only."""
@@ -120,21 +137,34 @@ class RepeatedReadTests(unittest.TestCase):
             with self.subTest(tool=tool):
                 self.assertNotIn(tool, PURE_READ_TOOLS)
 
-    def test_repeated_reads_end_the_turn_with_an_explanation(self):
-        """A stuck model is stopped, and the reason names what it repeated."""
+    def test_repeated_reads_keep_returning_the_marker_without_stopping(self):
+        """The repeat is denied its payload every time; the Run is not stopped.
+
+        The marker answers cheaply and names what was already read, so a stuck
+        loop costs short answers rather than re-sent bodies. The count-based
+        pause was removed as a hard constraint with no safety content -- the
+        request budget, not a counter, bounds how long the loop may continue.
+        """
         toolbox = _ReadToolbox("domain_guide", {"content": GUIDE})
         deps = _deps(toolbox)
-        for _ in range(5):
-            _call(deps, "domain_guide", {"guide_id": "rgb-canopy-cover"})
-        self.assertIsNotNone(deps.pause_reason)
-        self.assertEqual(deps.pause_blocker, "repeated_read")
-        self.assertIn("重复", deps.pause_reason)
+        first = _call(deps, "domain_guide", {"guide_id": "rgb-canopy-cover"})
+        self.assertNotIn("already_read", first["data"])
+        for _ in range(4):
+            answer = _call(deps, "domain_guide", {"guide_id": "rgb-canopy-cover"})
+            self.assertIn("already_read", answer["data"])
+        self.assertIsNone(deps.pause_reason)
+        self.assertIsNone(deps.pause_blocker)
 
     def test_the_guard_covers_every_pure_read_tool(self):
         """The set is derived from the declarations, so it cannot drift."""
         self.assertIn("domain_guide", PURE_READ_TOOLS)
         self.assertIn("knowledge_search", PURE_READ_TOOLS)
-        self.assertIn("job_status", PURE_READ_TOOLS)
+        # Job observations and the environment check are live questions: their
+        # answer can move without a generation bump, so they are excluded from the
+        # read cache and must re-observe the host every time.
+        self.assertNotIn("job_status", PURE_READ_TOOLS)
+        self.assertNotIn("job_wait", PURE_READ_TOOLS)
+        self.assertNotIn("environment_check", PURE_READ_TOOLS)
 
     def test_a_failed_read_is_not_recorded_as_served(self):
         class _Failing:

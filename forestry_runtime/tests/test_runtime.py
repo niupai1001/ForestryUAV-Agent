@@ -400,6 +400,12 @@ class RuntimeTests(unittest.TestCase):
         )
         self.assertTrue(all(item['projected_crs'] for item in data['products']))
         self.assertIn('seamlines', data['visual_review_required'])
+        # The report claims completeness of its *scope* (metadata and a bounded
+        # pixel sample), not of the observation as a whole -- the old
+        # observation_complete claim was contradicted by the report's own
+        # accuracy_boundary.
+        self.assertTrue(data['scope_complete'])
+        self.assertNotIn('observation_complete', data)
 
     def test_zip_text_and_validation(self):
         for name, valid in [('folder/readme.txt', True), ('../escape.txt', False), ('C:\\escape.txt', False)]:

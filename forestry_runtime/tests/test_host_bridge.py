@@ -8,7 +8,29 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from host_bridge.server import Service, dependency_install_command
+from host_bridge.server import Service, _container_limits, dependency_install_command
+
+
+class ContainerLimitsTests(unittest.TestCase):
+    """A job that does not know its own ceiling cannot read an OOM as a verdict."""
+
+    def test_limit_is_reported_in_bytes_and_in_words(self):
+        limits = _container_limits({
+            "HostConfig": {
+                "Memory": 16 * 2**30, "NanoCpus": 4_000_000_000, "PidsLimit": 256,
+            }
+        })
+        self.assertEqual(limits["memory_bytes"], 16 * 2**30)
+        self.assertEqual(limits["memory_human"], "16.0 GiB")
+        self.assertEqual(limits["cpus"], 4.0)
+        self.assertEqual(limits["pids_limit"], 256)
+
+    def test_absent_limit_is_reported_as_none_not_zero(self):
+        # Zero would read as "no memory allowed", which is a different claim.
+        limits = _container_limits({"HostConfig": {}})
+        self.assertIsNone(limits["memory_bytes"])
+        self.assertIsNone(limits["memory_human"])
+        self.assertIsNone(limits["cpus"])
 
 
 class HostBridgeTests(unittest.TestCase):

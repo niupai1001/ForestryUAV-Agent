@@ -165,5 +165,142 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(store.all()[0].occurrences, 2)
 
 
+class VersionPersistenceTests(unittest.TestCase):
+    """The version table must survive the process, like the records do.
+
+    A resumed Run builds a fresh preflight; a version table that reset to zero
+    with it would unlock every recorded failure whose version sat above zero --
+    the restart-shaped twin of the old global-generation defect.
+    """
+
+    def test_versions_survive_a_new_preflight_over_the_same_workspace(self):
+        store, root = _store()
+        pre = FailurePreflight(store)  # store-backed versions, written through
+        pre.record("fs_read", {"path": "C:/flight/A"}, _failure("path_not_found"))
+        self.assertEqual(pre.check("fs_read", {"path": "C:/flight/A"}).action, "decline")
+        pre.observe({"path": "C:/flight/A"})
+        self.assertEqual(pre.check("fs_read", {"path": "C:/flight/A"}).action, "execute")
+        reopened = FailurePreflight(FailureStore(root))
+        self.assertEqual(
+            reopened.check("fs_read", {"path": "C:/flight/A"}).action, "execute",
+        )
+
+    def test_clearing_records_keeps_the_versions(self):
+        store, _ = _store()
+        pre = FailurePreflight(store)
+        pre.record("fs_read", {"path": "C:/flight/A"}, _failure("path_not_found"))
+        pre.observe({"path": "C:/flight/A"})
+        store.clear()
+        self.assertEqual(store.versions.version_of("path:c:\\flight\\a"), "1")
+
+
+class EnvironmentFactTests(unittest.TestCase):
+    """A proven environment fact must move the resource it proved, not just ``*``."""
+
+    def test_environment_check_modules_are_structured_resources(self):
+        refs = resources_of({"modules": ["sklearn"]})
+        self.assertEqual(len(refs), 1)
+        self.assertEqual(refs[0].kind, "module")
+        self.assertEqual(refs[0].key, "sklearn")
+
+    def test_an_import_check_reopens_module_failures(self):
+        """Acceptance: after a verified install, the blocked import runs."""
+        pre = FailurePreflight(FailureStore(Path(tempfile.mkdtemp())))
+        failed = _failure("unverified_module", stage="preconditions",
+                          unverified_modules=["sklearn"])
+        pre.record("code_run", {"language": "python", "code": "import sklearn"}, failed)
+        self.assertEqual(pre.check("code_run", {"language": "python", "code": "import sklearn"}).action, "decline")
+        pre.observe_success(
+            "environment_check", {"modules": ["sklearn"]},
+            {"data": {"importable": ["sklearn"]}},
+        )
+        self.assertEqual(
+            pre.check("code_run", {"language": "python", "code": "import sklearn"}).action,
+            "execute",
+        )
+
+    def test_a_verified_install_reopens_distribution_failures(self):
+        pre = FailurePreflight(FailureStore(Path(tempfile.mkdtemp())))
+        failed = _failure("dependency_missing", stage="preconditions",
+                          missing_from_manifest=["gdal"])
+        pre.record("dependency_install", {"packages": ["gdal"]}, failed)
+        self.assertEqual(
+            pre.check("dependency_install", {"packages": ["gdal"]}).action, "decline",
+        )
+        pre.observe_success(
+            "dependency_install", {"packages": ["gdal"]},
+            {"data": {"verification": {"succeeded": True, "installed_packages": ["gdal"]}}},
+        )
+        self.assertEqual(
+            pre.check("dependency_install", {"packages": ["gdal"]}).action, "execute",
+        )
+
+
+class SignatureScopeTests(unittest.TestCase):
+    """Authored content is not part of a strategy; the resource it touches is."""
+
+    def test_a_line_number_change_does_not_bypass_the_block(self):
+        """The audit's repro: same failure, script edited cosmetically, still blocked."""
+        pre = FailurePreflight(FailureStore(Path(tempfile.mkdtemp())))
+        failed = _failure("unverified_module", stage="preconditions",
+                          unverified_modules=["sklearn"])
+        first = {"language": "python", "code": "import sklearn\nmodel = sklearn.svm.SVC()"}
+        pre.record("code_run", first, failed)
+        self.assertEqual(pre.check("code_run", first).action, "decline")
+        edited = {"language": "python",
+                  "code": "\nimport sklearn  # attempt 2\nmodel = sklearn.svm.SVC()"}
+        self.assertEqual(pre.check("code_run", edited).action, "decline")
+
+    def test_an_unrelated_code_run_is_not_blocked_by_an_anchored_failure(self):
+        """Dropping the code text must not let one failed script block every script."""
+        pre = FailurePreflight(FailureStore(Path(tempfile.mkdtemp())))
+        failed = _failure("unverified_module", stage="preconditions",
+                          unverified_modules=["sklearn"])
+        pre.record("code_run", {"language": "python", "code": "import sklearn"}, failed)
+        other = {"language": "python", "code": "print('hello')"}
+        self.assertEqual(pre.check("code_run", other).action, "execute")
+
+    def test_a_generic_failure_only_blocks_the_identical_call(self):
+        """A failure about nothing in particular anchors on byte-identity."""
+        pre = FailurePreflight(FailureStore(Path(tempfile.mkdtemp())))
+        failed = _failure("weird_new_thing", stage="execution")
+        args = {"language": "python", "code": "x = 1 / 0"}
+        pre.record("code_run", args, failed)
+        # One free retry: the first failure is information, and model_decides means
+        # the model, not the Runtime, concludes from it.
+        self.assertEqual(pre.check("code_run", args).action, "execute")
+        pre.record("code_run", args, failed)  # folds into the same record
+        self.assertEqual(pre.check("code_run", args).action, "decline")
+        other = {"language": "python", "code": "y = 2 + 2"}
+        self.assertEqual(pre.check("code_run", other).action, "execute")
+
+
+class BoundedRetryTests(unittest.TestCase):
+    """``backoff`` and ``model_decides`` are bounded, not infinite passes."""
+
+    def test_model_decides_gets_one_free_retry(self):
+        pre = FailurePreflight(FailureStore(Path(tempfile.mkdtemp())))
+        failed = _failure("weird_new_thing", stage="execution")
+        pre.record("code_run", {"code": "x"}, failed)
+        self.assertEqual(pre.check("code_run", {"code": "x"}).action, "execute")
+        pre.record("code_run", {"code": "x"}, failed)
+        decision = pre.check("code_run", {"code": "x"})
+        self.assertEqual(decision.action, "decline")
+        self.assertIn("2 times", decision.reason)
+
+    def test_backoff_is_bounded(self):
+        """A timeout may be retried twice; past that it is not transient any more."""
+        pre = FailurePreflight(FailureStore(Path(tempfile.mkdtemp())))
+        failed = _failure("timeout", stage="execution")
+        pre.record("code_run", {"code": "x"}, failed)
+        self.assertEqual(pre.check("code_run", {"code": "x"}).action, "execute")
+        pre.record("code_run", {"code": "x"}, failed)
+        self.assertEqual(pre.check("code_run", {"code": "x"}).action, "execute")
+        pre.record("code_run", {"code": "x"}, failed)
+        decision = pre.check("code_run", {"code": "x"})
+        self.assertEqual(decision.action, "decline")
+        self.assertIn("transient", decision.reason)
+
+
 if __name__ == "__main__":
     unittest.main()

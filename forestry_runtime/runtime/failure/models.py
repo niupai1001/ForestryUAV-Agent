@@ -139,6 +139,10 @@ class FailureEvidence:
     #: we know when this failed" stays answerable after the fact.
     evidence_ids: list[str] = field(default_factory=list)
     message: str = ""
+    #: Fingerprint of the entire call that failed. Consulted only for records about
+    #: no particular resource (``resource_key`` is None), where the signature cannot
+    #: tell one attempt from another and byte-identity is the only safe anchor.
+    call_digest: str = ""
     occurrences: int = 1
     first_at: float = 0.0
     last_at: float = 0.0
@@ -171,6 +175,7 @@ class FailureEvidence:
             "invalid_assumptions": list(self.invalid_assumptions),
             "strategy_id": self.strategy_id, "tool": self.tool,
             "evidence_ids": list(self.evidence_ids), "message": self.message,
+            "call_digest": self.call_digest,
             "occurrences": self.occurrences,
             "first_at": self.first_at, "last_at": self.last_at,
         }
@@ -180,7 +185,8 @@ class FailureEvidence:
         known = {
             "id", "label", "stage", "code", "failure_class", "retry_policy",
             "resource_key", "resource_version", "invalid_assumptions", "strategy_id",
-            "tool", "evidence_ids", "message", "occurrences", "first_at", "last_at",
+            "tool", "evidence_ids", "message", "call_digest", "occurrences",
+            "first_at", "last_at",
         }
         return cls(**{key: value for key, value in (data or {}).items() if key in known})
 

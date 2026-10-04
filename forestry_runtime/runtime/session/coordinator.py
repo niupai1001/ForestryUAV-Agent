@@ -15,6 +15,22 @@ from ..capabilities.runtime import RuntimeTools
 from .state import TERMINAL
 
 
+#: The Agent's event vocabulary and the Run state machine's vocabulary are two
+#: contracts, and they disagree exactly once: the Agent's normal completion is
+#: "done", which is not a legal transition target for the state machine
+#: ("running" -> "done" raises inside set_state). That raise used to happen in
+#: the finally block below, so a normally-finished Run stayed "running" forever
+#: with final=null: the collector polled until its window expired, recorded the
+#: trial as a timeout, and grading never ran (15 of 16 pilot trials, 2026-09-27).
+#: Map at the boundary; the other three words coincide today, pin them anyway.
+_RUN_STATE_FROM_EVENT = {
+    "done": "completed",
+    "paused": "paused",
+    "failed": "failed",
+    "canceled": "canceled",
+}
+
+
 from .recovery import RecoveryCoordinatorMixin
 
 
@@ -246,7 +262,8 @@ class RunCoordinator(RecoveryCoordinatorMixin):
                     self.store.append(run_id, event, turn_id)
                     if event.get("type") == "done":
                         final_event = event
-                        final_state = event.get("state") or final_state
+                        raw_state = str(event.get("state") or final_state)
+                        final_state = _RUN_STATE_FROM_EVENT.get(raw_state, raw_state)
             checkpoint_state = await self._checkpoint_state(turn["agent_run_id"])
             if final_state == "completed" or checkpoint_state == "complete":
                 self.store.mark_turn_consumed(run_id, turn_id, turn["input_end"])

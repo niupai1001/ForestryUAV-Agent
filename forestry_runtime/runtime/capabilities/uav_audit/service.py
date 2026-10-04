@@ -279,7 +279,11 @@ class UavAuditCapability:
         return {
             'report_type': 'uav_geospatial_product_qa',
             'report_version': 1,
-            'observation_complete': True,
+            # Renamed from ``observation_complete``: this report covers metadata
+            # and a bounded pixel sample -- a scope, not the whole observation.
+            # The old name let a consumer read "nothing further needs looking at",
+            # which the accuracy_boundary below explicitly denies.
+            'scope_complete': True,
             'recommended_next_action': 'answer_from_this_report',
             'source': folder_path,
             'product_count': len(products),

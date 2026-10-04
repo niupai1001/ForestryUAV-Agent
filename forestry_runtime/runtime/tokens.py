@@ -229,16 +229,29 @@ class TokenEstimator:
             self._samples += 1
 
 
-def output_reserve_tokens() -> int:
+def output_reserve_tokens(override: int | None = None) -> int:
+    """Reserve for the model's reply, or an explicit override of it.
+
+    An override comes from the settings surface (workbench panel or an
+    evaluation arm) and outranks the environment; ``None`` keeps the
+    deployment's own reading.
+    """
+    if override is not None:
+        return max(0, int(override))
     return max(0, int(os.getenv("OLLAMA_OUTPUT_TOKENS", "4096")))
 
 
-def context_limit_tokens() -> int:
+def context_limit_tokens(override: int | None = None) -> int:
+    """The model's context window, or an explicit override of it."""
+    if override is not None:
+        return max(1024, int(override))
     return max(1024, int(os.getenv("OLLAMA_CONTEXT", "32768")))
 
 
-def safety_margin_tokens(limit: int | None = None) -> int:
+def safety_margin_tokens(limit: int | None = None, override: int | None = None) -> int:
     """Headroom kept for tokenizer drift and tool-search reveals."""
+    if override is not None:
+        return max(0, int(override))
     configured = os.getenv("CONTEXT_SAFETY_MARGIN_TOKENS")
     if configured:
         return max(0, int(configured))
@@ -259,13 +272,15 @@ def input_budget_tokens(
     return max(1024, window - out - guard)
 
 
-def context_utilisation() -> float:
+def context_utilisation(override: float | None = None) -> float:
     """Fraction of the window the input budget may use.
 
     Guards against a mis-set ``OLLAMA_CONTEXT`` that is far larger than the
     server's real ``num_ctx``: exceeding the window is silent truncation, while
     a deliberate fraction degrades predictably.
     """
+    if override is not None:
+        return min(1.0, max(0.3, float(override)))
     raw = os.getenv("CONTEXT_UTILISATION", "0.9")
     try:
         value = float(raw)

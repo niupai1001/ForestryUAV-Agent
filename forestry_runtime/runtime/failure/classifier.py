@@ -12,15 +12,24 @@ block.
 """
 from __future__ import annotations
 
-from .models import FailureEvidence, ResourceRef, StrategySignature, _stable, _text
+import re
+
+from .models import FailureEvidence, ResourceRef, StrategySignature, _digest, _stable, _text
 from .taxonomy import classify
 
 #: Arguments that name a thing in the world rather than configure a call. Only these
 #: can make two calls "about the same resource"; ``timeout_seconds`` cannot.
 RESOURCE_ARGUMENTS: tuple[str, ...] = (
-    "path", "folder_path", "source_id", "asset_id", "module", "package",
+    "path", "folder_path", "source_id", "asset_id", "module", "modules", "package",
     "packages", "job_id", "guide_id", "citation", "name",
 )
+
+#: Arguments whose value is authored content the call writes or executes. Two calls
+#: differing only in such content apply the same mechanism to the same resources --
+#: a script that differs by a line number or a comment is not a new strategy -- so
+#: the signature deliberately cannot tell them apart. What makes a retry new work
+#: is that the resource it depends on changed, which the record's version carries.
+FREE_FORM_ARGUMENTS: tuple[str, ...] = ("code", "content", "old_text", "new_text")
 
 #: Assumptions a failure can falsify, keyed by resource kind. Written as the claim
 #: that is no longer safe to act on, because that is what the next call needs.
@@ -40,14 +49,22 @@ PATH_CODES = {"path_not_found", "not_found", "source_path_not_found",
 
 
 def _normalize_path(value: str) -> str:
-    return str(value).replace("/", "\\").rstrip("\\").casefold()
+    """One spelling per path, wherever it was named.
+
+    Collapses repeated separators so a path quoted inside code with doubled
+    backslashes (``"E:\\\\data\\\\x.tif"``) lands on the same key as the same path
+    reported by a tool that names it singly.
+    """
+    text = re.sub(r"[\\/]+", r"\\", str(value or "").strip())
+    return text.rstrip("\\").casefold()
 
 
 def _kind_for_argument(name: str) -> str:
     return {
         "path": "path", "folder_path": "path", "source_id": "asset", "asset_id": "asset",
-        "module": "module", "package": "distribution", "packages": "distribution",
-        "job_id": "job", "guide_id": "asset", "citation": "asset", "name": "asset",
+        "module": "module", "modules": "module", "package": "distribution",
+        "packages": "distribution", "job_id": "job", "guide_id": "asset",
+        "citation": "asset", "name": "asset",
     }.get(name, "asset")
 
 
@@ -154,12 +171,24 @@ def assumptions_of(failure: dict, resources: list[ResourceRef]) -> list[str]:
 
 def signature_of(tool: str, arguments: dict, resources: list[ResourceRef],
                  assumptions: list[str]) -> StrategySignature:
-    """The mechanism of a call, with the resource factored out.
+    """The mechanism of a call, with the resource and the authored content factored out.
 
-    Arguments are normalised rather than taken literally so that argument *order*
-    and unset optional keys cannot manufacture a "new" strategy.
+    Two normalisations, both mechanical:
+
+    * structured arguments are sorted, so argument *order* and unset optional keys
+      cannot manufacture a "new" strategy;
+    * free-form arguments (``code``, ``content`` ...) contribute a placeholder, not
+      their value. The same mechanism applied to the same resources is the same
+      attempt whether the script differs by a line number or a comment -- which is
+      exactly the edit a model makes when it retries a failure hoping the outcome
+      was cosmetic. Identity of mechanism + resource is what lets the recorded
+      failure answer the retry; the record's version says whether anything the
+      call depends on has actually changed.
     """
-    mechanism = _stable({key: value for key, value in sorted((arguments or {}).items())})
+    mechanism = _stable({
+        key: ("__free_form__" if key in FREE_FORM_ARGUMENTS else value)
+        for key, value in sorted((arguments or {}).items())
+    })
     return StrategySignature(
         tool_family=str(tool or ""),
         mechanism=mechanism,
@@ -198,11 +227,15 @@ def evidence_from(tool: str, arguments: dict, output: dict, *,
         tool=str(tool or ""),
         evidence_ids=list(evidence_ids or []),
         message=_text(output.get("error") or failure.get("message") or "", 400),
+        #: Fingerprint of the whole call. Only consulted for records about no
+        #: particular resource, where byte-identity is the only safe anchor: a
+        #: generic failure must not let one failed script block every other one.
+        call_digest=_digest(_stable(arguments)),
     )
 
 
 __all__ = [
-    "ASSUMPTION_BY_KIND", "PATH_CODES", "RESOURCE_ARGUMENTS",
+    "ASSUMPTION_BY_KIND", "FREE_FORM_ARGUMENTS", "PATH_CODES", "RESOURCE_ARGUMENTS",
     "assumptions_of", "evidence_from", "resource_of_failure", "resources_of",
     "signature_of",
 ]

@@ -33,7 +33,8 @@ class FailureStore:
         #: this process. A Run that has no workspace cannot resume anyway, and refusing
         #: to work at all would be worse than working with a shorter memory.
         self.memory_only = self.path is None
-        self._memory: dict = {"records": {}}
+        self._memory: dict = {"records": {}, "versions": {}}
+        self._versions: ResourceVersions | None = None
 
     # ------------------------------------------------------------------ storage
 
@@ -43,9 +44,11 @@ class FailureStore:
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return {"records": {}}
+            return {"records": {}, "versions": {}}
         if not isinstance(data, dict) or not isinstance(data.get("records"), dict):
-            return {"records": {}}
+            return {"records": {}, "versions": {}}
+        if not isinstance(data.get("versions"), dict):
+            data["versions"] = {}
         return data
 
     def _save(self, data: dict) -> None:
@@ -120,7 +123,38 @@ class FailureStore:
         return items[:max(1, limit)]
 
     def clear(self) -> None:
-        self._save({"records": {}})
+        """Forget the records, keep the versions.
+
+        Versions describe movements of the world, not of the model's attempts; a
+        version kept after a clear can only make a record not match, which errs
+        toward running a call rather than blocking it.
+        """
+        data = self._load()
+        data["records"] = {}
+        self._save(data)
+
+    # ----------------------------------------------------------------- versions
+
+    @property
+    def versions(self) -> "ResourceVersions":
+        """The resource versions this workspace remembers, in the same file.
+
+        The version table answers "has the thing this failure was about changed
+        since?" across process boundaries -- a resumed Run constructs a fresh
+        preflight, and a version table that reset to zero with it would silently
+        unlock every recorded failure whose version was above zero. It is loaded
+        lazily (construction must stay I/O-free) and every bump writes through.
+        """
+        if self._versions is None:
+            self._versions = ResourceVersions(
+                self._load().get("versions") or {}, persist=self._persist_versions,
+            )
+        return self._versions
+
+    def _persist_versions(self, versions: dict) -> None:
+        data = self._load()
+        data["versions"] = dict(versions or {})
+        self._save(data)
 
 
 class ResourceVersions:
@@ -130,10 +164,18 @@ class ResourceVersions:
     failure": any successful observation bumped it, and every recorded failure's
     fingerprint contained it, so one observation unlocked all of them. Here a version
     moves only for the resource the observation was about.
+
+    When a ``persist`` callable is given, every bump writes the table through it, so
+    the versions a resumed Run loads are the versions the last Run left behind --
+    the same durability the records themselves already had.
     """
 
-    def __init__(self, versions: dict[str, int] | None = None):
-        self._versions: dict[str, int] = dict(versions or {})
+    def __init__(self, versions: dict[str, int] | None = None,
+                 persist=None):
+        self._versions: dict[str, int] = {
+            str(k): int(v) for k, v in (versions or {}).items()
+        }
+        self._persist = persist
 
     def version_of(self, resource_key: str | None) -> str:
         if not resource_key:
@@ -145,6 +187,7 @@ class ResourceVersions:
     def bump(self, resource_key: str | None) -> str:
         key = resource_key or "*"
         self._versions[key] = int(self._versions.get(key, 0)) + 1
+        self._write_through()
         return str(self._versions[key])
 
     def as_dict(self) -> dict:
@@ -152,6 +195,16 @@ class ResourceVersions:
 
     def load(self, versions: dict) -> None:
         self._versions = {str(k): int(v) for k, v in (versions or {}).items()}
+
+    def _write_through(self) -> None:
+        if not callable(self._persist):
+            return
+        try:
+            self._persist(self.as_dict())
+        except Exception:
+            # Persistence is a durability property, not a correctness one: a failed
+            # write leaves the versions shorter-lived, never wrong.
+            pass
 
 
 __all__ = ["FailureStore", "RECORD_LIMIT", "ResourceVersions"]

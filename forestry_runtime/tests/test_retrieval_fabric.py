@@ -120,6 +120,40 @@ class FabricAssemblyTest(unittest.TestCase):
                          "a known fact must not compete with a plausible match")
 
 
+class CodeSourceWiringTest(unittest.TestCase):
+    """Code answers come from the one instance fs writes can invalidate.
+
+    The invalidation channel is ``toolbox._code_intelligence``: fs_write and
+    fs_edit notify that object, so the router must serve code answers from it
+    too. Two independent instances would each index on their own -- one would
+    hear about every edit, the other would answer from stale symbols, and
+    nothing would say which one a given answer came from.
+    """
+
+    def test_a_service_held_by_the_run_is_reused_not_rebuilt(self) -> None:
+        toolbox = _Toolbox()
+        sentinel = type("S", (), {
+            "source_type": "code",
+            "retrieve": staticmethod(lambda query, top_k=6: []),
+        })()
+        toolbox._code_intelligence = sentinel
+        router = build(toolbox)
+        self.assertIs(router.retrievers.get("code"), sentinel)
+
+    def test_the_env_switch_hands_the_service_back_to_the_toolbox(self) -> None:
+        from unittest import mock
+
+        from runtime.retrieval.fabric import CODE_ENV_FLAG
+
+        toolbox = _Toolbox()
+        with mock.patch.dict("os.environ", {CODE_ENV_FLAG: "true"}):
+            router = build(toolbox)
+        service = getattr(toolbox, "_code_intelligence", None)
+        self.assertIsNotNone(service, "the fabric must hand the service back "
+                                      "so fs writes can invalidate it")
+        self.assertIs(router.retrievers.get("code"), service)
+
+
 class MemoryRetrieverTest(unittest.TestCase):
     def test_rows_become_candidates_with_a_citable_reference(self) -> None:
         retriever = MemoryRetriever(lambda query, limit: {

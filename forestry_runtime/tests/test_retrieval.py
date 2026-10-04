@@ -14,11 +14,12 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from runtime.failure import FailureStore
 from runtime.retrieval import (
-    Candidate, FailureRetriever, RetrievalQuery, RetrievalRouter, ToolRetriever,
-    apply_budget, estimate_tokens, rrf_fuse, terms_of,
+    Candidate, FailureRetriever, RetrievalQuery, RetrievalRouter, TaskStateRetriever,
+    ToolRetriever, apply_budget, build, estimate_tokens, rrf_fuse, terms_of,
 )
 from runtime.retrieval.fusion import diversify
 
@@ -199,6 +200,90 @@ class _StubRetriever:
             Candidate(id="own", source_type="memory", content="ok",
                       metadata={"project_id": "p1"}),
         ]
+
+
+class TaskStateRetrievalTests(unittest.TestCase):
+    """The plan's state is a source, not only a broadcast the compaction may drop."""
+
+    def _store(self):
+        from runtime.plan import PlanStore, WorkPlan
+
+        store = PlanStore(Path(tempfile.mkdtemp(prefix="plan_")))
+        store._write(WorkPlan(
+            objective="build a canopy mask",
+            requirements=[
+                {"id": "r1", "text": "classify the canopy into open and closed stands",
+                 "status": "open"},
+                {"id": "r2", "text": "report the closed-stand area", "status": "satisfied"},
+            ],
+            open_questions=[{"question": "which threshold applies to sparse stands"}],
+        ))
+        return store
+
+    def test_an_open_requirement_is_retrievable_and_a_settled_one_is_not(self):
+        store = self._store()
+        found = TaskStateRetriever(lambda: store).retrieve("classify canopy", top_k=6)
+        ids = [item.id for item in found]
+        self.assertIn("requirement:r1", ids)
+        self.assertNotIn("requirement:r2", ids)
+
+    def test_an_open_question_is_retrievable(self):
+        store = self._store()
+        found = TaskStateRetriever(lambda: store).retrieve("threshold for sparse stands")
+        self.assertTrue(any(item.id.startswith("question:") for item in found))
+        self.assertEqual(found[0].source_type, "task_state")
+
+    def test_a_broken_store_costs_the_source_not_the_run(self):
+        def broken():
+            raise RuntimeError("boom")
+        self.assertEqual(TaskStateRetriever(broken).retrieve("anything"), [])
+
+    def test_an_empty_plan_retrieves_nothing(self):
+        from runtime.plan import PlanStore
+
+        store = PlanStore(Path(tempfile.mkdtemp(prefix="plan_")))
+        self.assertEqual(TaskStateRetriever(lambda: store).retrieve("canopy"), [])
+
+
+class FabricWiringTests(unittest.TestCase):
+    """A source the fabric builds but never registers is indistinguishable from none."""
+
+    def test_the_failure_source_registers_before_the_first_tool_call(self):
+        """The failure store is created lazily on first tool execution -- *after* the
+        router is built. Wiring that only read it off the deps registered nothing,
+        ever, and the first request's retrieval silently had no failure source."""
+        from runtime.agent import AgentDependencies, _fabric_router
+
+        class _Box:
+            owner = "alice"
+            chat_id = "chat"
+            memory = None
+            workspace = Path(tempfile.mkdtemp(prefix="fab_"))
+
+        box = _Box()
+        deps = AgentDependencies(
+            toolbox=box, cancelled=lambda: False, pause_requested=lambda: False,
+        )
+        with mock.patch.dict("os.environ", {"RETRIEVAL_FABRIC_ENABLED": "true"}):
+            router = _fabric_router(box, deps)
+        self.assertIsNotNone(router)
+        self.assertIn("failure", router.retrievers)
+        self.assertIsNotNone(deps.failure_preflight)
+
+    def test_the_task_state_source_registers_from_the_toolbox(self):
+        from runtime.plan import PlanStore
+
+        class _Box:
+            owner = "alice"
+            chat_id = "chat"
+            memory = None
+            workspace = Path(tempfile.mkdtemp(prefix="fab_"))
+
+            def _plan_store(self):
+                return PlanStore(self.workspace)
+
+        router = build(_Box())
+        self.assertIn("task_state", router.retrievers)
 
 
 class TermTests(unittest.TestCase):

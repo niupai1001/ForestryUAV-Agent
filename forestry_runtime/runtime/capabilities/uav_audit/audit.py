@@ -498,7 +498,11 @@ class UavInspectionService:
         return {
             'manifest_type': 'uav_dataset_manifest',
             'manifest_version': 1,
-            'observation_complete': True,
+            # Renamed from ``observation_complete``: the claim is about the walked
+            # scope (every file under this folder), not about the observation as a
+            # whole -- roles it does not recognise and content it cannot inspect
+            # stay outside what "complete" would promise.
+            'scope_complete': True,
             'recommended_next_action': 'answer_from_this_manifest',
             'source': folder_path,
             'container_path': str(directory),

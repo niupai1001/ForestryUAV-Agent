@@ -156,6 +156,32 @@ class JobWaitTests(unittest.TestCase):
         third = self.box.execute("job_status", {"job_id": job_id})["data"]
         self.assertEqual(third["output"], "third\n")
 
+    def test_wait_does_not_skip_the_log_tail_that_follows_a_terminal_chunk(self):
+        """A terminal job whose log exceeds one status chunk must leave the tail
+        for the next read, not swallow it.
+
+        The wait loop observes one 64 KiB chunk and stops the moment it sees the
+        terminal flag, even though ``has_more_output`` is still true. The bug this
+        guards: finalizing the wait by re-polling ``job_status`` advanced the cursor
+        past the tail the wait never delivered, then overwrote the tail with the
+        merged output -- so the tail was permanently skipped.
+        """
+        job_id = self._start()
+        # A single status poll caps at 65536 chars (ScriptedBridge slices by that),
+        # so a 70 000-char log spans two reads.
+        self.bridge.logs[job_id] = "x" * 70000
+        self.bridge.settle_after[job_id] = 1  # terminal on the first poll
+        result = self.box.execute(
+            "job_wait", {"job_id": job_id, "timeout_seconds": 10}
+        )["data"]
+        self.assertTrue(result["terminal"])
+        # The wait consumed only the first chunk; the cursor must still point there.
+        self.assertEqual(result["cursor"]["next_offset"], 65536)
+        # The next status read must return the tail the wait left behind.
+        tail = self.box.execute("job_status", {"job_id": job_id})["data"]
+        self.assertEqual(tail["output"], "x" * (70000 - 65536))
+        self.assertEqual(tail["cursor"]["next_offset"], 70000)
+
     def test_cursor_survives_a_runtime_restart(self):
         """A new Runtime object must not replay output it already delivered."""
         job_id = self._start()

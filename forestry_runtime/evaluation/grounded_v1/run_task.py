@@ -198,6 +198,18 @@ def main() -> int:
     if not args.api_key:
         parser.error("--api-key or RUNTIME_API_KEY is required (see .env)")
 
+    # The arm's parameters must actually reach the session: an argument that is
+    # parsed and then dropped would record "collected" while both arms ran the
+    # deployment's own settings, which measures nothing and looks like a result.
+    arm_settings = None
+    if args.settings.strip():
+        try:
+            arm_settings = json.loads(args.settings)
+        except json.JSONDecodeError as exc:
+            parser.error(f"--settings is not valid JSON: {exc}")
+        if not isinstance(arm_settings, dict) or not arm_settings:
+            parser.error("--settings must be a non-empty JSON object")
+
     if args.probe:
         print(f"PROBE {task['task_id']} -- not a trial, not graded, not counted")
         result = probe_trial(
@@ -220,10 +232,12 @@ def main() -> int:
     result = run_trial(
         task=task, base_url=args.base_url, api_key=args.api_key, owner=args.owner,
         repeat=args.repeat, runs_root=args.runs_root, timeout_seconds=timeout,
+        settings=arm_settings,
         configuration={
             "harness": "forestry-runtime", "base_url": args.base_url,
             "model": os.getenv("OLLAMA_MODEL", "qwen3.8:27b"), "kernel": "pydantic-ai",
             "task_id": task["task_id"], "repeat": args.repeat,
+            "settings": dict(arm_settings or {}),
         },
     )
     print(json.dumps({

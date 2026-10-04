@@ -404,19 +404,31 @@ class ForestStructureCapability:
                     index=indexes,
                 )
                 boundary_zone = valid & ndi.binary_dilation(~valid)
+                # Boundary / border touching is computed once per criterion, not once
+                # per candidate via a full-image ``labels == candidate_id`` mask.
+                # Labels are already dense (1..candidate_count), so these bincounts
+                # stay O(pixels), never O(pixels x candidates).
+                flat_labels = labels.ravel()
+                boundary_touch = np.bincount(
+                    flat_labels, weights=boundary_zone.ravel().astype('int64'),
+                    minlength=candidate_count + 1,
+                )
+                top_touch = np.bincount(labels[0, :], minlength=candidate_count + 1)
+                bottom_touch = np.bincount(labels[-1, :], minlength=candidate_count + 1)
+                left_touch = np.bincount(labels[:, 0], minlength=candidate_count + 1)
+                right_touch = np.bincount(labels[:, -1], minlength=candidate_count + 1)
                 crown_features = []
                 point_features = []
                 properties_by_id = {}
                 for candidate_id, position in zip(indexes, maximum_positions):
                     row, column = (int(position[0]), int(position[1]))
-                    region = labels == candidate_id
                     area = float(candidate_pixels[candidate_id - 1] * pixel_area)
                     edge = bool(
                         row == 0 or column == 0
                         or row == src.height - 1 or column == src.width - 1
-                        or np.any(region & boundary_zone)
-                        or np.any(region[0]) or np.any(region[-1])
-                        or np.any(region[:, 0]) or np.any(region[:, -1])
+                        or boundary_touch[candidate_id] > 0
+                        or top_touch[candidate_id] > 0 or bottom_touch[candidate_id] > 0
+                        or left_touch[candidate_id] > 0 or right_touch[candidate_id] > 0
                     )
                     x, y = rasterio.transform.xy(
                         src.transform, row, column, offset='center'
@@ -629,10 +641,6 @@ class ForestStructureCapability:
             valid = (chm.read_masks(1) != 0) & np.isfinite(heights)
             labels = label_src.read(1).astype('uint32')
             labels[~valid] = 0
-            candidate_ids = np.unique(labels)
-            candidate_ids = candidate_ids[candidate_ids > 0]
-            if not candidate_ids.size:
-                raise AssetError('候选标签中没有候选冠层')
             pixel_area = abs(
                 chm.transform.a * chm.transform.e
                 - chm.transform.b * chm.transform.d
@@ -640,20 +648,36 @@ class ForestStructureCapability:
             valid_pixels = int(np.count_nonzero(valid))
             candidate_pixels = int(np.count_nonzero(labels))
             valid_area_m2 = valid_pixels * pixel_area
+            # Aggregate per candidate in O(pixels), not O(pixels x candidates). A
+            # candidate-id raster may be sparse, so remap through unique's dense
+            # inverse before bincount -- which also avoids allocating an array sized
+            # by the largest id when ids are far apart.
+            unique_labels, inverse = np.unique(labels.ravel(), return_inverse=True)
+            flat_heights = heights.ravel()
+            counts = np.bincount(inverse)
+            sums = np.bincount(inverse, weights=flat_heights)
+            # fmax ignores NaN (nodata pixels are background, not candidates) and
+            # starts from -inf so a negative CHM maximum is not clipped to zero.
+            maxima = np.full(counts.shape, -np.inf, dtype=np.float64)
+            np.fmax.at(maxima, inverse, flat_heights)
             rows = []
-            for candidate_id in candidate_ids:
-                region = labels == candidate_id
-                area = float(np.count_nonzero(region) * pixel_area)
-                values = heights[region]
+            for index in range(len(unique_labels)):
+                candidate_id = int(unique_labels[index])
+                if candidate_id == 0:
+                    continue
+                count = int(counts[index])
+                area = float(count * pixel_area)
                 rows.append({
-                    'candidate_id': int(candidate_id),
-                    'height_max_m': float(np.max(values)),
-                    'height_mean_m': float(np.mean(values)),
+                    'candidate_id': candidate_id,
+                    'height_max_m': float(maxima[index]),
+                    'height_mean_m': float(sums[index] / count),
                     'crown_area_m2': area,
                     'equivalent_crown_diameter_m': float(
                         2 * math.sqrt(area / math.pi)
                     ),
                 })
+            if not rows:
+                raise AssetError('候选标签中没有候选冠层')
             summary = {
                 'upper_canopy_candidate_count': len(rows),
                 'analysis_denominator': 'valid_chm_pixels',

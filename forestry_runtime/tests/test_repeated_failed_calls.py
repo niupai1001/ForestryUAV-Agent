@@ -104,7 +104,14 @@ class RepeatedFailedCallTests(unittest.TestCase):
             blocked["failure"]["previous_failure"]["code"], "install_failed"
         )
 
-    def test_three_identical_failures_pause_the_run(self):
+    def test_three_identical_failures_are_declined_but_do_not_pause(self):
+        """Every repeat is declined with its reason; the Run itself is not stopped.
+
+        The count-based pause was removed as a hard constraint with no safety
+        content: declining a call is a per-call decision carrying a justification,
+        while the request budget -- not a counter -- bounds how long repetition
+        may continue.
+        """
         toolbox = _StubToolbox([FAILED_INSTALL])
         deps = _dependencies(toolbox)
         context = _context(deps)
@@ -112,7 +119,8 @@ class RepeatedFailedCallTests(unittest.TestCase):
         asyncio.run(_execute_tool(context, "dependency_install", args, False))
         for _ in range(3):
             asyncio.run(_execute_tool(context, "dependency_install", args, False))
-        self.assertIsNotNone(deps.pause_reason)
+        self.assertIsNone(deps.pause_reason)
+        self.assertIsNone(deps.pause_blocker)
         self.assertEqual(len(toolbox.calls), 1)
 
     def test_changed_arguments_are_new_work(self):
@@ -129,7 +137,8 @@ class RepeatedFailedCallTests(unittest.TestCase):
         self.assertEqual(len(toolbox.calls), 2)
         self.assertIsNone(deps.pause_reason)
 
-    def test_same_missing_prerequisite_across_tools_and_options_pauses(self):
+    def test_same_missing_prerequisite_across_tools_is_counted_not_pausing(self):
+        """The record accumulates per evidence version, but nothing stops the Run."""
         missing = {
             "ok": False, "error": "path missing",
             "failure": {
@@ -153,7 +162,8 @@ class RepeatedFailedCallTests(unittest.TestCase):
             asyncio.run(_execute_tool(context, name, args, False))
         self.assertEqual(len(toolbox.calls), 3)
         self.assertEqual(next(iter(deps.prerequisite_failures.values()))["count"], 3)
-        self.assertEqual(deps.pause_blocker, "prerequisite_stalled")
+        self.assertIsNone(deps.pause_reason)
+        self.assertIsNone(deps.pause_blocker)
 
     def test_new_observation_reopens_missing_prerequisite(self):
         missing = {
@@ -197,7 +207,8 @@ class RepeatedFailedCallTests(unittest.TestCase):
         asyncio.run(_execute_tool(context, "fs_list", {"source_id": grant,
                                                       "path": "1605 白桦", "page": 2}, False))
         self.assertEqual(deps.evidence_generation, 0)
-        self.assertEqual(deps.pause_blocker, "prerequisite_stalled")
+        self.assertIsNone(deps.pause_reason)
+        self.assertIsNone(deps.pause_blocker)
 
 
 class EnvironmentChangeTests(unittest.TestCase):
@@ -249,7 +260,11 @@ class EnvironmentChangeTests(unittest.TestCase):
         self.assertTrue(retried["outcome_ok"])
 
     def test_a_failed_install_does_not_reopen_the_call(self):
-        toolbox = _StubToolbox([self.BLOCKED, dict(FAILED_INSTALL)])
+        """A failed install moves nothing. The one retry the *next* call gets is
+        the model_decides free attempt -- occurrence-aware, not evidence -- so it
+        runs once, fails again, and then the call is declined until real new
+        evidence (a successful install or import check) moves a version."""
+        toolbox = _StubToolbox([self.BLOCKED, dict(FAILED_INSTALL), self.BLOCKED])
         deps = _dependencies(toolbox)
         context = _context(deps)
         call = {"language": "python", "code": "import sklearn"}
@@ -260,8 +275,14 @@ class EnvironmentChangeTests(unittest.TestCase):
         ))
         self.assertEqual(deps.environment_generation, 0)
 
+        retried = asyncio.run(_execute_tool(context, "code_run", call, False))
+        self.assertEqual(len(toolbox.calls), 3,
+                         "the free model_decides retry still reaches the environment")
+        self.assertFalse(retried["outcome_ok"])
+
         blocked = asyncio.run(_execute_tool(context, "code_run", call, False))
-        self.assertEqual(len(toolbox.calls), 2)
+        self.assertEqual(len(toolbox.calls), 3,
+                         "past the free attempt a failed install buys no more runs")
         self.assertEqual(blocked["failure"]["code"], "duplicate_failed_call")
 
     def test_an_import_check_reopens_the_call(self):

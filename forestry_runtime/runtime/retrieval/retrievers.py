@@ -212,6 +212,92 @@ class DomainRetriever:
             return []
 
 
+class TaskStateRetriever:
+    """The plan's own state -- requirements, open questions, candidates -- as
+    retrievable facts.
+
+    The task state already reaches the model one way: the compiler injects a
+    rendered plan when there is one. That is a broadcast, not a lookup -- it lands
+    whether or not it bears on what the model is doing, and it is the first thing
+    compaction drops. Retrieving it means the plan can be asked a question ("is
+    the classification requirement still open?") and answered from the same ranked
+    list as tools and failures, citable by requirement id.
+
+    Read from the store on every retrieve: the plan moves during a Run (settlement
+    runs after every successful call), so a retriever that cached the plan would
+    answer questions about a revision that no longer exists.
+    """
+
+    source_type = "task_state"
+
+    def __init__(self, plan_store):
+        #: A callable returning the store, so a Run without a plan pays nothing.
+        self.plan_store = plan_store
+
+    def _rows(self, plan) -> list[tuple[str, str, str, dict]]:
+        rows: list[tuple[str, str, str, dict]] = []
+        for item in plan.open_requirements() or []:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            rows.append((
+                f"requirement:{item.get('id')}",
+                " ".join(str(item.get(key) or "") for key in ("id", "text", "evidence")),
+                f"requirement {item.get('id')} is {item.get('status') or 'open'}: {item.get('text')}",
+                {"requirement": item.get("id"), "revision": plan.revision},
+            ))
+        for item in plan.open_questions or []:
+            if not isinstance(item, dict) or not item.get("question"):
+                continue
+            rows.append((
+                "question:" + str(item.get("question"))[:60],
+                " ".join(str(item.get(key) or "") for key in
+                         ("question", "blocks", "resolve_with")),
+                f"open question: {item.get('question')}",
+                {"question": item.get("question"), "revision": plan.revision},
+            ))
+        for item in plan.candidates or []:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            rows.append((
+                f"candidate:{item.get('id')}",
+                " ".join(str(item.get(key) or "") for key in
+                         ("id", "method", "precondition", "notes", "status")),
+                f"candidate {item.get('id')} ({item.get('status') or 'candidate'}): "
+                f"{item.get('method')}",
+                {"candidate": item.get("id"), "revision": plan.revision},
+            ))
+        return rows
+
+    def retrieve(self, query: str, top_k: int = 6) -> list[Candidate]:
+        try:
+            plan = self.plan_store().load()
+        except Exception:
+            return []
+        if plan is None or plan.empty:
+            return []
+        terms = terms_of(query)
+        if not terms:
+            return []
+        candidates = []
+        for identifier, haystack, content, reference in self._rows(plan):
+            score = score_text(terms, haystack)
+            if score <= 0:
+                continue
+            candidates.append(Candidate(
+                id=identifier,
+                source_type=self.source_type,
+                content=content[:400],
+                exact_reference=reference,
+                version=str(plan.revision),
+                # Like a failure, an open requirement is a fact about this Run, not
+                # a plausible text match; it outranks fused lexical hits.
+                structural_score=1.0 + score / 100.0,
+                metadata={"revision": plan.revision},
+            ))
+        candidates.sort(key=lambda item: item.structural_score or 0.0, reverse=True)
+        return candidates[:top_k]
+
+
 class MemoryRetriever:
     """Project memory and knowledge, through the manager that already owns it.
 
@@ -257,5 +343,5 @@ class MemoryRetriever:
         return candidates
 
 
-__all__ = ["DomainRetriever", "FailureRetriever", "MemoryRetriever", "ToolRetriever",
-           "score_text", "terms_of"]
+__all__ = ["DomainRetriever", "FailureRetriever", "MemoryRetriever", "TaskStateRetriever",
+           "ToolRetriever", "score_text", "terms_of"]

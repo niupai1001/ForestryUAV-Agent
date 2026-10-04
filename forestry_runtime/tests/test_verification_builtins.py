@@ -6,12 +6,19 @@ was correct and useless: nothing could ever reach ``verified_complete``. These t
 pin the two things that make it real:
 
 * a product **with** a declaration is held to it -- right grid, right range, right
-  encoded fraction gives ``verified_complete``; any one of them broken gives
-  ``failed``;
+  encoded fraction passes; any one of them broken gives ``failed``;
 * a product **without** a declaration is *not* invented one. No declaration means
   ``not_run`` and therefore ``delivered_unverified``, never a pass. A verifier that
   guessed "``_ndvi_`` in the filename, so the range must be [-1,1]" would be right
   until the day it was not, and nothing would say so.
+
+And the rule that keeps honesty the default: a passing self-consistency check is
+*not* ``verified_complete`` on its own. The built-ins compare a file against what
+its producer declared, and a wrong declaration matched by an obedient file passes
+every one of those checks. Only a run that holds task truth -- gold pixels, an
+accepted reference, a user's confirmation -- may report ``verified_complete``
+(``task_truth=True`` in the facts); without it the same facts stay
+``delivered_unverified``, with the reason naming what is missing.
 
 Also pinned: the two fractions that are easy to confuse. How much of a grid carries
 data and how much a mask selects are different numbers, and treating a fully valid
@@ -57,14 +64,31 @@ def _service():
 
 
 class DeclaredSemanticsTest(unittest.TestCase):
-    def test_a_product_held_to_its_declaration_can_be_verified(self) -> None:
+    def test_a_product_held_to_its_declaration_is_verified_with_task_truth(self) -> None:
+        artifact = _artifact({
+            "quantity": "ndvi", "kind": "index", "valid_range": [-1.0, 1.0],
+            "grid": dict(GRID),
+        }, qa=dict(QA))
+        report = _service().evaluate(
+            RunFacts(artifacts=[artifact], task_truth=True))
+        self.assertEqual(report.state, STATE_VERIFIED, report.reasons)
+        self.assertTrue(report.verified)
+
+    def test_the_same_declaration_without_task_truth_stays_unverified(self) -> None:
+        """Self-consistency is not truth: a perfect score against the producer's
+        own claim is still a claim, and the state must say so."""
         artifact = _artifact({
             "quantity": "ndvi", "kind": "index", "valid_range": [-1.0, 1.0],
             "grid": dict(GRID),
         }, qa=dict(QA))
         report = _service().evaluate(RunFacts(artifacts=[artifact]))
-        self.assertEqual(report.state, STATE_VERIFIED, report.reasons)
-        self.assertTrue(report.verified)
+        self.assertEqual(report.state, STATE_UNVERIFIED, report.reasons)
+        self.assertTrue(any(
+            "task truth" in reason or "self-consistency" in reason
+            for reason in report.reasons), report.reasons)
+        self.assertTrue(any(
+            "task truth" in action for action in report.next_actions),
+            report.next_actions)
 
     def test_a_product_off_the_declared_grid_is_failed(self) -> None:
         artifact = _artifact({
@@ -104,7 +128,8 @@ class DeclaredSemanticsTest(unittest.TestCase):
             "valid_range": [0.0, 1.0], "fractions": {"canopy": 0.62},
             "grid": dict(GRID),
         }, qa=mask_qa, name="a_canopy.tif")
-        report = _service().evaluate(RunFacts(artifacts=[artifact]))
+        report = _service().evaluate(
+            RunFacts(artifacts=[artifact], task_truth=True))
         self.assertEqual(report.state, STATE_VERIFIED, report.reasons)
 
 
@@ -142,7 +167,8 @@ class FractionConfusionTest(unittest.TestCase):
             "valid_range": [0.0, 1.0], "fractions": {"canopy": 0.31},
             "grid": dict(GRID),
         }, qa=full_qa, name="a_canopy.tif")
-        report = _service().evaluate(RunFacts(artifacts=[artifact]))
+        report = _service().evaluate(
+            RunFacts(artifacts=[artifact], task_truth=True))
         self.assertEqual(report.state, STATE_VERIFIED, report.reasons)
 
     def test_a_mask_that_selects_everything_failed_to_separate(self) -> None:
@@ -175,7 +201,8 @@ class LabelRasterTest(unittest.TestCase):
             "quantity": "upper_canopy_candidate_id", "kind": "label",
             "valid_range": [0, 2], "grid": dict(GRID),
         }, qa=label_qa, name="plot_tree_candidates.tif")
-        report = _service().evaluate(RunFacts(artifacts=[artifact]))
+        report = _service().evaluate(
+            RunFacts(artifacts=[artifact], task_truth=True))
         self.assertEqual(report.state, STATE_VERIFIED, report.reasons)
 
     def test_an_id_above_the_declared_count_is_failed(self) -> None:
@@ -230,7 +257,8 @@ class GeojsonSemanticsTest(unittest.TestCase):
                 "feature_count": 2, "geometry_type": "Polygon",
             })
             artifact["path"] = str(path)
-            report = _service().evaluate(RunFacts(artifacts=[artifact]))
+            report = _service().evaluate(
+                RunFacts(artifacts=[artifact], task_truth=True))
             self.assertEqual(report.state, STATE_VERIFIED, report.reasons)
 
     def test_a_count_the_file_contradicts_is_failed(self) -> None:
@@ -323,7 +351,8 @@ class MixedDeliverablesTest(unittest.TestCase):
                 "feature_count": 1, "geometry_type": "Polygon",
             })
             crowns["path"] = str(crowns_path)
-            report = _service().evaluate(RunFacts(artifacts=[raster, crowns]))
+            report = _service().evaluate(
+                RunFacts(artifacts=[raster, crowns], task_truth=True))
             self.assertEqual(report.state, STATE_VERIFIED, report.reasons)
             names = [check.name for check in report.checks]
             self.assertTrue(any("geojson" in name for name in names), names)

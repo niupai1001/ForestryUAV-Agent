@@ -80,6 +80,16 @@ class FakeBridge:
         return {"job_id": job_id, "removed": True}
 
 
+class _FakeCodeIndex:
+    """Stands in for CodeIntelligenceService at the invalidation boundary."""
+
+    def __init__(self):
+        self.invalidated = []
+
+    def invalidate(self, path):
+        self.invalidated.append(str(path))
+
+
 class GenericRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -110,6 +120,63 @@ class GenericRuntimeTests(unittest.TestCase):
         self.assertEqual(read["data"]["content"], "no extension\n")
         binary = self.box.execute("fs_read", {"path": "sample.bin"})
         self.assertFalse(binary["data"]["text"])
+
+    def test_fs_read_returns_a_bounded_window_not_the_whole_file(self):
+        """A read is bounded by the line and character budget, not the file size."""
+        workspace = self.registry.workspace(self.store)
+        lines = [f"line-{i:03d}\n" for i in range(1000)]
+        (workspace / "big.txt").write_text("".join(lines), encoding="utf-8")
+        read = self.box.execute("fs_read", {
+            "path": "big.txt", "start_line": 3, "max_lines": 5,
+        })["data"]
+        self.assertTrue(read["text"])
+        self.assertEqual(read["content"], "".join(lines[2:7]))
+        self.assertTrue(read["truncated"], "999 lines follow the 5-line window")
+        # A window that reaches the end is not truncated.
+        tail = self.box.execute("fs_read", {
+            "path": "big.txt", "start_line": 998, "max_lines": 5,
+        })["data"]
+        self.assertEqual(tail["content"], "".join(lines[997:1000]))
+        self.assertFalse(tail["truncated"])
+        # A character budget truncates even within the requested line window.
+        capped = self.box.execute("fs_read", {
+            "path": "big.txt", "max_lines": 200, "max_chars": 32,
+        })["data"]
+        self.assertTrue(capped["truncated"])
+        self.assertLessEqual(len(capped["content"]), 32)
+
+    def test_fs_writes_invalidate_the_code_index(self):
+        """A written file must reach code questions through the index it changed.
+
+        The audit finding this pins: the index was built once per service and
+        fs_write/fs_edit never said a word to it, so every symbol a Run wrote in
+        a later step was invisible to definition/caller questions for the rest of
+        that Run."""
+        index = _FakeCodeIndex()
+        self.box._code_intelligence = index
+        written = self.box.execute(
+            "fs_write", {"path": "script.py", "content": "def alpha():\n    return 1\n"})
+        self.assertTrue(written["ok"], written)
+        self.assertEqual(len(index.invalidated), 1, index.invalidated)
+        self.assertTrue(index.invalidated[0].endswith("script.py"))
+        edited = self.box.execute(
+            "fs_edit", {"path": "script.py", "old": "return 1", "new": "return 2"})
+        self.assertTrue(edited["ok"], edited)
+        self.assertEqual(len(index.invalidated), 2, index.invalidated)
+        other = self.box.execute(
+            "fs_write", {"path": "notes.txt", "content": "plain text"})
+        self.assertTrue(other["ok"], other)
+        self.assertEqual(len(index.invalidated), 2,
+                         "a non-Python file was never in the symbol index; "
+                         "invalidating for it would be a fiction")
+
+    def test_a_run_without_a_code_index_pays_nothing_for_writes(self):
+        self.assertIsNone(self.box._code_intelligence)
+        result = self.box.execute(
+            "fs_write", {"path": "script.py", "content": "def alpha():\n    return 1\n"})
+        self.assertTrue(result["ok"], result)
+        self.assertIsNone(self.box._code_intelligence,
+                          "a write must not build an index nobody asked for")
 
     def test_implicit_grant_requires_exact_path_and_blocks_system_roots(self):
         source = self.root / "source"
@@ -419,6 +486,48 @@ class GenericRuntimeTests(unittest.TestCase):
         self.assertIsNone(self.box.observation_key("fs_read", {
             "scope": "source", "source_id": "grant_x", "path": "notes.txt",
         }))
+
+    def test_attachments_materialise_by_asset_id_not_name(self):
+        """Two attachments sharing a name (and a size) must not collide.
+
+        The path the model is told to read is derived from the asset id, not the
+        file name, so two different uploads that happen to share a name -- or a
+        name and a byte length -- land in different files with the correct bytes.
+        """
+        uploads_a = self.store.root / "uploads_a"
+        uploads_b = self.store.root / "uploads_b"
+        uploads_a.mkdir()
+        uploads_b.mkdir()
+        (uploads_a / "same.tif").write_bytes(b"AAAA")
+        (uploads_b / "same.tif").write_bytes(b"BBBB")
+        asset_a = self.store.register_path(uploads_a / "same.tif", "same.tif", "alice", "image/tiff")
+        asset_b = self.store.register_path(uploads_b / "same.tif", "same.tif", "alice", "image/tiff")
+        box = RuntimeTools(self.store, "alice", [asset_a["id"], asset_b["id"]], self.registry, "")
+        path_a = box.input_paths[asset_a["id"]]
+        path_b = box.input_paths[asset_b["id"]]
+        self.assertNotEqual(path_a, path_b)
+        workspace = self.registry.workspace(self.store)
+        self.assertEqual((workspace / path_a).read_bytes(), b"AAAA")
+        self.assertEqual((workspace / path_b).read_bytes(), b"BBBB")
+
+    def test_materialised_copy_is_refreshed_when_the_source_changes(self):
+        """A copy whose bytes no longer match the source is re-copied, not reused."""
+        upload = self.store.root / "upload"
+        upload.mkdir()
+        source = upload / "data.tif"
+        source.write_bytes(b"version-one")
+        asset = self.store.register_path(source, "data.tif", "alice", "image/tiff")
+        box = RuntimeTools(self.store, "alice", [asset["id"]], self.registry, "")
+        workspace = self.registry.workspace(self.store)
+        path = box.input_paths[asset["id"]]
+        self.assertEqual((workspace / path).read_bytes(), b"version-one")
+        # The source changes to different bytes of a different length.
+        source.write_bytes(b"version-two-longer")
+        box2 = RuntimeTools(self.store, "alice", [asset["id"]], self.registry, "")
+        self.assertEqual(
+            (workspace / box2.input_paths[asset["id"]]).read_bytes(),
+            b"version-two-longer",
+        )
 
     def test_truncated_tool_result_can_be_read_to_completion(self):
         original = {"ok": True, "data": {"text": "林" * 20000}}
@@ -860,7 +969,7 @@ print("core-import-ok")
         async def fake_agent(*args, **kwargs):
             yield {"type": "model_call", "number": 1, "tool_count": 13, "tool_schema_chars": 100}
             yield {"type": "message", "content": "finished"}
-            yield {"type": "done", "artifacts": []}
+            yield {"type": "done", "artifacts": [], "state": "done"}
 
         async def check():
             coordinator = RunCoordinator(self.sessions, self.registry)
@@ -904,7 +1013,7 @@ print("core-import-ok")
                 "database": kwargs.get("persistence_database"),
             })
             yield {"type": "message", "content": "observed-result"}
-            yield {"type": "done", "artifacts": []}
+            yield {"type": "done", "artifacts": [], "state": "done"}
 
         async def check():
             coordinator = RunCoordinator(self.sessions, self.registry)
@@ -931,7 +1040,7 @@ print("core-import-ok")
                 yield {"type": "model_call", "number": 1}
                 await release.wait()
             yield {"type": "message", "content": f"turn-{len(captured)}"}
-            yield {"type": "done", "artifacts": []}
+            yield {"type": "done", "artifacts": [], "state": "done"}
 
         async def check():
             coordinator = RunCoordinator(self.sessions, self.registry)
@@ -974,7 +1083,7 @@ print("core-import-ok")
                 yield {"type": "error", "content": "paused before next request", "state": "paused"}
                 yield {"type": "done", "artifacts": [], "state": "paused"}
                 return
-            yield {"type": "done", "artifacts": []}
+            yield {"type": "done", "artifacts": [], "state": "done"}
 
         async def check():
             coordinator = RunCoordinator(self.sessions, self.registry)
@@ -1020,7 +1129,7 @@ print("core-import-ok")
         async def fake_agent(*args, **kwargs):
             captured.append(args[3])
             yield {"type": "message", "content": "resumed"}
-            yield {"type": "done", "artifacts": []}
+            yield {"type": "done", "artifacts": [], "state": "done"}
 
         async def check():
             registry = WorkspaceRegistry(self.root)
@@ -1068,7 +1177,7 @@ print("core-import-ok")
 
         async def fake_agent(*args, **kwargs):
             captured.append(args[3])
-            yield {"type": "done", "artifacts": []}
+            yield {"type": "done", "artifacts": [], "state": "done"}
 
         async def check():
             registry = WorkspaceRegistry(self.root)
@@ -1185,7 +1294,7 @@ print("core-import-ok")
                 "type": "tool_end", "action_id": "action_job", "name": "code_run", "ok": True,
                 "result": {"ok": True, "data": {"job_id": job_id, "state": "running"}},
             }
-            yield {"type": "done", "artifacts": []}
+            yield {"type": "done", "artifacts": [], "state": "done"}
 
         async def check():
             coordinator = RunCoordinator(self.sessions, self.registry)

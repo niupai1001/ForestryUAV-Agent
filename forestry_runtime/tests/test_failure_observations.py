@@ -50,6 +50,39 @@ class FailureObservationTests(unittest.TestCase):
         self.assertEqual(data["job_failure"]["reason"], "missing_env")
         self.assertEqual(data["job_failure"]["missing"][0]["name"], "libexpat.so.1")
 
+    def test_oom_killed_job_is_named_rather_than_reported_as_unknown(self):
+        # Exit 137 with an empty log is SIGKILL. Only the runtime that enforced
+        # the limit knows why, so that flag -- not the code -- is the diagnosis.
+        # Reported as `unknown`, a real Run retried the same algorithm until the
+        # budget ran out instead of rewriting it.
+        job = JobStatusCapability()
+        job._record_kind = lambda _job_id: "code"
+        data = job._decorate("job_123", {
+            "state": "failed", "terminal": True, "exit_code": 137,
+            "output": "",
+            "oom_killed": True,
+            "limits": {"memory_bytes": 16 * 2**30, "memory_human": "16.0 GiB"},
+        })
+        failure = data["job_failure"]
+        self.assertEqual(failure["reason"], "out_of_memory")
+        self.assertEqual(failure["code"], "container_memory_limit")
+        self.assertEqual(failure["exit_code"], 137)
+        self.assertEqual(failure["limit"]["memory_human"], "16.0 GiB")
+        # The message has to say what to change, not just what happened.
+        self.assertIn("内存上限", failure["message"])
+        self.assertIn("不要原样重试", failure["message"])
+
+    def test_exit_137_without_the_oom_flag_stays_unknown(self):
+        # 137 is also what `docker stop` leaves behind. Classifying every 137 as
+        # memory would be the same invention in the other direction.
+        job = JobStatusCapability()
+        job._record_kind = lambda _job_id: "code"
+        data = job._decorate("job_123", {
+            "state": "failed", "terminal": True, "exit_code": 137,
+            "output": "", "oom_killed": False,
+        })
+        self.assertEqual(data["job_failure"]["reason"], "unknown")
+
     def test_empty_result_retains_unverified_negative_conclusion(self):
         result = normalize_result({
             "ok": True, "outcome": "empty",

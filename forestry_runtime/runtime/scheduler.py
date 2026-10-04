@@ -14,7 +14,8 @@ racing a code run against the environment it is changing. So concurrency is deci
 what a call touches, not by whether it looks safe:
 
     pure_read            -> semaphore only, runs alongside anything
-    resource_read        -> semaphore, plus the resource's lock if a write holds it
+    resource_read        -> semaphore, plus the resource's lock (a write holding
+                            it is awaited; reads on different resources are not)
     resource_write       -> exclusive lock on that resource
     environment_mutation -> one global lock; the environment is not divisible
     external_side_effect -> serialized; a side effect that may not be replayable
@@ -41,9 +42,11 @@ reads wait for each other.
 "the environment is not divisible" is easy; making it true means an install must not
 overlap a *read*, and a read does not take a resource lock that an install could wait
 on. So a global-class call drains every read slot before it starts: reads already in
-flight finish, no new one can begin, and the install runs alone. The alternative --
-a global lock that only global-class calls take -- looks like exclusion in the code
-and is not exclusion at runtime.
+flight finish, no new one can begin, and the install runs alone. The drain happens
+*under* the global lock, not before it -- two drains that each hold part of the pool
+while waiting for the rest deadlock against each other, with no reader involved at
+all. The alternative -- a global lock that only global-class calls take -- looks like
+exclusion in the code and is not exclusion at runtime.
 """
 from __future__ import annotations
 
@@ -164,38 +167,61 @@ class ExecutionScheduler:
         return lock
 
     async def run(self, plan: CallPlan, call):
-        """Execute one call under whatever it needs to hold."""
+        """Execute one call under whatever it needs to hold.
+
+        Every keyed call -- read or write -- takes its resource's lock, after the
+        slot and in sorted key order. A read takes the lock too because a check-
+        then-acquire ("only if a write holds it right now") is a race: the write
+        that acquires between the read's check and its call would overlap it. Same-
+        resource reads therefore serialise, which costs little; the concurrency
+        that matters is reads on *different* resources, and those never shared a
+        lock anyway.
+        """
         if plan.needs_global_lock:
             return await self._run_exclusive(call)
         # Every call occupies one slot, including writes: a slot is "the machine is
         # doing something", and it is what a global-class call drains to be alone.
         async with self._read_slots:
-            if not plan.is_write:
-                return await call()
-            keys = plan.resource_keys or [ENVIRONMENT_LOCK]
-            # Held for the whole write, and acquired in a stable order so two writes
-            # touching the same pair cannot deadlock against each other.
-            locks = [self._lock_for(key) for key in sorted(set(keys))]
-            for lock in locks:
-                await lock.acquire()
+            keys = set(plan.resource_keys)
+            if not keys and plan.is_write:
+                # A write that names no path still writes *something*.
+                keys = {ENVIRONMENT_LOCK}
+            locks = [self._lock_for(key) for key in sorted(keys)]
+            # Acquire inside the try so a cancellation while waiting for the second
+            # lock still releases the first: every lock is tracked as it is taken,
+            # and released in reverse order. Acquiring the whole list first, then
+            # entering a separate try, leaks the locks already held when acquiring a
+            # later one is cancelled or raises.
+            acquired: list[asyncio.Lock] = []
             try:
+                for lock in locks:
+                    await lock.acquire()
+                    acquired.append(lock)
                 return await call()
             finally:
-                for lock in reversed(locks):
+                for lock in reversed(acquired):
                     lock.release()
 
     async def _run_exclusive(self, call):
-        """Run alone: drain every slot, then hold the global lock."""
-        held = 0
-        try:
-            for _ in range(self.max_parallel_reads):
-                await self._read_slots.acquire()
-                held += 1
-            async with self._global_lock:
+        """Run alone: hold the global lock, then drain every slot.
+
+        The lock is taken *before* the drain. Draining first is a deadlock: two
+        global-class calls each acquire part of the pool and each wait for the
+        rest, neither ever releases, and no reader is involved at all. Under the
+        lock, only one drainer exists at a time, and everything it waits on --
+        reads and writes holding slots -- neither wants nor holds the global lock,
+        so it finishes and the drain completes.
+        """
+        async with self._global_lock:
+            held = 0
+            try:
+                for _ in range(self.max_parallel_reads):
+                    await self._read_slots.acquire()
+                    held += 1
                 return await call()
-        finally:
-            for _ in range(held):
-                self._read_slots.release()
+            finally:
+                for _ in range(held):
+                    self._read_slots.release()
 
     async def gather(self, plans: list[tuple[CallPlan, object]]) -> list:
         """Run several calls, concurrently where the classes allow it."""

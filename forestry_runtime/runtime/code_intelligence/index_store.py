@@ -149,13 +149,31 @@ class SymbolIndex:
         return self.index_paths(python_files(self.root)[:limit])
 
     def invalidate(self, path: str) -> None:
-        """Drop what is known about one file; it is re-indexed on next use."""
-        relative = self._relative(Path(path))
-        with self._connect() as connection:
-            connection.execute("DELETE FROM code_symbols WHERE path=?", (relative,))
-            connection.execute("DELETE FROM code_relations WHERE source_id LIKE ?",
-                               (relative + ":%",))
-            connection.execute("DELETE FROM code_files WHERE path=?", (relative,))
+        """Drop what is known about one file, then re-index it from disk.
+
+        The re-index is the half that used to be missing: dropping the rows and
+        promising "re-indexed on next use" was a promise nothing kept -- the full
+        workspace index runs once per service, so a dropped file stayed dropped and
+        every later question about its symbols answered from a hole. The edit that
+        triggers this call has *just* written the file, so the bytes on disk are the
+        current truth; indexing exactly that one file is cheap and immediate. A file
+        that no longer exists is forgotten outright: an index that cannot forget is
+        an index that lies.
+        """
+        absolute = Path(path)
+        try:
+            absolute = absolute.resolve()
+        except OSError:
+            pass
+        if not absolute.is_file():
+            relative = self._relative(absolute)
+            with self._connect() as connection:
+                connection.execute("DELETE FROM code_symbols WHERE path=?", (relative,))
+                connection.execute("DELETE FROM code_relations WHERE source_id LIKE ?",
+                                   (relative + ":%",))
+                connection.execute("DELETE FROM code_files WHERE path=?", (relative,))
+            return
+        self.index_paths([absolute])
 
     # -------------------------------------------------------------------- lookup
 

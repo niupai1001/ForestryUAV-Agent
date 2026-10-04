@@ -102,12 +102,35 @@ class SymbolIndexTest(unittest.TestCase):
         self.assertEqual(result.precision, "heuristic")
         self.assertTrue(result.note)
 
-    def test_invalidate_drops_what_is_known_about_a_file(self) -> None:
+    def test_invalidate_reindexes_the_file_from_its_current_bytes(self) -> None:
+        """An edit changed the file; the index must answer from what it *is*, not
+        from what it was. Dropping the rows without rebuilding them was the half
+        measure that left a hole: the full workspace index runs once per service,
+        so a dropped symbol stayed gone and every later question answered from
+        absence instead of from the file."""
+        target = self.workspace.dir / "a.py"
         self.assertTrue(self.service.definition("alpha"))
-        self.service.invalidate(str(self.workspace.dir / "a.py"))
+        target.write_text(
+            '"""Module A, edited."""\n\n\ndef delta():\n    return 2\n',
+            encoding="utf-8",
+        )
+        self.service.invalidate(str(target))
         self.assertEqual(
             self.service.index.find_symbols("alpha", limit=5), [],
-            "after an edit the stale index entry must not be served",
+            "a symbol the edit removed must not be served from the stale index",
+        )
+        found = self.service.find_symbol("delta")
+        self.assertTrue(found, "a symbol the edit added must be answerable at once")
+        self.assertEqual(found[0].short_name, "delta")
+
+    def test_invalidate_forgets_a_file_that_no_longer_exists(self) -> None:
+        self.assertTrue(self.service.definition("beta"))
+        target = self.workspace.dir / "a.py"
+        target.unlink()
+        self.service.invalidate(str(target))
+        self.assertEqual(
+            self.service.index.find_symbols("beta", limit=5), [],
+            "a deleted file must be forgotten, not served from stale rows",
         )
 
     def test_file_version_changes_when_the_file_changes(self) -> None:

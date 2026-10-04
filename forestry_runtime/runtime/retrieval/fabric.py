@@ -17,7 +17,9 @@ from __future__ import annotations
 import os
 
 from .models import RetrievalQuery
-from .retrievers import DomainRetriever, FailureRetriever, MemoryRetriever, ToolRetriever
+from .retrievers import (
+    DomainRetriever, FailureRetriever, MemoryRetriever, TaskStateRetriever, ToolRetriever,
+)
 from .router import RetrievalRouter
 
 ENV_FLAG = "RETRIEVAL_FABRIC_ENABLED"
@@ -28,7 +30,8 @@ def enabled() -> bool:
     return os.getenv(ENV_FLAG, "false").strip().lower() == "true"
 
 
-def build(toolbox, *, code=None, memory=None, failures=None, tools=None) -> RetrievalRouter:
+def build(toolbox, *, code=None, memory=None, failures=None, tools=None,
+          task_state=None) -> RetrievalRouter:
     """One router over the sources this Run can reach.
 
     ``code`` is accepted rather than constructed because indexing a workspace is not
@@ -55,6 +58,11 @@ def build(toolbox, *, code=None, memory=None, failures=None, tools=None) -> Retr
         store = getattr(preflight, "store", None)
     if store is not None:
         router.register("failure", FailureRetriever(store))
+
+    if task_state is not None:
+        router.register("task_state", task_state)
+    elif callable(getattr(toolbox, "_plan_store", None)):
+        router.register("task_state", TaskStateRetriever(toolbox._plan_store))
 
     if memory is not None:
         router.register("memory", memory)
@@ -90,10 +98,24 @@ def build(toolbox, *, code=None, memory=None, failures=None, tools=None) -> Retr
 
     if code is not None:
         router.register("code", code)
+    elif getattr(toolbox, "_code_intelligence", None) is not None:
+        # A service this Run already holds (fs writes invalidating an index must
+        # reach the same object the router serves answers from).
+        router.register("code", toolbox._code_intelligence)
     elif os.getenv(CODE_ENV_FLAG, "false").strip().lower() == "true":
         try:
             from ..code_intelligence import CodeIntelligenceService
-            router.register("code", CodeIntelligenceService(str(toolbox.workspace)))
+            service = CodeIntelligenceService(str(toolbox.workspace))
+            # Handed back to the toolbox so a later fs_write / fs_edit in this Run
+            # invalidates *this* index. Without the hand-back the capability layer
+            # would have no way to reach the instance inside the router, and a
+            # written file would stay invisible to code questions until the next
+            # Run rebuilt everything.
+            try:
+                toolbox._code_intelligence = service
+            except Exception:
+                pass
+            router.register("code", service)
         except Exception:
             pass
 

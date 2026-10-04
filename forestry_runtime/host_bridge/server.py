@@ -272,6 +272,26 @@ def safe_relative(root: Path, relative: str, *, exists: bool = False) -> Path:
     return target
 
 
+def _container_limits(info: dict) -> dict:
+    """What this job container was actually allowed to use.
+
+    Reported on every status rather than only on failure, because a job that
+    stayed under the limit and one that was killed at it are distinguished by
+    ``oom_killed``, and neither number means anything to the caller unless the
+    line itself is stated. A job that does not know its own ceiling cannot tell
+    "the data is too large" from "the code held too much at once".
+    """
+    host_config = info.get("HostConfig") or {}
+    memory = int(host_config.get("Memory") or 0)
+    nano_cpus = int(host_config.get("NanoCpus") or 0)
+    return {
+        "memory_bytes": memory or None,
+        "memory_human": format_bytes(memory) if memory else None,
+        "cpus": round(nano_cpus / 1e9, 2) if nano_cpus else None,
+        "pids_limit": host_config.get("PidsLimit") or None,
+    }
+
+
 class Service:
     def __init__(self):
         self.key = os.environ.get("HOST_BRIDGE_KEY", "")
@@ -284,7 +304,15 @@ class Service:
         self.data_root.mkdir(parents=True, exist_ok=True)
         self.image = os.environ.get("AGENT_JOB_IMAGE", "python:3.12-slim")
         self.cpu = os.environ.get("AGENT_JOB_CPUS", "4")
-        self.memory = os.environ.get("AGENT_JOB_MEMORY", "6g")
+        # A ceiling, not a target. 6g was carried over from a much smaller host and
+        # is under 5% of what the runtime can actually see here (124 GiB), which
+        # turns "this algorithm is heavier than the author expected" into "the
+        # sandbox is broken" -- the job dies at 137 with an empty log and the model
+        # is told `unknown`. 16g leaves real headroom for a legitimate geospatial
+        # job while still bounding one runaway container. It is a single
+        # environment variable precisely because the right number depends on the
+        # machine, and the job is told what its ceiling was on every status.
+        self.memory = os.environ.get("AGENT_JOB_MEMORY", "16g")
         self.max_jobs = int(os.environ.get("AGENT_MAX_ACTIVE_JOBS", "1"))
         self.pids = os.environ.get("AGENT_JOB_PIDS", "256")
         # Scratch space for jobs. A tmpfs is charged against the container's memory
@@ -1032,6 +1060,13 @@ class Service:
             "has_more_output": offset + len(chunk) < len(logs),
             **({"image": committed} if committed else {}),
             **({"resource": resource} if resource else {}),
+            # A job killed for exceeding its memory limit exits with 137, the same
+            # code as any other SIGKILL, and its log usually says nothing at all --
+            # the process is gone before it can print. `OOMKilled` is set by the
+            # runtime that enforced the limit and is the only witness, so it is
+            # surfaced here rather than left to be guessed from the exit code.
+            "oom_killed": bool(state.get("OOMKilled")),
+            "limits": _container_limits(info),
         }
         if normalized != "running":
             record = self._job_record(job_id)

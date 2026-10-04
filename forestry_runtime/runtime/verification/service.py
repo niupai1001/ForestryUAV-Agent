@@ -64,7 +64,7 @@ class VerificationService:
             verdicts = []
         else:
             verdicts = self.registry.verdicts(facts.artifacts, task)
-        semantic = semantic_checks(verdicts)
+        semantic = semantic_checks(verdicts, task_truth=bool(facts.task_truth))
 
         checks = execution + structural + semantic
         state, reasons = fold(checks)
@@ -92,6 +92,14 @@ class VerificationService:
                     actions.append(action)
         for check in checks:
             if check.outcome == "not_run" and check.layer == "semantic":
+                if "self-consistency" in check.detail:
+                    actions.append(
+                        "the product matches its own declaration but nothing has "
+                        "checked it against the task: obtain task truth (a gold "
+                        "reference, a sampled review, or user confirmation) before "
+                        "claiming completion"
+                    )
+                    break
                 kinds = sorted({
                     _text(item.get("artifact_kind") or item.get("media_type"), 60)
                     for item in facts.artifacts if isinstance(item, dict)

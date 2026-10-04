@@ -48,6 +48,13 @@ class RunFacts:
     plan_completion: str = "unknown"
     #: Why the run stopped, when it did not stop on its own terms.
     stop_reason: str = ""
+    #: Whether anything exists to compare the artifacts against on the task's own
+    #: terms -- gold pixels, an accepted reference answer, an explicit user
+    #: confirmation. Self-consistency with what the producer *declared* is not
+    #: truth: a wrong declaration matched by an obedient file passes every
+    #: self-consistency check there is. A run without this holds
+    #: ``delivered_unverified`` no matter how many semantic layers passed.
+    task_truth: bool = False
 
 
 def execution_checks(facts: RunFacts) -> list[Check]:
@@ -171,17 +178,31 @@ def product_qa_checks(artifact: dict) -> list[Check]:
     return checks
 
 
-def semantic_checks(verdicts: list[Check]) -> list[Check]:
+def semantic_checks(verdicts: list[Check], task_truth: bool = False) -> list[Check]:
     """Does it mean what the task asked.
 
     With no verifier for the artifact kind there is no check to report as passed --
     the honest answer is ``not_run``, which keeps the result at
     ``delivered_unverified`` instead of letting an empty layer read as agreement.
+
+    The same holds -- deliberately -- when verifiers *did* run and passed, but what
+    they checked was self-consistency with the producer's own declaration. A file
+    that matches its producer's claim is a file whose copies agree; it is not a file
+    that answers the task. Without task truth to compare against, the question
+    "does it mean what was asked" stays ``not_run`` even on a perfect score, and
+    that is what keeps a self-consistent product from being reported as
+    ``verified_complete``.
     """
     if not verdicts:
         return [Check(
             layer="semantic", name="artifact_answers_task", outcome="not_run",
             detail="no verifier is registered for the delivered artifact kind",
+        )]
+    if not task_truth:
+        return [*verdicts, Check(
+            layer="semantic", name="artifact_answers_task", outcome="not_run",
+            detail="verifiers established self-consistency with the producer's own "
+                   "declaration; no task truth was available to compare against",
         )]
     return list(verdicts)
 

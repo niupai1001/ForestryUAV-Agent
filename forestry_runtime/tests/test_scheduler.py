@@ -156,6 +156,40 @@ class ExecutionTest(unittest.TestCase):
 
         self.assertEqual(asyncio.run(main()), ["first", "second"])
 
+    def test_cancelling_while_awaiting_a_later_lock_releases_earlier_locks(self) -> None:
+        """A cancellation between two lock acquisitions must not leak the first.
+
+        The first resource lock is taken before the second is awaited; if acquiring
+        the second is cancelled, the first must be released, or a later call touching
+        the first resource deadlocks forever on a lock nobody holds anymore.
+        """
+        scheduler = ExecutionScheduler(max_parallel_reads=4)
+        plan = _plan("w", "resource_write", "path:a", "path:b")
+        second = scheduler._lock_for("path:b")
+
+        async def main() -> None:
+            await second.acquire()
+            try:
+                task = asyncio.ensure_future(
+                    scheduler.run(plan, lambda: asyncio.sleep(0, result="ok"))
+                )
+                # Let the task acquire path:a and start waiting on the held path:b.
+                await asyncio.sleep(0.02)
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+            finally:
+                second.release()
+            # path:a must now be free: acquiring it directly must not block.
+            first = scheduler._lock_for("path:a")
+            acquired = await asyncio.wait_for(first.acquire(), timeout=0.5)
+            self.assertTrue(acquired)
+            first.release()
+
+        asyncio.run(main())
+
 
 if __name__ == "__main__":
     unittest.main()

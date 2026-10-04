@@ -78,11 +78,31 @@ class FilesystemCapability(InputResolution):
     @staticmethod
     def _read_local(path: Path, start_line: int, max_lines: int, max_chars: int) -> dict:
         try:
-            lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+            with path.open("r", encoding="utf-8") as stream:
+                # Advance to the requested start line without materialising the whole
+                # file: the budget stops the read, not a post-hoc slice.
+                for _ in range(start_line - 1):
+                    if not stream.readline():
+                        break
+                parts = []
+                chars = 0
+                more_lines = False
+                for _ in range(max_lines):
+                    line = stream.readline()
+                    if not line:
+                        break
+                    parts.append(line)
+                    chars += len(line)
+                    if chars >= max_chars:
+                        break
+                else:
+                    # Read the full window; one further line means more content.
+                    more_lines = bool(stream.readline())
         except UnicodeDecodeError as exc:
             return {"text": False, "error": f"binary or non-UTF-8 file: {exc}"}
-        selected = "".join(lines[start_line - 1:start_line - 1 + max_lines])[:max_chars]
-        return {"text": True, "start_line": start_line, "content": selected, "truncated": start_line - 1 + max_lines < len(lines) or len(selected) >= max_chars}
+        selected = "".join(parts)[:max_chars]
+        return {"text": True, "start_line": start_line, "content": selected,
+                "truncated": more_lines or len(selected) >= max_chars}
 
     def fs_read(self, scope="workspace", path="", asset_id=None, source_id=None, start_line=1, max_lines=200, max_chars=32000):
         if is_host_path(path):
@@ -141,7 +161,11 @@ class FilesystemCapability(InputResolution):
         matches = []
         paths = [root] if root.is_file() else root.rglob("*")
         for item in paths:
-            if len(matches) >= max_results or not item.is_file() or not fnmatch.fnmatch(item.name, glob) or item.stat().st_size > 4 * 1024 * 1024:
+            # Stop walking the tree the moment the result budget is filled; a full
+            # traversal past the limit only discovers files it will then discard.
+            if len(matches) >= max_results:
+                break
+            if not item.is_file() or not fnmatch.fnmatch(item.name, glob) or item.stat().st_size > 4 * 1024 * 1024:
                 continue
             try:
                 for line_no, line in enumerate(item.read_text(encoding="utf-8").splitlines(), 1):
@@ -159,6 +183,7 @@ class FilesystemCapability(InputResolution):
             raise AssetError("Workspace file already exists; set overwrite=true only when replacement is intended")
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
+        self._invalidate_code_index(target)
         return {"path": target.relative_to(self.workspace).as_posix(), "size": target.stat().st_size}
 
     def fs_edit(self, path, old, new, replace_all=False, scope="workspace", source_id=None, expected_version=None):
@@ -183,4 +208,5 @@ class FilesystemCapability(InputResolution):
             raise AssetError(f"Exact text occurs {count} times; set replace_all=true or provide a unique block")
         updated = content.replace(old, new) if replace_all else content.replace(old, new, 1)
         target.write_text(updated, encoding="utf-8")
+        self._invalidate_code_index(target)
         return {"path": target.relative_to(self.workspace).as_posix(), "replacements": count if replace_all else 1, "size": target.stat().st_size, "version": self._version(target)}

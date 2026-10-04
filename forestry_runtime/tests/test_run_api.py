@@ -76,7 +76,7 @@ class RunApiTests(unittest.TestCase):
         async def fake_agent(*args, **kwargs):
             yield {"type": "model_call", "number": 1, "tool_count": 13, "tool_schema_chars": 100}
             yield {"type": "message", "content": "observed"}
-            yield {"type": "done", "artifacts": []}
+            yield {"type": "done", "artifacts": [], "state": "done"}
 
         with tempfile.TemporaryDirectory() as temporary, patch.dict(
             "os.environ", {"RUNTIME_API_KEY": "k" * 32, "DATA_ROOT": temporary}, clear=False
@@ -112,6 +112,18 @@ class RunApiTests(unittest.TestCase):
                         break
                     time.sleep(0.01)
                 self.assertEqual(state, "completed")
+                # The Agent emits "done"; the Run state machine only accepts
+                # "completed". Before the coordinator mapped between the two
+                # vocabularies, the illegal transition raised inside the
+                # finally block and the Run stayed "running" with final=null
+                # forever -- a normally-finished trial was collected as a
+                # timeout and never graded. The stub now emits the Agent's
+                # real word ("state": "done") precisely to keep this honest.
+                final_payload = client.get(f"/runs/{run_id}", headers=headers).json()["final"]
+                self.assertIsNotNone(final_payload)
+                # final stores the original done event; the mapped state lives
+                # on the Run row, not inside this payload.
+                self.assertEqual(final_payload.get("type"), "done")
                 events = client.get(f"/runs/{run_id}/events?after=0", headers=headers).json()
                 self.assertEqual([item["type"] for item in events["events"]], [
                     "user_message", "run_state", "model_call", "message", "done", "run_state",

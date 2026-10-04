@@ -89,16 +89,25 @@ class RequestBudgetCompaction(AbstractCapability[Any]):
     keep_pairs: int = 4
     ledger_keep_messages: int = 6
     record: Callable[[dict], None] | None = None
+    #: Run-resolved budget inputs. When the caller (``stream_agent``) resolved
+    #: them from a settings override, they are pinned here so every request of
+    #: the run plans for the window the model itself was told about; ``None``
+    #: keeps the deployment's own environment reading.
+    window: int | None = None
+    reserve: int | None = None
+    margin_override: int | None = None
+    utilisation_override: float | None = None
     _last: dict = field(default_factory=dict, init=False)
 
     # ------------------------------------------------------------------ helpers
 
     def budget(self) -> tuple[int, int, int, int]:
-        window = context_limit_tokens()
-        reserve = output_reserve_tokens()
-        margin = safety_margin_tokens(window)
+        window = self.window if self.window is not None else context_limit_tokens()
+        reserve = self.reserve if self.reserve is not None else output_reserve_tokens()
+        margin = safety_margin_tokens(window, override=self.margin_override)
         raw = input_budget_tokens(limit=window, reserve=reserve, margin=margin)
-        return int(raw * context_utilisation()), window, reserve, margin
+        utilisation = context_utilisation(override=self.utilisation_override)
+        return int(raw * utilisation), window, reserve, margin
 
     def measure(self, messages: Sequence[Any], params: Any) -> int:
         return self.estimator.estimate_request(messages, params)
@@ -515,6 +524,7 @@ class ContextCompiler:
         project_context: Callable[[], dict] | None = None,
         retrieval: Callable[[str], Any] | None = None,
         task_state: Callable[[], dict] | None = None,
+        verification: Callable[[], dict | None] | None = None,
     ):
         self.toolbox = toolbox
         self.run_facts = run_facts
@@ -525,6 +535,12 @@ class ContextCompiler:
         #: What the Run's own task state says, so "what is still open" is stated by
         #: the plan store rather than re-derived by the model each request.
         self.task_state = task_state
+        #: One callable returning a verification feedback dict, or ``None`` when
+        #: there is nothing the model can fix. This is the repair half of the
+        #: verify loop: a check that fails while the Run can still act is handed
+        #: back with the actions that would clear it, instead of being reported
+        #: only in the terminal event nobody can act on.
+        self.verification = verification
 
     def compile(self, query: str, tool_defs: list, history_messages: int) -> tuple[list[str], dict, int]:
         parts: list[str] = []
@@ -539,6 +555,11 @@ class ContextCompiler:
         guide_part, guide_entries = _guide_catalogue_part(tool_defs)
         if guide_part:
             parts.append(guide_part)
+        # The Run's state is computed once per request and consumed twice below --
+        # once to direct retrieval at what is still open, once printed for the model.
+        # One source, read once: a second derivation inside the retrieval path would
+        # be a second copy of "where this Run is" free to disagree with the first.
+        task_state = self._task_state()
         # The plan sits between the reference material and the volatile facts: it is
         # this Run's own reasoning, revised as observations arrive, and it is the only
         # place where "why this method" is recorded. Placed after the catalogue so a
@@ -550,9 +571,15 @@ class ContextCompiler:
         # answerable to this one query, unlike the catalogue, and it is evidence with
         # a reference, unlike the facts. Placed here so a citation in the plan and a
         # candidate below it are visible in the same request.
-        retrieval_part, retrieval_info = self._retrieval_part(query)
+        retrieval_part, retrieval_info = self._retrieval_part(query, task_state)
         if retrieval_part:
             parts.append(retrieval_part)
+        # What this Run has already done, printed once and always. Placed last among
+        # the instruction sections because it is the most volatile part of them and
+        # the one that answers "what happens if I call that again".
+        state_text = _task_state_text(task_state)
+        if state_text:
+            parts.append(state_text)
 
         attachments = self.toolbox.attachment_context()
         grants = self.toolbox.workspaces.list_grants(
@@ -581,9 +608,16 @@ class ContextCompiler:
         )
         if self.run_facts:
             facts["run"] = self.run_facts()
-        task_state = self._task_state()
         if task_state:
             facts["task_state"] = task_state
+        verification = None
+        if self.verification is not None:
+            try:
+                verification = self.verification()
+            except Exception:
+                verification = None
+        if verification:
+            facts["verification"] = verification
         if project:
             facts["project"] = {
                 key: project.get(key) for key in (
@@ -618,6 +652,7 @@ class ContextCompiler:
         }
         manifest.update(retrieval_info)
         manifest["task_state"] = task_state.get("completion") if task_state else None
+        manifest["verification_feedback"] = bool(verification)
         return parts, manifest, len(instruction)
 
     @staticmethod
@@ -643,7 +678,33 @@ class ContextCompiler:
 
     # ------------------------------------------------------------------ retrieval
 
-    def _retrieval_part(self, query: str) -> tuple[str, dict]:
+    def _directed_query(self, query: str, state: dict | None = None) -> str:
+        """The user's words plus what the plan still owes.
+
+        The query used to stay the Run's latest user text for the whole Run: the
+        *sources* were re-read on every step, but the *question* never moved, so
+        a step whose information need had drifted from the original request kept
+        searching for a request that was no longer the point. The plan store
+        knows what is still open; joining its unmet requirement texts here aims
+        the same fused retrieval at the remaining work -- no second query path,
+        no extra model call, and no change when there is no plan or when every
+        requirement is already settled.
+        """
+        parts: list[str] = []
+        if (query or "").strip():
+            parts.append(query.strip())
+        if state is None:
+            try:
+                state = self._task_state()
+            except Exception:
+                state = {}
+        for item in (state.get("open_requirement_texts") or []):
+            text = str(item or "").strip()
+            if text:
+                parts.append(text)
+        return "\n".join(parts)
+
+    def _retrieval_part(self, query: str, task_state: dict | None = None) -> tuple[str, dict]:
         """Fused evidence for this query, or nothing when no fabric is wired.
 
         The contract is deliberately one callable: the compiler does not know which
@@ -662,7 +723,7 @@ class ContextCompiler:
         if not callable(self.retrieval):
             return "", info
         try:
-            result = self.retrieval(query)
+            result = self.retrieval(self._directed_query(query, task_state))
         except Exception:
             # A broken retriever must not remove the rest of the request: the Run
             # still has its plan, its facts and its tools.
@@ -853,38 +914,138 @@ def _work_plan_part(toolbox) -> tuple[str, int]:
 
 
 def _task_state_facts(toolbox) -> dict:
-    """The Run's own account of what is still owed, as facts rather than prose.
+    """This Run's task state: one per Run, present whether or not a plan exists.
 
-    Read from the plan store because the plan owns it: a second copy of "what is
-    open" would drift from the first within one revision. Empty when no plan has been
-    recorded -- absence of a plan is not a claim that nothing is owed.
+    Every conversation has a state, because every conversation has already done
+    something -- calls were made, some worked, some failed, some were made again.
+    Returning ``{}`` when the model never wrote a work plan did not remove that
+    state; it only removed the Runtime's account of it, leaving the model to
+    reconstruct "where am I" from its own history every step. That is precisely
+    the reconstruction that fails: the history is long, the same tool answer is in
+    it nineteen times, and a loop is invisible from inside the loop.
+
+    So the Run's state is assembled from two sources and printed as one block:
+
+    * **what is still owed**, when the request was split into requirements with a
+      citation each -- decided by the plan store, settled from the ledger, never
+      written by the model;
+    * **what has actually been done**, always, counted from the ledger rather
+      than reported by the model. Callsmade, succeeded, failed, tools used,
+      artifacts delivered, and anything repeated more than once.
+
+    The second half deliberately stops short of judgment. It does not say "you are
+    stuck" or "you are nearly finished", because both would require the Runtime to
+    know what the user asked for, which only the requirements say. It says what
+    happened and how many times -- arithmetic the Runtime can stand behind -- and
+    lets the requirement section, if there is one, carry the meaning.
     """
+    store = None
     reader = getattr(toolbox, "_plan_store", None)
-    if not callable(reader):
-        return {}
+    if callable(reader):
+        try:
+            store = reader()
+        except Exception:
+            store = None
+    plan = None
+    if store is not None:
+        try:
+            plan = store.load()
+        except Exception:
+            plan = None
+    derived: dict = {}
+    if store is not None and getattr(store, "ledger", None) is not None:
+        try:
+            derived = store.ledger.state_summary()
+        except Exception:
+            derived = {}
     try:
-        plan = reader().load()
+        plan_present = bool(plan is not None and not plan.empty)
+        completion = plan.completion_state() if plan is not None else "unknown"
+        open_items = plan.open_requirements() if plan is not None else []
+        blocked_items = plan.blocked_requirements() if plan is not None else []
     except Exception:
-        return {}
+        plan_present, completion, open_items, blocked_items = False, "unknown", [], []
+    delivered: list[str] = []
     try:
-        state = plan.completion_state()
-        open_ids = [str(item.get("id")) for item in plan.open_requirements()]
-        blocked_ids = [str(item.get("id")) for item in plan.blocked_requirements()]
+        for item in (getattr(toolbox, "created", None) or [])[:8]:
+            name = str((item or {}).get("name") or (item or {}).get("id") or "")
+            if name and name not in delivered:
+                delivered.append(name)
     except Exception:
-        return {}
-    if state == "unknown" and not open_ids and not blocked_ids:
-        return {}
+        delivered = []
+    declared = bool(plan is not None and plan.requirements)
     facts = {
-        "completion": state,
-        "open_requirements": open_ids[:10],
-        "blocked_requirements": blocked_ids[:10],
+        # Which half is answering "what is owed". Stated rather than inferred so
+        # the difference between "everything asked for is done" and "nobody wrote
+        # down what was asked for" can never collapse into one word.
+        "source": "plan" if declared else "ledger",
+        "plan_present": plan_present,
+        "completion": completion,
+        "open_requirements": [str(item.get("id")) for item in open_items][:10],
+        "blocked_requirements": [str(item.get("id")) for item in blocked_items][:10],
+        # The text beside the id: the id says *which* requirement is open, the
+        # text says *what it asks for* -- which is what a retrieval query needs
+        # to be aimed at the remaining work rather than at the original request.
+        "open_requirement_texts": [
+            str(item.get("text") or "")[:160] for item in open_items[:10]
+        ],
+        "delivered_artifacts": delivered,
+        **derived,
     }
-    facts["note"] = (
-        "Satisfaction is settled by observations, not by the plan: a requirement "
-        "becomes satisfied only when the evidence it cites exists in the ledger. "
-        "A request may not be reported finished while `completion` is open or blocked."
-    )
+    if declared:
+        facts["note"] = (
+            "需求是否达成由观察结算，不由状态声明：只有当一条需求引用的证据确实存在于账本中，"
+            "它才会被置为 satisfied。completion 为 open 或 blocked 时不得向用户宣称完成。"
+        )
+    else:
+        facts["note"] = (
+            "本 Run 没有拆分出可结算的需求（未建立 work_plan），因此 completion 只能为 "
+            "unknown：下面的 calls / tools_used / recent / repeated 是 Runtime 记录的已执行事实，"
+            "不代表“还欠什么”的判断。repeated 非空表示同一调用已被重复执行多次，"
+            "再次执行不会产生新的结果。"
+        )
     return facts
+
+
+def _task_state_text(facts: dict) -> str:
+    """Render what has actually been done, bound on purpose.
+
+    Shown every request, so it is bounded: totals, the tools actually used, the
+    deliveries, what repeated, and the last few calls. Says nothing about progress
+    and never addresses the model as if it were confused -- it states the counts,
+    which the model can read against what it intended to do next.
+    """
+    if not facts:
+        return ""
+    lines = ["Run 状态（Runtime 观察账本记录的事实，不是模型的自述）："]
+    calls = int(facts.get("calls") or 0)
+    if calls:
+        lines.append(
+            f"- 已执行调用 {calls} 次（去重 {int(facts.get('distinct_calls') or 0)} 条）："
+            f"成功 {int(facts.get('succeeded') or 0)} / 失败 {int(facts.get('failed') or 0)}"
+        )
+    if facts.get("delivered_artifacts"):
+        lines.append("- 已交付产物：" + "、".join(str(item) for item in facts["delivered_artifacts"][:6]))
+    if facts.get("tools_used"):
+        lines.append("- 工具使用：" + "、".join(
+            f"{item.get('tool')} ×{item.get('count')}" for item in facts["tools_used"]
+        ))
+    if facts.get("repeated"):
+        for item in facts["repeated"]:
+            target = str(item.get("target") or "").strip()
+            lines.append(
+                f"- 重复调用：{item.get('tool')} ×{item.get('count')}"
+                + (f"（{target}）" if target else "")
+                + "。完全相同的参数再调用一次不会带来新结果。"
+            )
+    if facts.get("recent"):
+        rendered = [
+            f"{'成功' if item.get('ok') else '失败'} {item.get('tool')}"
+            + (f"（{item.get('target')}）" if str(item.get('target') or "").strip() else "")
+            for item in facts["recent"]
+        ]
+        lines.append("- 最近调用：" + "；".join(rendered))
+    return "\n".join(lines)
 
 
 def _project_instruction_part(project: dict) -> str:

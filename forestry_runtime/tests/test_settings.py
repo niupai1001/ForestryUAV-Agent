@@ -13,6 +13,7 @@ to the deployment rather than pinning a copy of it.
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -180,6 +181,123 @@ class AgentUsesTheRegistryTests(unittest.TestCase):
                 raise RuntimeError("database is locked")
 
         self.assertEqual(_setting_value(Broken(), "AGENT_MAX_ROUNDS"), 32)
+
+
+class ModelKnobsFollowTheOverrideTests(unittest.TestCase):
+    """An override must reach the model call and the budget, not just the panel.
+
+    The collector writes an arm's parameters with ``PUT /settings`` and records
+    the applied result, which used to prove nothing: the model-call settings and
+    the budget compactor read the environment directly, so a run could record
+    ``OLLAMA_CONTEXT: 8192`` as applied while asking the model for the
+    deployment's 32768-token window -- a controlled arm that controlled nothing.
+    """
+
+    def _store_with(self, **values):
+        root = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
+        store = Store(root)
+        for key, value in values.items():
+            store.set_setting(key, str(value))
+        return store
+
+    def test_an_override_reaches_the_model_call_settings(self):
+        from runtime.agent import _settings
+
+        store = self._store_with(
+            OLLAMA_CONTEXT=8192, OLLAMA_TEMPERATURE="0.7",
+            OLLAMA_OUTPUT_TOKENS=2048, OLLAMA_THINK="false",
+        )
+        with patch.dict(os.environ, {"OLLAMA_CONTEXT": "32768",
+                                     "OLLAMA_TEMPERATURE": "0.2"}):
+            settings = _settings(store)
+        self.assertEqual(settings["extra_body"]["options"]["num_ctx"], 8192)
+        self.assertEqual(settings["temperature"], 0.7)
+        self.assertEqual(settings["max_tokens"], 2048)
+        self.assertFalse(settings["extra_body"]["think"])
+
+    def test_without_an_override_the_environment_still_decides(self):
+        """The override path must not shadow the deployment's own reading."""
+        from runtime.agent import _settings
+
+        store = self._store_with()
+        with patch.dict(os.environ, {"OLLAMA_CONTEXT": "16384",
+                                     "OLLAMA_TEMPERATURE": "0.4"}):
+            settings = _settings(store)
+        self.assertEqual(settings["extra_body"]["options"]["num_ctx"], 16384)
+        self.assertEqual(settings["temperature"], 0.4)
+
+    def test_the_model_name_and_thinking_follow_an_override(self):
+        from runtime.agent import _model
+
+        store = self._store_with(OLLAMA_MODEL="qwen3.5:4b", OLLAMA_THINK="false")
+        with patch.dict(os.environ, {"OLLAMA_MODEL": "qwen3.8:27b"}):
+            model = _model(store)
+        self.assertEqual(model.model_name, "qwen3.5:4b")
+        # pydantic_ai serialises the profile onto the model as a plain dict.
+        profile = model.profile
+        if not isinstance(profile, dict):
+            profile = vars(profile)
+        self.assertFalse(profile["thinking_always_enabled"])
+
+    def test_an_override_moves_the_budget_with_the_window(self):
+        """A smaller window must shrink the plan, not overflow into truncation."""
+        from runtime.context import RequestBudgetCompaction
+        from runtime.tokens import TokenEstimator
+
+        store = self._store_with(OLLAMA_CONTEXT=8192, OLLAMA_OUTPUT_TOKENS=1024)
+        from runtime.agent import (
+            _setting_override,
+            _setting_active,
+        )
+        from runtime.tokens import context_limit_tokens, output_reserve_tokens
+
+        with patch.dict(os.environ, {"OLLAMA_CONTEXT": "32768"}):
+            window = context_limit_tokens(_setting_override(store, "OLLAMA_CONTEXT"))
+            reserve = output_reserve_tokens(_setting_override(store, "OLLAMA_OUTPUT_TOKENS"))
+            margin_override = _setting_override(store, "CONTEXT_SAFETY_MARGIN_TOKENS")
+            utilisation_override = _setting_override(store, "CONTEXT_UTILISATION")
+            budget, _, _, _ = RequestBudgetCompaction(
+                estimator=TokenEstimator(), window=window, reserve=reserve,
+                margin_override=margin_override,
+                utilisation_override=utilisation_override,
+            ).budget()
+        self.assertEqual(window, 8192)
+        self.assertEqual(reserve, 1024)
+        # 8192 - 1024 - 512(window//16) with the default utilisation applied.
+        self.assertEqual(budget, int((8192 - 1024 - 512) * 0.9))
+
+    def test_the_budget_falls_back_to_the_environment_without_a_pinned_window(self):
+        from runtime.context import RequestBudgetCompaction
+        from runtime.tokens import TokenEstimator, context_limit_tokens
+
+        with patch.dict(os.environ, {"OLLAMA_CONTEXT": "12288"}):
+            budget, window, _, _ = RequestBudgetCompaction(
+                estimator=TokenEstimator(),
+            ).budget()
+        self.assertEqual(window, 12288)
+        self.assertLess(budget, 12288)
+
+    def test_the_override_helper_is_silent_without_a_real_override(self):
+        """Env values and defaults stay with their own readers; only explicit
+        writes come through, so the fallback logic is not duplicated here."""
+        from runtime.agent import _setting_override
+
+        class Bare:
+            pass
+
+        class Broken:
+            def setting_overrides(self):
+                raise RuntimeError("database is locked")
+
+        with tempfile.TemporaryDirectory() as root:
+            store = Store(root)
+            self.assertIsNone(_setting_override(None, "OLLAMA_CONTEXT"))
+            self.assertIsNone(_setting_override(Bare(), "OLLAMA_CONTEXT"))
+            self.assertIsNone(_setting_override(Broken(), "OLLAMA_CONTEXT"))
+            self.assertIsNone(_setting_override(store, "OLLAMA_CONTEXT"))
+            self.assertIsNone(_setting_override(store, "NOT_A_SETTING"))
+            self.assertIsNone(_setting_override(store, "OLLAMA_URL"))
 
 
 if __name__ == "__main__":

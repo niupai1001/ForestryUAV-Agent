@@ -147,8 +147,31 @@ class ObservationLedger:
         self, tool: str, arguments: dict, *, ok: bool, summary: str = "",
         documents: list[str] | None = None, version: str = "",
     ) -> str:
+        identifier, _ = self.record_with_occurrences(
+            tool, arguments, ok=ok, summary=summary, documents=documents, version=version,
+        )
+        return identifier
+
+    def record_with_occurrences(
+        self, tool: str, arguments: dict, *, ok: bool, summary: str = "",
+        documents: list[str] | None = None, version: str = "",
+    ) -> tuple[str, int]:
+        """Record one call and say how many times this exact call has been made.
+
+        The same as :meth:`record` plus the occurrence count, which the call path
+        needs for repetition feedback and which cannot be recovered afterwards
+        without keeping a separate structure that would drift from this one: the
+        id *is* derived from the call, so counting is only possible at the moment
+        the call is filed.
+
+        ``at`` stays the time of the first occurrence, because "when was this fact
+        established" is answered by the first call that produced it; the repeat
+        is a second delivery of the same fact, not a new one.
+        """
         identifier = observation_id(tool, arguments, version)
         data = self._load()
+        previous = data["observations"].get(identifier)
+        occurrences = int((previous or {}).get("occurrences") or 0) + 1
         data["observations"][identifier] = {
             "id": identifier, "tool": tool, "ok": bool(ok),
             "arguments": {
@@ -157,7 +180,9 @@ class ObservationLedger:
                 for key, value in list((arguments or {}).items())[:12]
             },
             "summary": _clean(summary, 300),
-            "at": time.time(),
+            "at": float((previous or {}).get("at") or time.time()),
+            "occurrences": occurrences,
+            "last_at": time.time(),
         }
         for document in documents or []:
             text = _clean(document, 300)
@@ -169,10 +194,70 @@ class ObservationLedger:
             entry["observation_id"] = identifier
             data["documents"][text] = entry
         self._save(data)
-        return identifier
+        return identifier, occurrences
 
     def known(self) -> dict:
         return self._load()
+
+    def state_summary(self, limit: int = 6) -> dict:
+        """What this Run has actually done, counted from the calls that returned.
+
+        This is the Run's task state when the model wrote no plan, and it is
+        deliberately limited to facts that were recorded: which calls were made,
+        how often each, how many worked, how many failed, and what repeated.
+
+        It does not say what any of that *means*, and it does not decide whether
+        anything is still owed. Both of those need the request to have been split
+        into requirements with a citation each, and writing those here would be
+        the Runtime inventing the model's plan -- the same confusion in the other
+        direction, except undetectable, because it would arrive in the voice of
+        the machine. What the Runtime *can* state without guessing is that a call
+        was made nineteen times: that is arithmetic, not judgment.
+        """
+        entries = list((self._load().get("observations") or {}).values())
+        tools: dict[str, int] = {}
+        succeeded = 0
+        failed = 0
+
+        def _occurrences(entry: dict) -> int:
+            return int(entry.get("occurrences") or 1)
+
+        for entry in entries:
+            name = str(entry.get("tool") or "")
+            if name:
+                tools[name] = tools.get(name, 0) + _occurrences(entry)
+            if entry.get("ok") is True:
+                succeeded += 1
+            else:
+                failed += 1
+        repeated = sorted(
+            (
+                {"tool": str(entry.get("tool") or ""), "count": _occurrences(entry),
+                 "target": _clean(entry.get("summary"), 120)}
+                for entry in entries if _occurrences(entry) > 1
+            ),
+            key=lambda item: item["count"], reverse=True,
+        )[:limit]
+        newest_first = sorted(
+            entries, key=lambda item: float(item.get("last_at") or item.get("at") or 0),
+            reverse=True,
+        )
+        return {
+            "calls": sum(_occurrences(entry) for entry in entries),
+            "distinct_calls": len(entries),
+            "succeeded": succeeded,
+            "failed": failed,
+            "tools_used": [
+                {"tool": name, "count": count}
+                for name, count in sorted(tools.items(), key=lambda item: -item[1])[:limit]
+            ],
+            "repeated": repeated,
+            "recent": [
+                {"tool": str(entry.get("tool") or ""), "ok": bool(entry.get("ok")),
+                 "target": _clean(entry.get("summary"), 120)}
+                for entry in newest_first[:limit]
+            ],
+        }
 
     def documents_returned(self, document_ids) -> tuple[list[str], list[str]]:
         """Split citations into those whose body was returned and those only named."""
@@ -194,6 +279,32 @@ class ObservationLedger:
                 continue
             (known if text in observations else unknown).append(text)
         return known, unknown
+
+    def observations_ok(self, identifiers) -> tuple[list[str], list[str], list[str]]:
+        """Split citations into succeeded, failed, and never-recorded.
+
+        Settlement needs the three-way split, not existence alone. A failed call is
+        a real observation -- "this file is not a GeoTIFF" is exactly what a plan
+        may cite as evidence of a negative -- but it cannot be evidence that a
+        requirement was *met*, and treating existence as success is how a Run ends
+        up citing the very call that failed to produce its product.
+        """
+        observations = (self._load().get("observations") or {})
+        succeeded: list[str] = []
+        failed: list[str] = []
+        unknown: list[str] = []
+        for raw in identifiers or []:
+            text = _clean(raw, 200)
+            if not text:
+                continue
+            entry = observations.get(text)
+            if entry is None:
+                unknown.append(text)
+            elif entry.get("ok") is True:
+                succeeded.append(text)
+            else:
+                failed.append(text)
+        return succeeded, failed, unknown
 
 
 # ---------------------------------------------------------------------------
@@ -616,12 +727,15 @@ class PlanStore:
         return items
 
     def settle_requirements(self) -> WorkPlan:
-        """Mark satisfied every requirement whose cited evidence now exists.
+        """Mark satisfied every requirement whose cited evidence now exists *and worked*.
 
         This is the completion signal, and it is deliberately mechanical: a requirement
         is satisfied when the observation or document it points at was actually
-        produced by this Run. Nothing here asks the model whether it thinks it is
-        finished, because a Run that ended early always thought it was finished.
+        produced by this Run, **and the call that produced it succeeded**. An
+        observation that recorded a failure is still a fact the plan may cite -- as
+        evidence of a negative -- but it satisfies nothing. Nothing here asks the
+        model whether it thinks it is finished, because a Run that ended early always
+        thought it was finished.
 
         A requirement with no citation cannot be settled and stays open -- an
         unpointed requirement is a claim, not a completion.
@@ -642,8 +756,12 @@ class PlanStore:
             if not documents and not observations:
                 continue
             if observations:
-                _, unknown = self.ledger.observations_exist(observations)
-                if unknown:
+                # Any cited observation that never happened, or that happened and
+                # failed, holds the requirement open. One bad citation is enough:
+                # settling on the strength of the citations that happened to work
+                # would let a Run pick its own evidence.
+                _, failed, unknown = self.ledger.observations_ok(observations)
+                if failed or unknown:
                     continue
             if documents:
                 _, unknown = self.ledger.documents_returned(documents)

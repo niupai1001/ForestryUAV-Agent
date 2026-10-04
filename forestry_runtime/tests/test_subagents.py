@@ -15,8 +15,9 @@ from __future__ import annotations
 import unittest
 
 from runtime.subagents import (
-    MAX_DEPTH, POLICIES, DelegationContract, SubagentResult, SubagentRunner,
+    MAX_DEPTH, POLICIES, DelegationContract, SubagentResult, SubagentRunner, fold_result,
 )
+from runtime.agent import _within_scope
 
 
 def _contract(**kwargs) -> DelegationContract:
@@ -42,9 +43,18 @@ class PermissionTest(unittest.TestCase):
         narrow = _contract(allowed_tools=["fs_read"])
         self.assertEqual(narrow.effective_tools(), ("fs_read",))
 
-    def test_an_empty_contract_falls_back_to_the_policy_not_to_everything(self) -> None:
-        contract = _contract(allowed_tools=[])
-        self.assertEqual(set(contract.effective_tools()), set(POLICIES["explore"].allowed_tools))
+    def test_an_empty_grant_is_empty_and_an_unspecified_one_uses_the_policy(self) -> None:
+        # The intersection resolves narrow: an explicit empty list grants nothing.
+        # Falling back to the full policy there would make "narrow it to nothing"
+        # and "ask for everything" the same act, with the wide permission as the
+        # result -- the one direction an intersection must never resolve in.
+        self.assertEqual(_contract(allowed_tools=[]).effective_tools(), ())
+        # ``None`` means the contract does not speak to tools at all, which is
+        # different from speaking and granting nothing.
+        self.assertEqual(
+            set(_contract(allowed_tools=None).effective_tools()),
+            set(POLICIES["explore"].allowed_tools),
+        )
 
     def test_the_environment_policy_may_change_the_environment_but_not_the_source(self) -> None:
         policy = POLICIES["environment"]
@@ -139,6 +149,49 @@ class ResultBoundTest(unittest.TestCase):
         self.assertEqual(payload["status"], "success")
         self.assertLessEqual(len(payload["facts"]), 20)
         self.assertIsInstance(payload["summary"], str)
+
+
+class ScopeBoundaryTest(unittest.TestCase):
+    """The scope is a boundary, so it is enforced in code, not stated in prose.
+
+    These exercise the same predicate dispatch consults before any child call
+    runs. The direction of every doubtful case is "run": an over-broad read
+    costs one call, a refused correct one costs the delegation.
+    """
+
+    def test_an_anchored_path_outside_the_scope_is_refused(self):
+        scope = ("/workspace/data",)
+        self.assertFalse(_within_scope({"path": "/workspace/secrets.key"}, scope))
+
+    def test_a_path_inside_the_scope_or_below_a_scope_folder_passes(self):
+        scope = ("/workspace/data",)
+        self.assertTrue(_within_scope({"path": "/workspace/data"}, scope))
+        self.assertTrue(_within_scope({"path": "/workspace/data/plot.tif"}, scope))
+
+    def test_a_relative_path_is_not_judged_against_the_scope(self):
+        # "Cannot tell" is not evidence of violation.
+        self.assertTrue(_within_scope({"path": "data/plot.tif"}, ("/workspace/data",)))
+
+    def test_an_identifier_outside_the_scope_is_refused(self):
+        scope = ("source_abc",)
+        self.assertTrue(_within_scope({"source_id": "source_abc"}, scope))
+        self.assertFalse(_within_scope({"source_id": "source_other"}, scope))
+
+    def test_an_empty_scope_constrains_nothing(self):
+        self.assertTrue(_within_scope({"path": "/anywhere/x.tif"}, ()))
+
+
+class EvidenceFoldTest(unittest.TestCase):
+    def test_the_result_carries_the_observation_ids_it_rests_on(self):
+        result = fold_result(
+            observations=[{"tool": "fs_read", "ok": True, "summary": "read plot"}],
+            evidence_ids=["obs_1", "obs_2", ""],
+        )
+        self.assertEqual(result.evidence_ids, ["obs_1", "obs_2"])
+
+    def test_evidence_ids_are_bounded_with_the_rest(self):
+        result = fold_result(evidence_ids=[f"obs_{i}" for i in range(40)])
+        self.assertLessEqual(len(result.evidence_ids), 20)
 
 
 if __name__ == "__main__":

@@ -317,5 +317,137 @@ class WorkPlanCapabilityTests(unittest.TestCase):
         self.assertFalse(manifest["plan_present"])
 
 
+class RequirementSettlementTests(unittest.TestCase):
+    """Only evidence that exists *and worked* may settle a requirement.
+
+    Settlement used to ask one question -- does the cited observation id exist?
+    Existence is the wrong question: a failed call is recorded as an observation
+    too, so a Run could cite the call that failed to produce its product and watch
+    its own requirement flip to satisfied. These tests pin the three-way split.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.ledger = ObservationLedger(self.root / "observations.json")
+        # The id is derived from the call, not the outcome, so the two records must
+        # be different calls -- identical arguments would collide on one entry and
+        # the later record would overwrite the earlier one.
+        self.ok_observation = self.ledger.record(
+            "code_run", {"language": "python", "code": "build mask"}, ok=True,
+            summary="path=canopy_mask.tif",
+        )
+        self.failed_observation = self.ledger.record(
+            "code_run", {"language": "python", "code": "build mask v2"}, ok=False,
+            summary="failure=script_error",
+        )
+        self.store = PlanStore(self.root, self.ledger)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def _requirement(self, evidence: str) -> dict:
+        """Write a requirement citing ``evidence``, then settle as the service does."""
+        self.store.revise(requirements=[{
+            "id": "r1", "text": "a canopy mask exists in the workspace",
+            "evidence": evidence,
+        }])
+        return self.store.settle_requirements().requirements[0]
+
+    def test_a_succeeded_observation_settles_the_requirement(self):
+        self.assertEqual("satisfied", self._requirement(self.ok_observation)["status"])
+
+    def test_a_failed_observation_is_a_fact_but_satisfies_nothing(self):
+        self.assertEqual("open", self._requirement(self.failed_observation)["status"])
+
+    def test_an_unknown_observation_holds_the_requirement_open(self):
+        self.assertEqual("open", self._requirement("obs_ffffffffffff")["status"])
+
+    def test_one_failed_citation_among_good_ones_holds_the_requirement_open(self):
+        """Settling on the citations that happened to work would let a Run pick its own evidence."""
+        self.assertEqual("open", self._requirement(
+            f"{self.ok_observation} {self.failed_observation}"
+        )["status"])
+
+    def test_a_requirement_settles_after_the_evidence_arrives(self):
+        """A requirement may cite evidence that does not exist yet; it settles when it does."""
+        plan = self.store.revise(requirements=[{
+            "id": "r2", "text": "the guide body was read",
+            "evidence": "guide://rgb-canopy-cover@1",
+        }])
+        self.assertEqual("open", plan.requirements[0]["status"])
+        self.ledger.record(
+            "domain_guide", {"guide_id": "rgb-canopy-cover"}, ok=True,
+            documents=["guide://rgb-canopy-cover@1"],
+        )
+        settled = self.store.settle_requirements()
+        self.assertEqual("satisfied", settled.requirements[0]["status"])
+
+
+class RequirementAutoSettlementTests(unittest.TestCase):
+    """Settlement is triggered by the evidence, not by the model remembering to look.
+
+    A requirement whose evidence already existed used to stay open until the model
+    next called ``work_plan`` -- and a model that believed it was done had every
+    reason not to. Now every successful tool result re-settles the plan.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.sessions = Sessions(self.root)
+        self.chat_id = str(uuid.uuid4())
+        self.sessions.create("alice", self.chat_id)
+        self.store = self.sessions.acquire("alice", self.chat_id)
+        self.sessions.release(self.chat_id)
+        self.registry = WorkspaceRegistry(self.root)
+        self.box = RuntimeTools(self.store, "alice", [], self.registry, "")
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_settlement_follows_the_successful_call_not_the_next_plan_call(self):
+        # The observation id is derived from the call, so the *same* read carries
+        # the same id before and after it succeeds: first as a failure the plan
+        # cannot settle on, then as the success that settles it.
+        failed_first = self.box.execute("fs_read", {"path": "report.txt"})
+        self.assertFalse(failed_first["ok"])
+        target = failed_first["observation_id"]
+
+        planned = self.box.execute("work_plan", {"requirements": [{
+            "id": "r1", "text": "the report has been read", "evidence": target,
+        }]})
+        self.assertTrue(planned["ok"], planned)
+        self.assertIn("r1", planned["data"]["open_requirements"])
+
+        written = self.box.execute("fs_write", {
+            "path": "report.txt", "content": "canopy cover: 42%",
+        })
+        self.assertTrue(written["ok"], written)
+        read = self.box.execute("fs_read", {"path": "report.txt"})
+        self.assertTrue(read["ok"], read)
+
+        after = self.box.execute("work_plan", {"include_history": True})["data"]
+        self.assertNotIn("r1", after["open_requirements"])
+        self.assertEqual("satisfied", after["plan"]["requirements"][0]["status"])
+
+    def test_a_failed_call_settles_nothing(self):
+        target = observation_id("fs_read", {"path": "absent.txt"})
+        failed = self.box.execute("fs_read", {"path": "absent.txt"})
+        self.assertFalse(failed["ok"])
+        target = failed["observation_id"]
+        planned = self.box.execute("work_plan", {"requirements": [{
+            "id": "r1", "text": "the absent file was read", "evidence": target,
+        }]})
+        self.assertTrue(planned["ok"], planned)
+        after = self.box.execute("work_plan", {"include_history": True})["data"]
+        self.assertIn("r1", after["open_requirements"])
+
+    def test_runs_without_a_plan_are_not_charged_for_settlement(self):
+        listed = self.box.execute("fs_list", {"path": "."})
+        self.assertTrue(listed["ok"], listed)
+        self.assertEqual([], self.box._plan_store().load().requirements)
+
+
 if __name__ == "__main__":
     unittest.main()

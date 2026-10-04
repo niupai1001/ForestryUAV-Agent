@@ -19,6 +19,10 @@ from .storage import AssetError
 
 LOGGER = logging.getLogger(__name__)
 
+#: Opening the database is retried before a Run is allowed to lose an event.
+_CONNECT_ATTEMPTS = 4
+_CONNECT_BACKOFF_SECONDS = 0.25
+
 
 def _encode_arguments(arguments: dict) -> str:
     return json.dumps(arguments, ensure_ascii=False, sort_keys=True)
@@ -45,20 +49,77 @@ class RunStore:
         self.logs.mkdir(exist_ok=True)
         self.database = self.root / "runs.sqlite3"
         self.lock = threading.RLock()
+        self._connections = threading.local()
         with self.db() as conn:
             initialize_schema(conn)
 
+    def _connection(self) -> sqlite3.Connection:
+        """The calling thread's connection, opened on first use and kept.
+
+        Opening is the expensive part here, not writing. Measured on this
+        deployment, where the data directory is a host bind mount: a single
+        ``sqlite3.connect`` costs about 24 ms because it opens the database and
+        its two WAL sidecars across the host filesystem boundary, while an
+        insert into an already-open connection costs under 1 ms. A Run that
+        appends one event per streamed thinking chunk therefore spent minutes
+        connecting and seconds writing -- 19k events was measured at 663 s --
+        so the connection is reused and the cost falls back onto the write.
+        """
+        conn = getattr(self._connections, "conn", None)
+        if conn is not None:
+            return conn
+        last_error: Exception | None = None
+        for attempt in range(_CONNECT_ATTEMPTS):
+            try:
+                conn = sqlite3.connect(self.database, timeout=30)
+                conn.row_factory = sqlite3.Row
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=NORMAL")
+                break
+            except sqlite3.OperationalError as exc:
+                # A bind-mounted data directory can refuse an open for a moment
+                # and accept the next one -- observed as "unable to open database
+                # file" on a Run whose every later read succeeded. Retrying here
+                # keeps a transient host-filesystem condition from becoming a
+                # lost Run event.
+                last_error = exc
+                conn = None
+                if attempt + 1 < _CONNECT_ATTEMPTS:
+                    time.sleep(_CONNECT_BACKOFF_SECONDS * (2 ** attempt))
+        if conn is None:
+            raise sqlite3.OperationalError(
+                f"could not open run database after {_CONNECT_ATTEMPTS} attempts"
+            ) from last_error
+        self._connections.conn = conn
+        return conn
+
     @contextmanager
     def db(self):
-        conn = sqlite3.connect(self.database, timeout=30)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA synchronous=NORMAL")
+        conn = self._connection()
+        depth = getattr(self._connections, "depth", 0)
+        self._connections.depth = depth + 1
         try:
-            with conn:
+            if depth:
+                # Nested use: the outermost caller owns the transaction. An inner
+                # exit must not commit -- create() reads through get() while it
+                # is still inserting, and committing there would split one Run
+                # into two partial writes.
                 yield conn
+            else:
+                with conn:
+                    yield conn
         finally:
-            conn.close()
+            self._connections.depth = depth
+
+    def close(self) -> None:
+        """Release this thread's connection. The next call opens a fresh one."""
+        conn = getattr(self._connections, "conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+            self._connections.conn = None
 
     @staticmethod
     def _input_id(message: dict) -> str:

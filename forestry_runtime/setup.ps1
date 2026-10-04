@@ -133,7 +133,7 @@ $env:HOST_BRIDGE_KEY = $envValues['HOST_BRIDGE_KEY']
 $env:RUNTIME_DATA_HOST_ROOT = $envValues['RUNTIME_DATA_HOST_ROOT']
 $env:AGENT_JOB_IMAGE = if ($envValues['AGENT_JOB_IMAGE']) { $envValues['AGENT_JOB_IMAGE'] } else { 'forestry_runtime-runtime:latest' }
 $env:AGENT_JOB_CPUS = if ($envValues['AGENT_JOB_CPUS']) { $envValues['AGENT_JOB_CPUS'] } else { '4' }
-$env:AGENT_JOB_MEMORY = if ($envValues['AGENT_JOB_MEMORY']) { $envValues['AGENT_JOB_MEMORY'] } else { '6g' }
+$env:AGENT_JOB_MEMORY = if ($envValues['AGENT_JOB_MEMORY']) { $envValues['AGENT_JOB_MEMORY'] } else { '16g' }
 $env:AGENT_JOB_PIDS = if ($envValues['AGENT_JOB_PIDS']) { $envValues['AGENT_JOB_PIDS'] } else { '256' }
 $env:AGENT_MAX_ACTIVE_JOBS = if ($envValues['AGENT_MAX_ACTIVE_JOBS']) { $envValues['AGENT_MAX_ACTIVE_JOBS'] } else { '1' }
 # The model the container actually asks for is compose.yaml's

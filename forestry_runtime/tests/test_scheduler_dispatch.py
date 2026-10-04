@@ -25,7 +25,9 @@ from pydantic_ai import RunContext
 from runtime.agent import (
     TOOL_SIDE_EFFECTS, AgentDependencies, _call_plan, _execute_tool,
 )
-from runtime.scheduler import ENVIRONMENT_MUTATING_TOOLS, ExecutionScheduler
+from runtime.scheduler import (
+    ENVIRONMENT_MUTATING_TOOLS, ExecutionScheduler, plan_for,
+)
 
 try:  # the usage type moved between pydantic_ai releases
     from pydantic_ai.usage import RunUsage
@@ -234,6 +236,84 @@ class ConcurrencyChainTest(unittest.TestCase):
             path: str = ""
 
         return _tool("fs_read", _Args, "Read a file.")
+
+
+class SchedulerExclusionTest(unittest.TestCase):
+    """The two interleavings the audit reproduced, as permanent regressions.
+
+    Both were real: a read could enter while a write held the resource's lock
+    (the lock existed but reads never took it), and two global-class calls could
+    deadlock forever, each holding part of the slot pool while waiting for the
+    rest with no reader involved at all.
+    """
+
+    def test_a_read_waits_for_a_write_holding_the_same_resource(self):
+        async def scenario():
+            scheduler = ExecutionScheduler(4)
+            events = []
+            write_started = asyncio.Event()
+
+            async def write():
+                events.append("write:start")
+                write_started.set()
+                await asyncio.sleep(0.05)
+                events.append("write:end")
+
+            async def read():
+                events.append("read:start")
+                await asyncio.sleep(0.01)
+                events.append("read:end")
+
+            write_task = asyncio.ensure_future(
+                scheduler.run(plan_for("fs_write", {"path": "/w/a.txt"}), write))
+            await write_started.wait()
+            # Let the write settle into its lock before the read is even offered.
+            await asyncio.sleep(0.01)
+            read_task = asyncio.ensure_future(
+                scheduler.run(plan_for("fs_read", {"path": "/w/a.txt"}), read))
+            await asyncio.gather(write_task, read_task)
+            return events
+
+        events = asyncio.run(scenario())
+        # The read may wait for its turn to start, but it may not run its body
+        # while the write's body is still running.
+        self.assertLess(events.index("write:end"), events.index("read:start"))
+
+    def test_reads_on_different_resources_still_overlap(self):
+        async def scenario():
+            scheduler = ExecutionScheduler(4)
+
+            async def read(tag):
+                await asyncio.sleep(0.05)
+                return tag
+
+            begin = asyncio.get_running_loop().time()
+            await asyncio.gather(
+                scheduler.run(plan_for("fs_read", {"path": "/w/a.txt"}), lambda: read("a")),
+                scheduler.run(plan_for("fs_read", {"path": "/w/b.txt"}), lambda: read("b")),
+            )
+            return asyncio.get_running_loop().time() - begin
+
+        # Two 50ms reads on different paths: overlap means both finish well
+        # before two full sleeps would take.
+        self.assertLess(asyncio.run(scenario()), 0.09)
+
+    def test_two_global_calls_do_not_deadlock_each_other(self):
+        async def scenario():
+            scheduler = ExecutionScheduler(2)
+            order = []
+
+            async def mutate(tag):
+                order.append(tag)
+
+            plan = plan_for("dependency_install", {})
+            await asyncio.wait_for(asyncio.gather(
+                scheduler.run(plan, lambda: mutate("first")),
+                scheduler.run(plan, lambda: mutate("second")),
+            ), timeout=5)
+            return order
+
+        self.assertEqual(sorted(asyncio.run(scenario())), ["first", "second"])
 
 
 if __name__ == "__main__":

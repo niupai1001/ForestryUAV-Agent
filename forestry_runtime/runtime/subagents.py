@@ -97,7 +97,11 @@ POLICIES: dict[str, SubagentPolicy] = {
 class DelegationContract:
     objective: str = ""
     task_state_revision: int = 0
-    allowed_tools: list[str] = field(default_factory=list)
+    #: ``None`` means "unspecified" and inherits the policy's tools; an explicit
+    #: empty list means "nothing" and grants nothing. Collapsing the two is how
+    #: an empty intersection used to fall back to the full policy -- the one
+    #: direction an intersection must never resolve in.
+    allowed_tools: list[str] | None = None
     resource_scope: list[str] = field(default_factory=list)
     evidence_required: list[str] = field(default_factory=list)
     max_model_requests: int = 8
@@ -109,14 +113,19 @@ class DelegationContract:
         """The narrower of the contract and the policy.
 
         A contract cannot grant more than its kind's policy allows: if it could, the
-        permission boundary would be whatever the parent model wrote down.
+        permission boundary would be whatever the parent model wrote down. And the
+        intersection resolves narrow: an explicit empty grant is empty. Falling
+        back to the full policy on an empty intersection would make "narrow it to
+        nothing" and "ask for everything" the same act, with the wide permission
+        as the result.
         """
         policy = POLICIES.get(self.kind)
         policy_tools = policy.allowed_tools if policy else ()
         if not policy:
-            return tuple(self.allowed_tools)
-        granted = tuple(tool for tool in self.allowed_tools if tool in policy_tools)
-        return granted or policy_tools
+            return tuple(self.allowed_tools or ())
+        if self.allowed_tools is None:
+            return tuple(policy_tools)
+        return tuple(tool for tool in self.allowed_tools if tool in policy_tools)
 
 
 @dataclass
@@ -186,7 +195,7 @@ class DelegateInput(BaseModel):
 
 def fold_result(
     *, status: str = "success", output: str = "", observations=None,
-    artifacts=None, open_questions=None,
+    artifacts=None, open_questions=None, evidence_ids=None,
 ) -> SubagentResult:
     """Turn what a child Run produced into what the parent is allowed to see.
 
@@ -194,7 +203,9 @@ def fold_result(
     of delegating. What crosses back is a bounded set of facts derived from the child's
     observation log, which is a record of what it established rather than of what it
     said. A failure is folded too: a parent that hears nothing about a dead end will
-    delegate the same dead end again.
+    delegate the same dead end again. ``evidence_ids`` carries the observation ids the
+    child actually produced, so the parent can cite the work rather than trust the
+    summary.
     """
     facts: list[str] = []
     for entry in observations or []:
@@ -213,7 +224,7 @@ def fold_result(
         status=status if status in SubagentStatus else "failed",
         summary=(output or "").strip()[:MAX_SUMMARY],
         facts=facts,
-        evidence_ids=[],
+        evidence_ids=[str(item) for item in (evidence_ids or []) if str(item)][:MAX_FACTS],
         artifact_ids=[str(item) for item in (artifacts or [])][:MAX_FACTS],
         open_questions=[str(item)[:300] for item in (open_questions or [])][:10],
         recommended_next_actions=[],
