@@ -1,0 +1,38 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "path": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Path",
+      "type": "string"
+    },
+    "classification": {
+      "default": "private",
+      "enum": [
+        "public",
+        "private"
+      ],
+      "title": "Classification",
+      "type": "string"
+    },
+    "read_only": {
+      "const": true,
+      "default": true,
+      "title": "Read Only",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "request_id",
+    "path"
+  ],
+  "title": "RegisterResource",
+  "type": "object"
+}

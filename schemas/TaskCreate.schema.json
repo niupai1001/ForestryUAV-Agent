@@ -1,0 +1,72 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "objective": {
+      "maxLength": 32000,
+      "minLength": 1,
+      "title": "Objective",
+      "type": "string"
+    },
+    "input_refs": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Input Refs",
+      "type": "array"
+    },
+    "requested_metrics": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Requested Metrics",
+      "type": "array"
+    },
+    "requested_method_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Requested Method Id"
+    },
+    "model_profile": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model Profile"
+    },
+    "constraints": {
+      "additionalProperties": true,
+      "title": "Constraints",
+      "type": "object"
+    },
+    "output_preferences": {
+      "additionalProperties": true,
+      "title": "Output Preferences",
+      "type": "object"
+    }
+  },
+  "required": [
+    "request_id",
+    "objective"
+  ],
+  "title": "TaskCreate",
+  "type": "object"
+}

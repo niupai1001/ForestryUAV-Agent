@@ -1,0 +1,53 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "expected_spec_revision": {
+      "minimum": 1,
+      "title": "Expected Spec Revision",
+      "type": "integer"
+    },
+    "objective": {
+      "maxLength": 32000,
+      "minLength": 1,
+      "title": "Objective",
+      "type": "string"
+    },
+    "input_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Input Refs",
+      "type": "array"
+    },
+    "requested_method_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Requested Method Id"
+    },
+    "constraints": {
+      "additionalProperties": true,
+      "title": "Constraints",
+      "type": "object"
+    }
+  },
+  "required": [
+    "request_id",
+    "expected_spec_revision",
+    "objective"
+  ],
+  "title": "Amendment",
+  "type": "object"
+}

@@ -1,0 +1,22 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "expected_state_version": {
+      "minimum": 1,
+      "title": "Expected State Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "request_id",
+    "expected_state_version"
+  ],
+  "title": "Control",
+  "type": "object"
+}

@@ -1,0 +1,49 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "expected_state_version": {
+      "minimum": 1,
+      "title": "Expected State Version",
+      "type": "integer"
+    },
+    "expected_spec_revision": {
+      "minimum": 1,
+      "title": "Expected Spec Revision",
+      "type": "integer"
+    },
+    "candidate_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Candidate Sha256",
+      "type": "string"
+    },
+    "verdict": {
+      "enum": [
+        "accept",
+        "request_changes"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    },
+    "comment": {
+      "default": "",
+      "maxLength": 8000,
+      "title": "Comment",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "expected_state_version",
+    "expected_spec_revision",
+    "candidate_sha256",
+    "verdict"
+  ],
+  "title": "Acceptance",
+  "type": "object"
+}

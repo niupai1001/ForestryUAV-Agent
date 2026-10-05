@@ -1,0 +1,41 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 32000,
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    },
+    "expected_spec_revision": {
+      "minimum": 1,
+      "title": "Expected Spec Revision",
+      "type": "integer"
+    },
+    "correlation_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Correlation Id"
+    }
+  },
+  "required": [
+    "request_id",
+    "text",
+    "expected_spec_revision"
+  ],
+  "title": "Message",
+  "type": "object"
+}

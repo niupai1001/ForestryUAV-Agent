@@ -1,0 +1,29 @@
+schema_version: 1
+host: 127.0.0.1
+port: 8765
+workspace_root: ./workspace
+model_base_url: http://127.0.0.1:11434/v1
+ollama_base_url: http://127.0.0.1:11434
+models:
+  small:
+    repository: Qwen/Qwen3.5-4B
+    served_name: qwen3.5:4b
+    context_limit: 32768
+    output_limit: 4096
+  large:
+    repository: Qwen/Qwen3.8-27B
+    served_name: qwen3.8:latest
+    context_limit: 32768
+    output_limit: 4096
+default_model: small
+search_base_url: null
+max_model_requests_per_turn: 30
+max_actions_per_task: 1000
+max_assignments_per_task: 32
+max_unchanged_decisions: 3
+code_image: python:3.12-slim
+docker_host: npipe:////./pipe/dockerDesktopLinuxEngine
+max_code_seconds: 14400
+max_code_memory_bytes: 6442450944
+max_code_cpus: 4
+

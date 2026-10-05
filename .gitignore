@@ -1,0 +1,13 @@
+.venv/
+.bootstrap/
+workspace/
+node_modules/
+frontend/dist/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.env
+config/app.local.yaml
+!config/app.example.yaml
+

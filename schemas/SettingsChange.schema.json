@@ -1,0 +1,27 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "expected_version": {
+      "minimum": 1,
+      "title": "Expected Version",
+      "type": "integer"
+    },
+    "default_model": {
+      "title": "Default Model",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "expected_version",
+    "default_model"
+  ],
+  "title": "SettingsChange",
+  "type": "object"
+}
