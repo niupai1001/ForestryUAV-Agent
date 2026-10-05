@@ -16,9 +16,10 @@ from pydantic_ai.usage import UsageLimits
 from pydantic_ai_harness import StepPersistence
 from pydantic_ai_harness.step_persistence import SqliteStepStore
 
-from .config import Config
+from .config import Config, ModelProfile
 from .contracts import Failure
 from .jobs import TERMINAL, Jobs
+from .models import model_identity
 from .resources import Resources
 from .store import Store, encode, now, uid
 
@@ -93,12 +94,22 @@ class Engine:
             self.store.event(db, deps.task_id, "action.observed", {"tool": kind, "result": result})
         return result
 
-    def make_agent(self, profile_key: str, turn_id: str):
-        profile = self.config.models[profile_key]
+    def make_agent(self, profile_key: str, turn_id: str, snapshot: dict | None = None):
+        profile = ModelProfile.model_validate(snapshot["model"]) if snapshot else self.config.models[profile_key]
         client = httpx2.AsyncClient(timeout=httpx2.Timeout(300, connect=10), trust_env=False)
         model = OpenAIChatModel(profile.served_name, provider=OpenAIProvider(
             base_url=self.config.model_base_url, api_key="local-only", http_client=client))
-        def before_model(ctx, request_context):
+        async def before_model(ctx, request_context):
+            if ctx.model.system != "test":
+                saved = self.store.task(ctx.deps.task_id)["config_snapshot"]
+                expected = saved.get("model_identity", {})
+                if not expected.get("digest"):
+                    raise Failure("MODEL_UNVERIFIED", "历史任务未记录权重摘要，请建立新任务", 409)
+                if saved.get("model_base_url") != self.config.model_base_url:
+                    raise Failure("MODEL_CONFIG_CHANGED", "模型服务地址与任务快照不一致", 409)
+                observed = await model_identity(self.config, profile)
+                if observed != expected:
+                    raise Failure("MODEL_CONFIG_CHANGED", "本地权重或精度与任务快照不一致，停止执行", 409)
             with self.store.transaction() as db:
                 state = self.store.read_task(db, ctx.deps.task_id)
                 if state["spec_revision"] != ctx.deps.revision:
@@ -140,7 +151,7 @@ class Engine:
             capabilities=[Hooks(before_model_request=before_model, after_model_request=after_model,
                                 output_validate_error=output_error),
                           StepPersistence(store=self.steps, run_id=turn_id)],
-            retries={"tools": 1, "output": self.config.max_output_retries})
+            retries={"tools": 1, "output": snapshot.get("generation", {}).get("max_output_retries", self.config.max_output_retries) if snapshot else self.config.max_output_retries})
 
         def execute(ctx, kind, args, operation):
             return self.perform(ctx.deps, ctx.tool_call_id or f"{ctx.run_step}:{kind}", kind, args, operation)
@@ -244,7 +255,7 @@ class Engine:
                 with self.store.transaction() as db:
                     turn = dict(db.execute("SELECT * FROM turns WHERE id=?", (turn_id,)).fetchone())
                     db.execute("UPDATE turns SET status='running' WHERE id=?", (turn_id,))
-                agent, client = self.make_agent(state["model_profile"], turn_id)
+                agent, client = self.make_agent(state["model_profile"], turn_id, state["config_snapshot"])
                 deps = Deps(self, task_id, turn_id, turn["revision"])
                 snapshot = await self.steps.latest_snapshot(run_id=turn_id)
                 history = list(snapshot.messages) if snapshot else []

@@ -21,7 +21,7 @@ def main():
     inputs = root / "fixtures" / "general"
     inputs.mkdir(parents=True, exist_ok=True)
     fixture = inputs / "heights.csv"
-    fixture.write_text("tree_id,height_m\nT001,8.25\nT002,12.50\nT003,16.75\n", encoding="utf-8")
+    fixture.write_text("tree_id,height_m\nT001,8.25\nT002,12.50\nT003,16.75\n", encoding="utf-8", newline="\n")
     evidence = root / "workspace" / "evidence"
     evidence.mkdir(parents=True, exist_ok=True)
     outcomes = []

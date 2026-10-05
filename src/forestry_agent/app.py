@@ -25,6 +25,7 @@ from .contracts import (
 )
 from .delivery import Delivery
 from .doctor import doctor
+from .models import model_identity
 from .resources import Resources
 from .store import Store, encode, now, uid
 
@@ -150,6 +151,11 @@ def create_app(config: Config, *, enable_agent: bool = True):
 
     @app.post("/tasks", status_code=202)
     async def create(payload: TaskCreate):
+        # A retry returns its existing task without probing or rebinding its weights.
+        with store.transaction() as db:
+            prior = store.replay(db, payload.request_id, {"kind": "task.create", **payload.model_dump()})
+        if prior is not None:
+            return prior
         current = store.settings(initial)
         profile = payload.model_profile or current["default_model"]
         if profile not in config.models:
@@ -157,8 +163,11 @@ def create_app(config: Config, *, enable_agent: bool = True):
         # Until domain methods exist, a hard method request is never silently replaced.
         if payload.requested_method_id is not None:
             raise Failure("PRECONDITION_MISSING", "当前阶段尚未实现该指定方法", 422)
+        identity = await model_identity(config, config.models[profile]) if enable_agent else {"backend": "test_fixture"}
         state = store.create_task(payload.model_dump(), {"model_profile": profile,
-            "settings_version": current["version"], "model": config.models[profile].model_dump()})
+            "settings_version": current["version"], "model": config.models[profile].model_dump(),
+            "model_identity": identity, "model_base_url": config.model_base_url,
+            "generation": {"temperature": 0.2, "think": False, "max_output_retries": config.max_output_retries}})
         actual = store.task(state["task_id"])
         with store.transaction() as db:
             initial_turn_exists = db.execute("SELECT 1 FROM turns WHERE task_id=?", (state["task_id"],)).fetchone()
