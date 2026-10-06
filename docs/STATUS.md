@@ -7,7 +7,7 @@
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
 | P2 | in_progress | 动作/attempt 先登记、请求去重、修订隔离、检查点保护、持久无网络容器作业与原生等待工具 | 18 项边界/故障测试通过；容器真实执行尚未通过 | Docker 环境修复、依赖准备、完整资源准入、真实重启/取消场景 |
-| P3 | in_progress | 候选指纹、显式验收/清单；文档/知识/记忆；原生上下文整理/委派；H0/H1/H2；精确外发审批、公开读取/搜索连接器、持久消息排队 | 完整回归98项、角色/网络浏览器检查；两模型真实网页快照与审批恢复通过 | 真实搜索、私有本地 SearXNG、角色异常/冲突交互、各模型长任务质量、完整报告/通用评估 |
+| P3 | in_progress | 候选指纹、显式验收/清单；文档/知识/记忆；原生上下文整理/委派；H0/H1/H2；精确外发审批、公开读取/搜索连接器、持久消息排队、完整引用复制 | 完整回归121项；两模型真实搜索/读取/引用报告的 UI 检查通过；审批恢复通过 | 搜索稳定性及严格事实验收、本地 SearXNG、无进展保护、角色异常/冲突交互、各模型长任务质量、完整报告/通用评估 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -74,6 +74,24 @@ CLI run 已实际登记并读取 CSV、产生报告并返回 waiting_user。初�
 
 搜索支持 Bing RSS 与 SearXNG JSON 解析，仍未通过真实完整搜索。实际 Bing 探测 timed out，证据 `workspace/evidence/search-probe-5ba096cc1400473eac0cb7101829dc70.json`；诊断 `network-doctor-20261006.json` 同样返回 search=failed，Docker API 仍 unavailable。SearXNG 需 JSON 启用，私有/回环或自定义端口本地实例尚未支持，领域网页 PDF 暂未接入网络读取。这些缺项仍在原计划内，阶段1与V1不标记完成。
 
+## Search and bounded reading / 搜索与有界读回
+
+默认搜索改为 Baidu HTML，保留 Bing RSS/SearXNG 配置。新任务冻结连接器，旧任务保持原配置。普通结果只采用真实目的 URL，过滤广告/推荐/脚本；验证码或不识别页面不伪装空结果。Baidu/SearXNG 的页码进入精确请求授权，下一页仍须实际验证；页码提示不证明分页可用。网页先返回完整来源元数据和最多4000 UTF-8字节的正文，完整字节快照和提取正文仍封存为产物。
+
+原生按行读回长单行 JSON 会越过模型预算，新增同一 LocalFileStore 的4000字节窗口读取，不另建工具结果存储或消息历史。`read_artifact` 从12000缩为4000字节，避免正常正文窗口又被外置一层；EOF明确提示停止。写入精确 UTF-8 字节，修复 Windows LF→CRLF 导致预览游标与保存文件失配。原生用量锚点加新增正文/指令/完整 Schema 的保守余量替代重新计费全部历史；没有有效锚点仍按字节估算，实际用量超过估算则停止。新增 citation_actions/view=citation 从当前授权修订的真实来源动作复制元数据，核对快照，不代替正文事实检查。
+
+`doctor` 分开报告 startup_ready、general_prerequisites_ready 和 general_ready：仅默认模型前提决定 CLI 启动退出码，所有配置模型/搜索/受限执行器决定前提列表；工具、UI、恢复和产品验收不是探测能证明的，general_ready=false。实际诊断 `workspace/evidence/search-doctor-20261006-v2.json`：两个模型已安装、搜索7条可用，Docker unavailable，通用前提及产品验收未通过。
+
+完整回归 `pytest -q --basetemp workspace/test-temp-20261006-88`：121 passed（25.49秒），Ruff/diff检查通过。新增协议/边界覆盖完整来源复制、跨任务/旧修订/角色拒绝、篡改快照、末次动作预算不重复计费、原生单行结果有界读回、直接产物分页不再外置、中文/emoji/换行逐字节重建、搜索页码授权以及探测不误称产品就绪。
+
+真实 UI 搜索报告：small `8741c552-15c1-4537-a90c-6b310fc3ce25`（57.5秒、16模型请求）、large `8d2fb035-7362-4016-b547-6a5433813d85`（56.1秒、10请求），Playwright 2 passed（1.9分钟）。核对通过：工作台创建公开 H1 任务、实际冻结模型/provider、真实搜索后逐字选择官方结果链接、读取原文、两份原始快照哈希、中文报告/完整引用、报告读回、执行记录、刷新后的任务与文件。均 waiting_user，没有自动验收；截图已检查。UI 检查核对报告字段/来源，不能替代四个结构化事实类别的严格评分，更不能替代代码执行/依赖/恢复复合场景。
+
+所有失败保留：此前 small `911774c3-cb07-478b-8594-8b6e3bbadc7a`、large `5eb9a52d-0253-4b85-9921-1e88a5d19b6a` 因嵌套外置窗口反复读取，达到30请求后暂停。更早的真实试次暴露错误类别值、来源链接改写、引用遗漏、大模型重复检查和过度预算停止；对应文件仍在 `workspace/evidence/search-*.json`。
+
+最新严格事实试次 small `9cfb714d-3d9d-4f6f-989b-a42db65d0c5b`（9.70秒）、large `cbc814f9-71ee-41cf-b668-4e41e2f71a58`（11.05秒）均遇到搜索重定向超出授权范围，搜索/事实/报告评分未通过。不是把 UI 单次成功改成稳定性保证。`max_unchanged_decisions` 目前尚未形成持久无进展保护；模型/动作累计上限不能替代它，仍列为缺项。
+
+Evidence: `workspace/evidence/ui-search-<model>-<task_id>.json`, `search-<model>-<task_id>.json`, `workbench-search-<model>.png`. General-stage acceptance remains incomplete; no code execution or scientific accuracy claim is made by these software-search trials.
+
 ## Next / 下一步
 
-推进 P2 的容器验证与依赖准备、可用真实搜索/本地连接器、完整 UI 交互，继续闭合阶段1通用验收，并保留大模型长任务质量验证。阶段1验收前不开发领域功能。低资源硬件是用户明确推迟的发布决策，不能填入假定设备或测量。
+推进 P2 的容器验证与依赖准备、受控本地搜索连接器、持久无进展保护及完整 UI 交互，继续闭合阶段1通用验收，并保留大模型长任务质量验证。阶段1验收前不开发领域功能。低资源硬件是用户明确推迟的发布决策，不能填入假定设备或测量。

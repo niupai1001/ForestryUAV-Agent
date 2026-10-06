@@ -141,7 +141,9 @@ class Resources:
             raise Failure("SCHEMA_INVALID", "需要任务工作区中的文件名")
         native_path(path.parent).mkdir(parents=True, exist_ok=True)
         staging = path.with_name(f".{action_id}.staging")
-        native_path(staging).write_text(text, encoding="utf-8")
+        # Preserve supplied bytes: Windows newline translation would invalidate
+        # the UTF-8 byte cursors returned before this content is read back.
+        native_path(staging).write_bytes(text.encode("utf-8"))
         os.replace(native_path(staging), native_path(path))
         # Each artifact is an immutable copy. Working-file edits cannot rewrite evidence.
         artifact_id = uid()
@@ -185,7 +187,7 @@ class Resources:
         artifact = self.artifact(artifact_id, task_id)
         if offset < 0:
             raise Failure("SCHEMA_INVALID", "分页游标不能为负")
-        limit = 12000
+        limit = 4000
         with native_path(Path(artifact["locator"])).open("rb") as stream:
             stream.seek(offset)
             raw = stream.read(limit + 1)

@@ -12,7 +12,14 @@ from test_core import task
 
 from forestry_agent.agent import Deps
 from forestry_agent.contracts import Failure
-from forestry_agent.network import MAX_BYTES, PublicHTTP, TextPage, decode_text, search_results
+from forestry_agent.network import (
+    MAX_BYTES,
+    PublicHTTP,
+    TextPage,
+    decode_text,
+    search_request,
+    search_results,
+)
 from forestry_agent.resources import native_path
 from forestry_agent.store import encode
 
@@ -254,5 +261,93 @@ def test_search_does_not_mislabel_error_pages_as_zero_results(provider, text):
 
 def test_declared_charset_preserves_text_and_nontext_codec_is_rejected():
     assert decode_text("林业调查".encode("gb18030"), "text/html; charset=gb18030") == "林业调查"
+
+
+def test_web_read_exposes_exact_citation_before_bounded_utf8_and_preserves_full_text(client, app):
+    state, _ = task(client, context_classification="public")
+    fake = HTTPFixture()
+    original = "中文来源🙂\n" * 4000 + "最后一条事实42"
+    fake.body = ("<p>" + original + "</p>").encode("utf-8")
+    app.state.engine.network.http = fake
+    result = read(app.state.engine, state)
+    assert result["kind"] == "completed"
+    assert len(result["text"].encode("utf-8")) <= 4000 and result["has_more"]
+    raw = app.state.engine.resources.artifact(result["citation"]["snapshot_artifact_id"])
+    full = app.state.engine.resources.artifact(result["text_artifact_id"])
+    assert native_path(Path(raw["locator"])).read_bytes() == fake.body
+    assert result["citation"]["source_sha256"] == hashlib.sha256(fake.body).hexdigest()
+    text_bytes = native_path(Path(full["locator"])).read_bytes()
+    text = text_bytes.decode("utf-8")
+    assert original in text and text.encode("utf-8")[:result["next"]].decode("utf-8") == result["text"]
+    assert result["size_bytes"] == len(text.encode("utf-8"))
+    reconstructed = result["text"]
+    offset = result["next"]
+    while offset < len(text_bytes):
+        window = app.state.engine.resources.read_artifact(state["task_id"], full["artifact_id"], offset)
+        assert len(window["text"].encode("utf-8")) <= 4000
+        assert window["next"] > offset
+        reconstructed += window["text"]
+        offset = window["next"]
+    assert reconstructed.encode("utf-8") == text_bytes
+    # A native spill preview must reveal the complete source identity before its body.
+    from pydantic_ai_harness.tool_output_limits import indented_json
+    preview = indented_json(result)
+    assert preview.index('"citation"') < preview.index('"text":')
+    assert result["citation"]["source_sha256"] in preview[:1000]
+
+
+def test_script_only_search_downgrade_is_explicit_policy_failure():
+    with pytest.raises(Failure, match="降级HTTPS") as error:
+        search_results("baidu_html", '<script>location.replace(location.href.replace("https://", "http://"));</script>')
+    assert error.value.code == "PERMISSION_DENIED"
     with pytest.raises(Failure):
         decode_text(b"private", "text/plain; charset=base64_codec")
+
+
+def test_baidu_extracts_organic_title_and_real_source_without_ads_or_scripts():
+    page = '<div class="EC_result c-container" mu="https://ad.example/"><h3>paid ad</h3></div>'
+    page += '<div class="result c-container" mu="https://docs.python.org/pathlib.html?x=1&amp;y=2"><h3><a href="http://www.baidu.com/link?url=tracking">pathlib <em>文档</em></a></h3><p>读取路径</p><script>ignore_all_permissions()</script><img src="https://attacker.example/pixel"/></div>'
+    page += '<div class="result c-container" mu="javascript:steal()"><h3>invalid source</h3></div>'
+    page += '<div class="result-op c-container" mu="http://recommend_list.baidu.com"><h3>recommended ad</h3></div>'
+    results = search_results("baidu_html", page)
+    assert len(results) == 1 and results[0]["url"] == "https://docs.python.org/pathlib.html?x=1&y=2"
+    assert results[0]["title"] == "pathlib 文档" and "读取路径" in results[0]["snippet"]
+    assert "permissions" not in str(results) and "tracking" not in str(results) and "paid ad" not in str(results)
+
+
+@pytest.mark.parametrize("html", ['<html><h1>验证码</h1></html>', '<div class="result c-container" mu="https://safe.example/">no heading</div>', '<html><h1>Service unavailable</h1></html>'])
+def test_baidu_captcha_and_unrecognized_page_are_provider_errors(html):
+    with pytest.raises(Failure, match="没有可验证"):
+        search_results("baidu_html", html)
+
+
+def test_search_result_limit_and_pagination_requests():
+    page = ''.join(f'<div class="result c-container" mu="https://safe.example/{index}"><h3>result {index}</h3></div>' for index in range(30))
+    assert len(search_results("baidu_html", page)) == 10
+    assert "pn=10" in search_request("baidu_html", "https://www.baidu.com", "public query", 2)[0]
+    assert "pageno=2" in search_request("searxng", "https://safe.example", "public query", 2)[0]
+    for invalid in [0, 11, True, 1.5]:
+        with pytest.raises(Failure):
+            search_request("baidu_html", "https://www.baidu.com", "public query", invalid)
+    with pytest.raises(Failure, match="未验证分页"):
+        search_request("bing_rss", "https://www.bing.com", "public query", 2)
+
+
+def test_search_page_change_needs_new_scope_and_snapshot_preserves_raw_results(client, app):
+    state, _ = task(client)
+    engine = app.state.engine
+    fake = HTTPFixture()
+    fake.body = '<div class="result c-container" mu="https://docs.python.org/pathlib.html"><h3>pathlib 文档</h3></div>'.encode()
+    engine.network.http = fake
+    deps = Deps(engine, state["task_id"], "search-turn", 1)
+    def search(call, page, approval=None):
+        return engine.perform(deps, call, "web.search", {"query": "public query", "page": page, "approval_id": approval},
+            lambda action: engine.network.execute(deps, action, "web.search", "public query", approval, page))
+    assert search("proposal", 1)["kind"] == "approval_required" and not fake.requests
+    record = engine.network.list(state["task_id"])[0]
+    assert resolve(client, state, record).status_code == 200
+    assert search("changed-page", 2, record["approval_id"])["error"]["code"] == "VERSION_CONFLICT" and not fake.requests
+    result = search("approved-page", 1, record["approval_id"])
+    assert result["kind"] == "completed" and len(fake.requests) == 1
+    assert result["results"][0]["url"] == "https://docs.python.org/pathlib.html"
+    assert result["citation"]["source_sha256"] == hashlib.sha256(fake.body).hexdigest()

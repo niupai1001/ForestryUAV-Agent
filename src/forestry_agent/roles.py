@@ -188,7 +188,7 @@ class Roles:
             self.store.event(db, deps.task_id, "assignment.prepared", value)
             return {"assignment_id": assignment_id, "status": "queued", "namespace": value["namespace"]}
 
-    def authorize(self, db, deps, kind, args):
+    def authorize(self, db, deps, kind, args, *, check_budget=True):
         if not deps.assignment_id:
             state = self.store.read_task(db, deps.task_id)
             role = self.configurations(state).get("coordinator")
@@ -196,7 +196,7 @@ class Roles:
                 raise Failure("PERMISSION_DENIED", "能力超出协调者配置上限", 403)
             if role and kind in {"web.search", "web.read"} and role.permission_ceiling.network == "none":
                 raise Failure("PERMISSION_DENIED", "协调者配置禁止网络请求", 403)
-            if role and db.execute("SELECT COUNT(*) FROM actions WHERE turn_id=?", (deps.turn_id,)).fetchone()[0] >= role.max_actions:
+            if check_budget and role and db.execute("SELECT COUNT(*) FROM actions WHERE turn_id=?", (deps.turn_id,)).fetchone()[0] >= role.max_actions:
                 raise Failure("RESOURCE_EXHAUSTED", "协调者回合动作预算已用尽", 422)
             return
         value = self.read(deps.assignment_id, deps.task_id, db)
@@ -220,7 +220,7 @@ class Roles:
                 raise Failure("PERMISSION_DENIED", "作业不属于当前委派", 403)
         if args.get("action_id") and not db.execute("SELECT 1 FROM actions WHERE id=? AND turn_id=?", (args["action_id"], value["run_id"])).fetchone():
             raise Failure("PERMISSION_DENIED", "动作不属于当前委派", 403)
-        if value["actions"] >= value["role_snapshot"]["max_actions"]:
+        if check_budget and value["actions"] >= value["role_snapshot"]["max_actions"]:
             raise Failure("RESOURCE_EXHAUSTED", "委派累计动作预算已用尽", 422)
 
     def artifacts(self, value, db=None):

@@ -27,7 +27,7 @@ class Config(BaseModel):
     models: dict[str, ModelProfile]
     default_model: str = "small"
     search_base_url: str | None = None
-    search_provider: Literal["bing_rss", "searxng"] = "bing_rss"
+    search_provider: Literal["baidu_html", "bing_rss", "searxng"] = "baidu_html"
     roles_path: Path | None = None
     max_model_requests_per_turn: int = Field(default=30, ge=1, le=1000)
     max_output_retries: int = Field(default=3, ge=0, le=5)
@@ -42,6 +42,10 @@ class Config(BaseModel):
     max_code_memory_bytes: int = Field(default=6442450944, ge=67108864)
     max_code_cpus: int = Field(default=4, ge=1)
 
+    def search_configuration(self):
+        base = self.search_base_url or {"baidu_html": "https://www.baidu.com", "bing_rss": "https://www.bing.com"}.get(self.search_provider)
+        return {"provider": self.search_provider, "base_url": base} if base else {}
+
     @model_validator(mode="after")
     def validate_local_models(self):
         if self.default_model not in self.models:
@@ -55,6 +59,10 @@ class Config(BaseModel):
         for profile in self.models.values():
             if profile.output_limit >= profile.context_limit:
                 raise ValueError("Model output reserve must be below its context limit")
+        if self.search_base_url:
+            endpoint = urlparse(self.search_base_url)
+            if endpoint.scheme not in {"http", "https"} or not endpoint.hostname or endpoint.username is not None or endpoint.password is not None or endpoint.query or endpoint.fragment:
+                raise ValueError("Search base must be an HTTP(S) endpoint without credentials, query or fragment")
         return self
 
 

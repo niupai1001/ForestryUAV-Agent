@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse, ToolCallPart, ToolReturnPart, UserPromptPart
@@ -13,6 +14,7 @@ from test_core import task
 
 from forestry_agent.agent import Deps
 from forestry_agent.client import collect_events
+from forestry_agent.context import input_bound, utf8_window
 from forestry_agent.contracts import Failure
 from forestry_agent.store import now
 
@@ -72,6 +74,87 @@ async def test_large_tool_return_is_losslessly_spilled_and_read_back(client, app
         await connection.aclose()
 
 
+def test_native_utf8_window_cursors_reconstruct_every_byte_and_bound_tail():
+    data = ("这是长单行中文结果" * 3000 + "\nEND_SOURCE_42").encode()
+    recovered, cursor = [], 0
+    while cursor < len(data):
+        window = utf8_window(data, cursor, 3999)
+        assert len(window["text"].encode()) <= 3999 and window["next"] > cursor
+        recovered.append(window["text"])
+        cursor = window["next"]
+    assert "".join(recovered).encode() == data
+    tail = utf8_window(data, 0, 4000, True)
+    assert tail["text"].endswith("END_SOURCE_42") and len(tail["text"].encode()) <= 4000
+    with pytest.raises(Failure):
+        utf8_window(data, 1)
+    with pytest.raises(Failure):
+        utf8_window(data, limit=5000)
+    with pytest.raises(Failure, match="增大limit"):
+        utf8_window("中文".encode(), limit=1, from_end=True)
+    with pytest.raises(Failure):
+        utf8_window(data, offset=True)
+
+
+def test_prepared_budget_anchors_measured_tokens_and_counts_new_instructions_and_schemas():
+    original = ModelRequest(parts=[UserPromptPart("中文长来源" * 10000)], instructions="old instructions")
+    response = ModelResponse(parts=[], usage=RequestUsage(input_tokens=5000, output_tokens=200))
+    tail = ModelRequest(parts=[UserPromptPart("新增正文42")], instructions="old instructions")
+    messages = [original, response, tail]
+    params = SimpleNamespace(instruction_parts=[SimpleNamespace(content="当前约束" * 50)], tool_defs={})
+    bound, anchored = input_bound(messages, params, [])
+    assert anchored and 5200 < bound < 7000
+    assert tail.instructions == "old instructions"  # no mutation of framework history
+    new_tool = [{"name": "new", "schema": {"description": "中文新工具" * 50}}]
+    with_schema, _ = input_bound(messages, params, new_tool)
+    assert with_schema > bound + 500
+    response.usage = RequestUsage()
+    fallback, anchored = input_bound(messages, params, [])
+    assert not anchored and fallback > 100000
+
+
+@pytest.mark.asyncio
+async def test_large_native_line_read_redirects_to_bounded_same_store_reader(client, app):
+    state, _ = task(client)
+    engine = app.state.engine
+    agent, connection = engine.make_agent("small", "native-byte-window", task_id=state["task_id"])
+    full = "原生存储中的单行结果" * 4000 + "END_SOURCE_42"
+    @agent.tool_plain
+    def long_line_fixture() -> str:
+        return full
+    seen = {}
+    def model(messages, info):
+        returns = [p for m in messages if isinstance(m, ModelRequest) for p in m.parts if isinstance(p, ToolReturnPart)]
+        if not returns:
+            return ModelResponse(parts=[ToolCallPart("long_line_fixture", {}, "produce")])
+        last = returns[-1]
+        if last.tool_name == "long_line_fixture":
+            seen["handle"] = last.metadata["overflow_handle"]
+            return ModelResponse(parts=[ToolCallPart("read_tool_result", {"handle": seen["handle"]}, "oversized-lines")])
+        if last.tool_name == "read_tool_result":
+            assert last.content["kind"] == "window_required"
+            return ModelResponse(parts=[ToolCallPart("read_tool_result_window", {"handle": seen["handle"], "limit": 1}, "invalid-tiny-window")])
+        if last.tool_name == "read_tool_result_window" and last.content.get("kind") == "failed":
+            assert last.content["error"]["code"] == "SCHEMA_INVALID"
+            return ModelResponse(parts=[ToolCallPart("read_tool_result_window", {"handle": seen["handle"], "from_end": True}, "bounded-tail")])
+        assert last.tool_name == "read_tool_result_window" and last.content["text"].endswith("END_SOURCE_42")
+        assert len(last.content["text"].encode()) <= 4000 and not last.metadata
+        return ModelResponse(parts=[ToolCallPart("final_result", {"summary": "完整原文保留，按窗口找到来源", "artifact_ids": []}, "verified")])
+    class FixtureModel(FunctionModel):
+        @property
+        def system(self):
+            return "test"
+    try:
+        with agent.override(model=FixtureModel(model)):
+            await agent.run("核验中文单行读回与预算", deps=Deps(engine, state["task_id"], "native-byte-window", 1))
+        native = LocalFileStore(base_dir=engine.config.workspace_root / ".forestry" / "tool-results" / state["task_id"])
+        assert (await native.read(seen["handle"])).decode() == full
+        with engine.store.transaction() as db:
+            manifests = [json.loads(row[0]) for row in db.execute("SELECT payload FROM contexts WHERE turn_id='native-byte-window'")]
+        assert all(m["estimated_tokens_upper_bound"] <= m["context_limit"]-m["output_reserve"] for m in manifests)
+    finally:
+        await connection.aclose()
+
+
 @pytest.mark.asyncio
 async def test_compaction_preserves_tool_pairing_authoritative_facts_and_private_manifest(client, app):
     state, _ = task(client)
@@ -127,10 +210,10 @@ def test_artifact_windows_preserve_utf8_and_reject_foreign_task(client, app):
     state, _ = task(client)
     foreign, _ = task(client, request_id="foreign-task")
     resources = app.state.engine.resources
-    content = "a" * 11999 + "树冠" * 30
+    content = "a" * 3999 + "树冠" * 30
     saved = resources.write(state["task_id"], "artifact-window", "result.md", content)
     first = resources.read_artifact(state["task_id"], saved["artifact_id"])
-    assert first["next"] == 11999 and first["has_more"]
+    assert first["next"] == 3999 and first["has_more"]
     second = resources.read_artifact(state["task_id"], saved["artifact_id"], first["next"])
     assert first["text"] + second["text"] == content
     assert not second["has_more"]
@@ -138,6 +221,43 @@ def test_artifact_windows_preserve_utf8_and_reject_foreign_task(client, app):
         resources.read_artifact(foreign["task_id"], saved["artifact_id"])
     with pytest.raises(Failure, match="不能为负"):
         resources.read_artifact(state["task_id"], saved["artifact_id"], -1)
+
+
+@pytest.mark.asyncio
+async def test_artifact_pages_reach_native_model_without_another_spill(client, app):
+    state, _ = task(client)
+    engine = app.state.engine
+    content = "来源事实中文🙂\n" * 700
+    saved = engine.resources.write(state["task_id"], "bounded-source", "source.txt", content)
+    agent, connection = engine.make_agent("small", "direct-artifact-pages", task_id=state["task_id"])
+    reconstructed = []
+    def model(messages, info):
+        returns = [p for m in messages if isinstance(m, ModelRequest) for p in m.parts
+                   if isinstance(p, ToolReturnPart) and p.tool_name == "read_artifact"]
+        if not returns:
+            offset = 0
+        else:
+            last = returns[-1]
+            assert not last.metadata or not last.metadata.get("overflow_handle")
+            assert last.content["kind"] == "completed"
+            assert len(last.content["text"].encode("utf-8")) <= 4000
+            reconstructed.append(last.content["text"])
+            if not last.content["has_more"]:
+                return ModelResponse(parts=[ToolCallPart("final_result", {
+                    "summary": "按字节窗口直接读完来源", "artifact_ids": [saved["artifact_id"]]}, "done")])
+            offset = last.content["next"]
+        return ModelResponse(parts=[ToolCallPart("read_artifact", {
+            "artifact_id": saved["artifact_id"], "offset": offset}, f"read-{offset}")])
+    class FixtureModel(FunctionModel):
+        @property
+        def system(self):
+            return "test"
+    try:
+        with agent.override(model=FixtureModel(model)):
+            await agent.run("读取整个来源并核对文件", deps=Deps(engine, state["task_id"], "direct-artifact-pages", 1))
+        assert "".join(reconstructed) == content
+    finally:
+        await connection.aclose()
 
 
 @pytest.mark.asyncio

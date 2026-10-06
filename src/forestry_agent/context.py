@@ -3,21 +3,63 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 
-from pydantic_ai.messages import ModelMessagesTypeAdapter
+from pydantic_ai.messages import ModelMessagesTypeAdapter, ModelRequest, ModelResponse
 from pydantic_ai_harness.compaction import estimate_context_tokens, estimate_token_count
 
 from .contracts import Failure
 from .resources import native_path
 from .store import Store, encode, now, uid
 
-ESTIMATOR = "utf8-byte-bound-v2-active-instructions-and-schema-margin"
+ESTIMATOR = "native-usage-anchor-with-utf8-deltas-v3-schema-and-framing-margin"
 
 
 def byte_bound(text: str):
     """Conservative text estimate; measure actual provider usage separately."""
     return len(text.encode("utf-8"))
+
+
+def utf8_window(data: bytes, offset=0, limit=4000, from_end=False):
+    """A lossless byte cursor over native stored text, including a bounded tail view."""
+    if not isinstance(offset, int) or isinstance(offset, bool) or not isinstance(limit, int) or isinstance(limit, bool) or offset < 0 or not 1 <= limit <= 4000:
+        raise Failure("SCHEMA_INVALID", "读回游标须非负，窗口须为1–4000字节")
+    start = max(0, len(data)-offset-limit) if from_end else min(offset, len(data))
+    if from_end:
+        while start < len(data) and data[start] & 0xC0 == 0x80:
+            start += 1
+        if start == len(data) and offset < len(data):
+            raise Failure("SCHEMA_INVALID", "窗口不足以容纳当前UTF-8码点，请增大limit")
+    chunk = data[start:start+limit]
+    try:
+        text = chunk.decode("utf-8")
+    except UnicodeDecodeError as error:
+        if error.reason != "unexpected end of data":
+            raise Failure("SCHEMA_INVALID", "须使用返回的字节游标；内容必须为UTF-8文本") from error
+        chunk = chunk[:error.start]
+        text = chunk.decode("utf-8")
+    if not chunk and start < len(data):
+        raise Failure("SCHEMA_INVALID", "窗口不足以容纳当前UTF-8码点，请增大limit")
+    return {"text": text, "offset": start, "next": start+len(chunk), "has_more": start+len(chunk) < len(data), "size_bytes": len(data)}
+
+
+def input_bound(messages, params, tools):
+    """Count a prepared request using native measured usage plus conservative deltas."""
+    counted = list(messages)
+    instructions = "\n".join(part.content for part in params.instruction_parts)
+    # Count only: leave native messages/checkpoints untouched. The next request's
+    # dynamic instructions may differ from the historical ModelRequest instructions.
+    if counted and isinstance(counted[-1], ModelRequest):
+        counted[-1] = replace(counted[-1], instructions=instructions)
+    else:
+        counted.append(ModelRequest(parts=[], instructions=instructions))
+    anchored = any(isinstance(message, ModelResponse) and message.usage.input_tokens > 0 for message in counted)
+    text_bound = estimate_context_tokens(counted, byte_bound, model_request_parameters=params) if anchored else estimate_token_count(counted, byte_bound)
+    # Full current schemas are charged even when an older usage anchor already paid
+    # for them; this also covers schema changes when resuming under updated code.
+    margin = byte_bound(encode(tools)) + 256 + 16 * len(messages) + 32 * len(tools)
+    return text_bound + margin, anchored
 
 
 class Contexts:
@@ -36,7 +78,7 @@ class Contexts:
         # are not all sent to the model. The native text collector counts active
         # instructions once. Add the schemas and a conservative framing margin.
         data = encode(body).encode("utf-8")
-        bound = estimate_token_count(request_context.messages, byte_bound) + byte_bound(encode(tools)) + 256 + 16 * len(request_context.messages) + 32 * len(tools)
+        bound, anchored = input_bound(request_context.messages, params, tools)
         available = profile.context_limit - profile.output_limit
         if bound > available:
             raise Failure("CONTEXT_EXHAUSTED", f"编译输入保守估算 {bound} 超过预留输出后的 {available}；请使用更短目标或引用读取", 422)
@@ -67,6 +109,7 @@ class Contexts:
             "assignment_id": deps.assignment_id, "native_run_id": native_run_id,
             "prepared_input_sha256": hashlib.sha256(data).hexdigest(), "estimated_tokens_upper_bound": bound,
             "prepared_snapshot_bytes": len(data),
+            "uses_provider_usage_anchor": anchored,
             "native_usage_estimate": estimate_context_tokens(request_context.messages, byte_bound,
                 model_request_parameters=params), "estimator_id": ESTIMATOR,
             "context_limit": profile.context_limit, "output_reserve": profile.output_limit,

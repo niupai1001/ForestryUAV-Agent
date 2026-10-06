@@ -91,6 +91,15 @@ def test_immutable_artifacts_and_tamper_detection(client,app):
         app.state.resources.write(state["task_id"],"action-c","../../other.txt","no")
 
 
+def test_text_write_preserves_supplied_utf8_and_mixed_newlines(client, app):
+    state, _ = task(client)
+    content = "中文🙂\nLF\r\nCRLF\rCR\n"
+    saved = app.state.resources.write(state["task_id"], "exact-byte-write", "mixed.txt", content)
+    assert Path(saved["locator"]).read_bytes() == content.encode("utf-8")
+    assert saved["size_bytes"] == len(content.encode("utf-8"))
+    assert (app.state.resources.task_root(state["task_id"]) / "mixed.txt").read_bytes() == content.encode("utf-8")
+
+
 def test_messages_do_not_revise_but_amendments_do(client,app):
     state,_ = task(client)
     msg = {"request_id":"msg","expected_spec_revision":1,"text":"请解释进度"}

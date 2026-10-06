@@ -48,7 +48,7 @@ async def doctor(config: Config, *, probe_search: bool = True) -> dict:
                     "capabilities": match.get("capabilities", []) if match else []}
         except (httpx.HTTPError, KeyError, ValueError) as error:
             report["capabilities"]["local_models"] = {"status": "failed", "message": str(error)}
-    base = config.search_base_url or ("https://www.bing.com" if config.search_provider == "bing_rss" else None)
+    base = config.search_configuration().get("base_url")
     report["capabilities"]["search"] = {"status": "not_probed" if base else "not_configured", "provider": config.search_provider}
     if base and probe_search:
         try:
@@ -70,6 +70,16 @@ async def doctor(config: Config, *, probe_search: bool = True) -> dict:
         report["capabilities"]["restricted_code"] = {"status": "unavailable", "message": str(error)}
     report["capabilities"]["file_tools"] = {"status": "available"}
     report["capabilities"]["domain"] = {"status": "not_implemented", "stage": 2}
-    report["general_ready"] = any(m["status"] == "available_not_tool_verified" for m in report["models"].values())
+    installed_profiles = {key for key, value in report["models"].items()
+                          if value["status"] == "available_not_tool_verified"}
+    report["startup_ready"] = config.default_model in installed_profiles
+    missing = ["model:" + key for key in config.models if key not in installed_profiles]
+    missing.extend(name for name in ["search", "restricted_code"]
+                   if report["capabilities"][name]["status"] != "available")
+    report["general_prerequisites_ready"] = not missing
+    report["general_prerequisite_blockers"] = missing
+    # Endpoint/weight probes never prove tools, recovery, UI or task acceptance.
+    report["general_ready"] = False
+    report["general_validation"] = "not_assessed_by_doctor"
     return report
 

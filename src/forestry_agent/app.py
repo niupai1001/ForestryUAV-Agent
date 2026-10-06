@@ -183,7 +183,7 @@ def create_app(config: Config, *, enable_agent: bool = True):
         state = store.create_task(payload.model_dump(), {"model_profile": profile,
             "harness_mode": payload.harness_mode, "role_catalog": engine.roles.catalog,
             "context_classification": payload.context_classification,
-            "search": {"provider": config.search_provider, "base_url": config.search_base_url or "https://www.bing.com"} if config.search_provider == "bing_rss" or config.search_base_url else {},
+            "search": config.search_configuration(),
             "settings_version": current["version"], "model": config.models[profile].model_dump(),
             "model_identity": identity, "model_base_url": config.model_base_url,
             "generation": {"temperature": 0.2, "think": False, "max_output_retries": config.max_output_retries,

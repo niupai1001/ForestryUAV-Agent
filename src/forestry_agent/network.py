@@ -15,6 +15,7 @@ from html.parser import HTMLParser
 from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
 from xml.etree import ElementTree
 
+from .context import utf8_window
 from .contracts import Failure
 from .resources import native_path, version
 from .store import encode, now, uid
@@ -22,8 +23,21 @@ from .store import encode, now, uid
 MAX_BYTES = 2 * 1024 * 1024
 
 
-def search_request(provider, base, query):
-    url = base.rstrip("/") + "/search?" + urlencode({"q": query, "format": "json" if provider == "searxng" else "rss"})
+def search_request(provider, base, query, page=1):
+    if not isinstance(page, int) or isinstance(page, bool) or not 1 <= page <= 10:
+        raise Failure("SCHEMA_INVALID", "搜索页码须为1–10")
+    if provider == "baidu_html":
+        params = {"wd": query}
+        if page > 1:
+            params["pn"] = (page-1)*10
+        url = base.rstrip("/") + "/s?" + urlencode(params)
+    else:
+        params = {"q": query, "format": "json" if provider == "searxng" else "rss"}
+        if page > 1:
+            if provider != "searxng":
+                raise Failure("PRECONDITION_MISSING", "当前RSS提供商未验证分页，请使用支持分页的连接器", 422)
+            params["pageno"] = page
+        url = base.rstrip("/") + "/search?" + urlencode(params)
     destinations = [url_parts(base)[3]]
     if provider == "bing_rss" and base == "https://www.bing.com":
         destinations.append("https://cn.bing.com")
@@ -31,6 +45,14 @@ def search_request(provider, base, query):
 
 
 def search_results(provider, text):
+    if provider == "baidu_html":
+        parser = BaiduResults()
+        parser.feed(text)
+        if not parser.results:
+            if 'location.href.replace("https://", "http://")' in text:
+                raise Failure("PERMISSION_DENIED", "搜索提供商要求通过脚本降级HTTPS；未执行脚本或发送HTTP请求", 403)
+            raise Failure("EXECUTION_FAILED", "百度页面没有可验证的普通搜索结果；可能为验证码、错误或页面结构变化", 422)
+        return parser.results
     if provider == "searxng":
         try:
             items = json.loads(text)["results"]
@@ -107,6 +129,55 @@ class TextPage(HTMLParser):
         parser = cls()
         parser.feed(html)
         return "\n".join(line.strip() for line in "".join(parser.words).splitlines() if line.strip())
+
+
+class BaiduResults(HTMLParser):
+    """Read organic result containers and their declared source URLs, never ad links.
+
+    A bounded HTML adapter, not an official JSON API. Unknown pages fail closed.
+    """
+    void_tags = frozenset({"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"})
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.results, self.stack = [], []
+        self.current = None
+
+    def handle_starttag(self, tag, attrs):
+        if len(self.results) >= 10:
+            return
+        attributes = dict(attrs)
+        classes = set(attributes.get("class", "").split())
+        if self.current is None:
+            if tag != "div" or not {"result", "c-container"} <= classes or "EC_result" in classes:
+                return
+            try:
+                source = url_parts(attributes.get("mu", ""))[0]
+            except Failure:
+                return
+            self.current = {"url": source, "title": [], "snippet": []}
+            self.stack = []
+        if tag not in self.void_tags:
+            self.stack.append(tag)
+
+    def handle_endtag(self, tag):
+        if self.current is None or tag not in self.stack:
+            return
+        position = len(self.stack) - 1 - self.stack[::-1].index(tag)
+        del self.stack[position:]
+        if not self.stack:
+            title = " ".join("".join(self.current["title"]).split())[:500]
+            snippet = " ".join("".join(self.current["snippet"]).split())[:1500]
+            if title and not any(r["url"] == self.current["url"] for r in self.results):
+                self.results.append({"title": title, "url": self.current["url"], "snippet": snippet})
+            self.current = None
+
+    def handle_data(self, data):
+        if self.current is None or any(tag in self.stack for tag in ("script", "style", "template")):
+            return
+        if "h3" in self.stack:
+            self.current["title"].append(data)
+        self.current["snippet"].append(data)
 
 
 class PublicHTTP:
@@ -228,13 +299,13 @@ class Network:
         self.engine, self.store = engine, engine.store
         self.http = http or PublicHTTP()
 
-    def scope(self, state, kind, value):
+    def scope(self, state, kind, value, page=1):
         if kind == "web.search":
             provider = state["config_snapshot"].get("search", {})
             if not provider:
                 raise Failure("PRECONDITION_MISSING", "当前任务未冻结搜索连接器，请新建任务", 422)
             base = provider["base_url"]
-            url, destinations = search_request(provider["provider"], base, value)
+            url, destinations = search_request(provider["provider"], base, value, page)
         else:
             url = url_parts(value)[0]
             destinations = [url_parts(url)[3]]
@@ -244,6 +315,8 @@ class Network:
             sources.append({"resource_id": ref, "version": version(path)})
         request = {"kind": kind, "value": value, "url": url, "destinations": destinations,
             "spec_revision": state["spec_revision"], "sources": sources, "method": "GET", "max_bytes": MAX_BYTES}
+        if kind == "web.search" and page > 1:
+            request["page"] = page
         return request, hashlib.sha256(encode(request).encode()).hexdigest()
 
     def list(self, task_id):
@@ -316,9 +389,9 @@ class Network:
             self.store.event(db, task_id, "approval.resolved", record)
             return self.store.receipt(db, payload["request_id"], {"kind": "approval.resolve", "task_id": task_id, "approval_id": approval_id, **payload}, record)
 
-    def execute(self, deps, action_id, kind, value, approval_id=None):
+    def execute(self, deps, action_id, kind, value, approval_id=None, page=1):
         state = self.store.task(deps.task_id)
-        request, digest = self.scope(state, kind, value)
+        request, digest = self.scope(state, kind, value, page)
         admission = self.admit(deps, action_id, request, digest, approval_id)
         if isinstance(admission, dict):
             return admission
@@ -346,11 +419,16 @@ class Network:
         if kind == "web.search":
             provider = state["config_snapshot"]["search"]["provider"]
             results = search_results(provider, text)
-            return {"results": results, "citation": citation, "hops": response["hops"], "untrusted_content": True}
+            return {"citation": citation, "page": page, "has_more": None,
+                "next_page": page+1 if provider in {"baidu_html", "searxng"} and page < 10 else None,
+                "hops": response["hops"], "untrusted_content": True, "results": results}
         media_type = response["headers"].get("content-type", "").split(";")[0].strip().lower()
         if media_type not in {"text/html", "text/plain", "application/json", "text/markdown", "application/xhtml+xml"}:
             raise Failure("PRECONDITION_MISSING", "当前网页读取仅支持HTML、纯文本、Markdown和JSON；不把二进制当文本", 422)
         extracted = TextPage.extract(text) if "html" in media_type else text
         page = self.engine.resources.write(deps.task_id, action_id, f"web/{uid()}/page.txt", extracted)
-        return {"text": extracted[:12000], "has_more": len(extracted) > 12000, "text_artifact_id": page["artifact_id"],
-            "citation": citation, "hops": response["hops"], "untrusted_content": True}
+        window = utf8_window(extracted.encode("utf-8"))
+        return {"citation": citation, "text_artifact_id": page["artifact_id"],
+            "hops": response["hops"], "untrusted_content": True,
+            "continuation": "使用read_artifact读取text_artifact_id，offset=next继续；原文完整保留。",
+            **window}

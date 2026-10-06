@@ -14,6 +14,8 @@ uv run --locked forestry-agent serve --config config/app.example.yaml
 
 打开 `http://127.0.0.1:8765`。Ollama 必须在本机 `11434` 端口服务配置中的模型。UI 资源随应用打包，日常启动不需要 Node。
 
+`doctor` 的退出码只表示默认模型是否满足启动前提（`startup_ready`）。`general_prerequisites_ready` 另外要求所有配置模型、搜索和受限执行器可用；这些探测也不等于通用产品验收，因此 `general_ready` 保持 false、`general_validation` 为 `not_assessed_by_doctor`。缺少领域工具不阻止通用启动。
+
 命令行使用相同本地服务、授权与任务契约：
 
 ```powershell
@@ -44,6 +46,7 @@ uv run --locked python scripts/smoke_documents.py --models small large
 uv run --locked python scripts/smoke_context.py --model large
 uv run --locked python scripts/smoke_roles.py --models small large
 uv run --locked python scripts/smoke_network.py --base-url http://127.0.0.1:8765 --models small large
+uv run --locked python scripts/smoke_search.py --base-url http://127.0.0.1:8765 --models small large
 uv run --locked forestry-agent schema
 ```
 
@@ -60,7 +63,7 @@ uv run --locked forestry-agent schema
 - 候选结果指纹、显式验收/要求修改、最终清单封存、发布后终态及封存中断恢复。
 - PDF/DOCX/文本的有界读取与来源引用；中文本地知识索引、任务权限和源版本/字节核对。
 - 工作台显式保存/停用长期记忆；模型可读，不能写入或制造授权。
-- 原生工具结果外置/按句柄读回、分层清理与滑窗；每次实际输入保留私有快照、SHA-256、源/动作/产物引用和用量核对。
+- 原生工具结果外置/按句柄或 UTF-8 字节窗口读回、分层清理与滑窗；每次实际输入保留私有快照、SHA-256、源/动作/产物引用和用量核对。
 - 当前规范、控制状态及当前回合原始请求逐次重新注入；按当前任务/修订找回已确认动作，按窗口读取封存文本产物。
 - 五个长期角色配置、原生按需委派；子角色独立历史、权限交集、输出目录、结构化结果和累计预算，结果不自动验收父任务。
 - 工作台选择 H0/H1/H2 并查看实际委派范围、状态、检查和产物；CLI 支持相同配方。
@@ -72,12 +75,18 @@ uv run --locked forestry-agent schema
 
 角色定义在 `src/forestry_agent/roles.yaml`，也可用 `roles_path` 配置自定义 YAML；新任务冻结目录及其指纹。H0 为基础工具对照，关闭知识/记忆检索、委派和自动外置/压缩；H1 加入上下文整理和结果读回；H2 在 H1 上允许按需隔离委派。三种配方共有身份核对、权限、动作登记、预算和用户验收边界。配方入口不代表六组合正式实验已完成。恢复时保留逻辑回合与动作账本，每次 `Agent.run` 使用新的原生运行 ID，检查点仍由 Harness 保存，应用只记录回合与原生运行的关联。
 
-上下文预算当前使用 UTF-8 字节保守估算，并预留输出和工具协议开销；超限明确停止，不静默改写用户目标。模型响应缺少用量时标记 unavailable，不能当作零用量校准。每个新任务冻结单次模型请求的总时限（默认 300 秒），流式响应也不能无限延长等待。完整输入快照仅保存在私有 `.forestry/model-inputs`，界面事件只返回引用与计数。软件烟测夹具不构成现场观测或科学精度证明。
+上下文预算使用框架原生的实测用量锚点，对新增正文、变化指令和当前完整工具 Schema 添加 UTF-8 字节保守余量，并预留输出和协议开销；没有有效锚点时使用字节估算。实际输入 token 超过估算时明确停止。模型响应缺少用量时标记 unavailable，不能当作零用量校准。每个新任务冻结单次模型请求的总时限（默认 300 秒），流式响应也不能无限延长等待。完整输入快照仅保存在私有 `.forestry/model-inputs`，界面事件只返回引用与计数。软件烟测夹具不构成现场观测或科学精度证明。
+
+工具结果超过 6000 字节时由原生 Harness 外置；长单行 JSON 无法安全按行读回时，使用同一原生存储的 `read_tool_result_window`，每次最多 4000 UTF-8 字节，按 `next` 继续。网页提取正文和 `read_artifact` 同样返回最多 4000 字节的窗口，完整正文保存在产物中。`has_more=false` 表示已到末尾。文本写入保持提供的 UTF-8 字节，不由 Windows 改写换行。
+
+模型可用 `inspect_action(view="citation")` 仅查看来源引用，并用 `write_file(citation_actions={"citation": "实际来源action_id"})` 复制完整来源元数据：JSON 对象合入指定字段，Markdown/文本附加来源区。复制限于当前授权任务/修订的已确认动作，并核对快照哈希；冲突引用拒绝写入。这个功能不替模型核对正文事实，也不证明报告已经满足目标。
 
 文档读取当前支持最大 64 MiB：PDF 按文本页读取，未启用 OCR；DOCX 提取逻辑文本，不伪造版面页码。知识索引保存在本地，检索时检查任务授权与来源 SHA-256；内容变化后须重建索引。长期记忆停用后不再供模型检索，已有任务和授权审计历史保留。
 
 新任务默认是私密上下文：联网工具先提出完整查询/URL、允许目的地、来源版本、请求 SHA-256 和 30 分钟有效期，用户在工作台逐项批准、拒绝或撤销。批准只消费一次，任何修改须重新申请。用户可在创建时明确声明任务目标、补充消息和输入均为公开信息；该任务不能读取私密来源、长期记忆或本机环境。普通消息或模型输出不能修改此冻结分类。网页最多 2 MiB，仅提取 HTML、文本、Markdown、JSON，保存原始快照；不执行页面脚本或抓取子资源。各跳只允许 HTTP(S) 80/443 的公开地址，拒绝私密/混合 DNS、超范围或 HTTPS 降级重定向。子角色目前禁用网络。
 
-搜索连接器支持 `search_provider: bing_rss`（默认）和配置 `search_base_url` 的 `searxng`；SearXNG 的 JSON 查询格式依据[官方搜索 API](https://docs.searxng.org/dev/search_api.html)，服务器须启用 JSON 输出。当前公开地址规则也用于搜索，私有/回环部署及自定义端口的本地 SearXNG 尚未支持。真实网页读取在两个模型上通过，但当前环境 Bing 搜索超时，诊断如实返回 failed，不能把连接器代码或解析夹具当成真实搜索成功。`smoke_network.py` 的脚本审批仅包含公开 Python 官方网页地址，用于验证授权机制，不代表真实用户已批准其他载荷，也不替代完整搜索流程验收。
+搜索连接器默认使用 `search_provider: baidu_html`，提取带真实目的 URL 的普通结果，过滤广告、推荐和脚本；识别不到结果结构或遇到验证码时返回失败，不冒充零结果。可配置 `bing_rss` 或设置 `search_base_url` 的 `searxng`；SearXNG 须启用[官方 JSON 搜索 API](https://docs.searxng.org/dev/search_api.html)。Baidu/SearXNG 支持 `page=1..10`，页码纳入精确授权范围；`next_page` 是候选请求，`has_more=null` 不保证下一页可用。Bing 仅支持第一页。新任务冻结提供商，旧任务保持原配置。
+
+当前公开地址规则也用于搜索，私有/回环部署及自定义端口的本地 SearXNG 尚未支持。本机真实 Baidu 搜索和来源读取已取得字节快照，完整两模型搜索报告流程仍以独立检查结果为准；Bing 在本机探测超时。脚本提出的 HTTPS→HTTP 降级不会执行。`smoke_network.py` 的脚本审批仅包含公开 Python 官方网页地址，用于验证授权机制，不代表真实用户已批准其他载荷，也不替代完整搜索流程验收。
 
 不要将真实私密输入、凭证、模型检查点、工作区和大数据提交到 Git。`workspace/.forestry/local.key` 仅供本地 CLI/API 使用，浏览器凭证在 HttpOnly Cookie 中。应用只绑定本机，不支持远程共享部署。

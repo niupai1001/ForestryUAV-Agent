@@ -88,7 +88,7 @@ def main():
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         print(json.dumps(report, ensure_ascii=False, indent=2))
-        raise SystemExit(0 if report["general_ready"] else 1)
+        raise SystemExit(0 if report["startup_ready"] else 1)
     if args.command == "tasks":
         from .store import Store
         print(json.dumps(Store(config.workspace_root / ".forestry" / "state.sqlite").task(args.task),
