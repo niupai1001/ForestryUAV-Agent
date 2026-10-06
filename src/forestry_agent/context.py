@@ -13,7 +13,7 @@ from .contracts import Failure
 from .resources import native_path
 from .store import Store, encode, now, uid
 
-ESTIMATOR = "native-usage-anchor-with-utf8-deltas-v3-schema-and-framing-margin"
+ESTIMATOR = "native-usage-anchor-with-utf8-deltas-v4-bound-schema-receipt"
 
 
 def byte_bound(text: str):
@@ -44,7 +44,16 @@ def utf8_window(data: bytes, offset=0, limit=4000, from_end=False):
     return {"text": text, "offset": start, "next": start+len(chunk), "has_more": start+len(chunk) < len(data), "size_bytes": len(data)}
 
 
-def input_bound(messages, params, tools):
+def response_anchor_hash(response):
+    # Bind what the native usage anchor describes. Framework run IDs and metadata
+    # may be added after hooks; neither changes response text or provider usage.
+    value = ModelMessagesTypeAdapter.dump_python([response], mode="json")[0]
+    for key in ("run_id", "conversation_id", "metadata", "workspace_ref"):
+        value.pop(key, None)
+    return hashlib.sha256(encode(value).encode()).hexdigest()
+
+
+def input_bound(messages, params, tools, *, measured_tools_sha256=None):
     """Count a prepared request using native measured usage plus conservative deltas."""
     counted = list(messages)
     instructions = "\n".join(part.content for part in params.instruction_parts)
@@ -56,9 +65,12 @@ def input_bound(messages, params, tools):
         counted.append(ModelRequest(parts=[], instructions=instructions))
     anchored = any(isinstance(message, ModelResponse) and message.usage.input_tokens > 0 for message in counted)
     text_bound = estimate_context_tokens(counted, byte_bound, model_request_parameters=params) if anchored else estimate_token_count(counted, byte_bound)
-    # Full current schemas are charged even when an older usage anchor already paid
-    # for them; this also covers schema changes when resuming under updated code.
-    margin = byte_bound(encode(tools)) + 256 + 16 * len(messages) + 32 * len(tools)
+    # Unknown/changed schemas pay the full conservative cost. Exact schemas bound
+    # to this response's measured request have already been paid by its native
+    # input usage; do not charge them twice. Framing remains conservatively added.
+    schema = encode(tools)
+    known_schema = anchored and measured_tools_sha256 == hashlib.sha256(schema.encode()).hexdigest()
+    margin = (0 if known_schema else byte_bound(schema)) + 256 + 16 * len(messages) + 32 * len(tools)
     return text_bound + margin, anchored
 
 
@@ -78,7 +90,21 @@ class Contexts:
         # are not all sent to the model. The native text collector counts active
         # instructions once. Add the schemas and a conservative framing margin.
         data = encode(body).encode("utf-8")
-        bound, anchored = input_bound(request_context.messages, params, tools)
+        tool_schema_sha256 = hashlib.sha256(encode(tools).encode()).hexdigest()
+        anchor = next((message for message in reversed(request_context.messages)
+            if isinstance(message, ModelResponse) and message.usage.input_tokens > 0), None)
+        measured_tools_sha256 = None
+        if anchor:
+            with self.store.transaction() as db:
+                receipt = db.execute("SELECT payload FROM contexts WHERE task_id=? AND turn_id=? "
+                    "AND json_extract(payload,'$.spec_revision')=? AND json_extract(payload,'$.assignment_id') IS ? "
+                    "AND json_extract(payload,'$.response_sha256')=? ORDER BY rowid DESC LIMIT 1",
+                    (deps.task_id, deps.turn_id, deps.revision, deps.assignment_id, response_anchor_hash(anchor))).fetchone()
+            value = json.loads(receipt["payload"]) if receipt else {}
+            if (value.get("usage_measurement_status") == "measured" and value.get("estimate_covers_observed_usage") is True and
+                value.get("actual_input_tokens") == anchor.usage.input_tokens and value.get("actual_output_tokens") == anchor.usage.output_tokens):
+                measured_tools_sha256 = value.get("tool_schema_sha256")
+        bound, anchored = input_bound(request_context.messages, params, tools, measured_tools_sha256=measured_tools_sha256)
         available = profile.context_limit - profile.output_limit
         if bound > available:
             raise Failure("CONTEXT_EXHAUSTED", f"编译输入保守估算 {bound} 超过预留输出后的 {available}；请使用更短目标或引用读取", 422)
@@ -109,6 +135,8 @@ class Contexts:
             "assignment_id": deps.assignment_id, "native_run_id": native_run_id,
             "prepared_input_sha256": hashlib.sha256(data).hexdigest(), "estimated_tokens_upper_bound": bound,
             "prepared_snapshot_bytes": len(data),
+            "tool_schema_sha256": tool_schema_sha256,
+            "schema_cost_accounting": "bound_measured_schema" if anchored and measured_tools_sha256 == tool_schema_sha256 else "full_current_schema",
             "uses_provider_usage_anchor": anchored,
             "native_usage_estimate": estimate_context_tokens(request_context.messages, byte_bound,
                 model_request_parameters=params), "estimator_id": ESTIMATOR,
@@ -134,7 +162,7 @@ class Contexts:
         # UI receives provenance and counts, never private model history or its locator.
         return {k: v for k, v in manifest.items() if k != "prepared_input_ref"}
 
-    def measured(self, manifest_id, usage):
+    def measured(self, manifest_id, usage, *, response=None):
         if not manifest_id:
             return
         with self.store.transaction() as db:
@@ -150,6 +178,8 @@ class Contexts:
                          provider_reported_input_tokens=usage.input_tokens,
                          provider_reported_output_tokens=usage.output_tokens,
                          usage_measurement_status="measured" if available else "unavailable")
+            if available and response is not None:
+                value["response_sha256"] = response_anchor_hash(response)
             value["estimate_covers_observed_usage"] = usage.input_tokens <= value["estimated_tokens_upper_bound"] if available else None
             db.execute("UPDATE contexts SET payload=? WHERE id=?", (encode(value), manifest_id))
             self.store.event(db, value["task_id"], "context.measured", self.public(value))

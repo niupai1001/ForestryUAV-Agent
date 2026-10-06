@@ -76,7 +76,7 @@ async def test_recovery_control_evidence_survives_resume_but_is_scoped_to_turn(c
         engine.store.event(db, state["task_id"], "run.reconciled",
             {"spec_revision": 2, "turn_id": turn_id, "private": "OTHER_REVISION_MARKER"})
     for observed_turn, expected in [(turn_id, True), ("different-turn", False)]:
-        agent, connection = engine.make_agent("small", observed_turn, task_id=state["task_id"])
+        agent, connection = engine.make_agent("small", observed_turn, state["config_snapshot"], task_id=state["task_id"])
         try:
             with agent.override(model=TestModel(call_tools=[], custom_output_args={
                 "summary": "恢复协议夹具", "artifact_ids": [], "limitations": []})):
@@ -92,3 +92,71 @@ async def test_recovery_control_evidence_survives_resume_but_is_scoped_to_turn(c
                 assert "SERVICE_RESTARTED" in instructions and "不单独证明进程崩溃" in instructions
         finally:
             await connection.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["H0", "H1", "H2"])
+async def test_named_artifacts_and_recent_job_records_are_scoped_bounded_native_facts(client, app, mode):
+    state, _ = task(client, harness_mode=mode)
+    foreign, _ = task(client, request_id="foreign-artifact-facts", harness_mode=mode)
+    engine = app.state.engine
+    original = engine.resources.write(state["task_id"], "old-write", "old-product.md", "OLD_PRIVATE_CONTENT")
+    products = [engine.resources.write(state["task_id"], "write-"+str(n), f"product-{n}.json", "PRIVATE_BODY_MARKER")
+        for n in range(25)]
+    hidden = engine.resources.write(foreign["task_id"], "foreign-write", "FOREIGN_ARTIFACT_MARKER.md", "FOREIGN_BODY")
+    with engine.store.transaction() as db:
+        for index in range(10):
+            job_id = f"fixture-job-{index}"
+            payload = {"job_id":job_id, "status":"failed" if index == 9 else "succeeded", "kind":"code.execute",
+                "artifact_ids":[p["artifact_id"] for p in products], "code":"PRIVATE_CODE_MARKER",
+                "environment":{"artifact_id":products[0]["artifact_id"], "manifest":{"private":"PRIVATE_MANIFEST"}}}
+            db.execute("INSERT INTO actions VALUES(?,?,?,?,?,?,?,?,?)",
+                (f"fixture-action-{index}", state["task_id"], "fixture-turn", str(index), 1, "code.execute", "{}", "confirmed", "{}"))
+            db.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?)",
+                (job_id, state["task_id"], f"fixture-action-{index}", 1, payload["status"], json.dumps(payload), now()))
+        receipt = {"kind":"completed", "job":{"job_id":"fixture-job-9", "status":"failed"},
+            "logs":{"stderr":"HIDDEN_DIAGNOSTIC_PREFIX_"+"诊断"*200+"\nModuleNotFoundError: no example"}}
+        db.execute("INSERT INTO actions VALUES(?,?,?,?,?,?,?,?,?)", ("fixture-observation", state["task_id"], "fixture-turn",
+            "observe-9", 1, "job.observe", "{}", "confirmed", json.dumps(receipt)))
+        for task_id, revision, marker in [(foreign["task_id"], 1, "FOREIGN_JOB_MARKER"),
+                                         (state["task_id"], 2, "OTHER_REVISION_JOB_MARKER")]:
+            db.execute("INSERT INTO actions VALUES(?,?,?,?,?,?,?,?,?)",
+                (marker, task_id, "fixture-turn", marker, revision, "code.execute", "{}", "confirmed", "{}"))
+            db.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?)",
+                (marker, task_id, marker, revision, "succeeded", json.dumps({"job_id":marker}), now()))
+    turn_id = "bounded-recorded-facts"
+    with engine.store.transaction() as db:
+        db.execute("INSERT INTO turns VALUES(?,?,?,?,?,?)", (turn_id, state["task_id"], 1, state["objective"], "running", now()))
+    agent, connection = engine.make_agent("small", turn_id, state["config_snapshot"], task_id=state["task_id"])
+    try:
+        with agent.override(model=TestModel(call_tools=[], custom_output_args={
+            "summary":"元数据协议夹具，不是执行证据", "artifact_ids":[], "limitations":[]})):
+            await agent.run("读取当前产物标识", deps=Deps(engine, state["task_id"], turn_id, 1))
+        with engine.store.transaction() as db:
+            manifest = json.loads(db.execute("SELECT payload FROM contexts WHERE turn_id=? ORDER BY rowid DESC LIMIT 1",
+                (turn_id,)).fetchone()[0])
+        body = json.loads(Path(manifest["prepared_input_ref"]).read_bytes())
+        instructions = "\n".join(body["instructions"])
+        assert all(marker not in instructions for marker in ["PRIVATE_BODY_MARKER", "PRIVATE_CODE_MARKER",
+            "PRIVATE_MANIFEST", hidden["artifact_id"], "FOREIGN_ARTIFACT_MARKER", "FOREIGN_JOB_MARKER", "OTHER_REVISION_JOB_MARKER"])
+        if mode == "H0":
+            assert '"recent_artifacts"' not in instructions and '"recent_jobs"' not in instructions
+        else:
+            facts = next(json.loads(text.split("：",1)[1].split("\n",1)[0]) for text in body["instructions"]
+                if text.startswith("当前权威任务事实"))
+            assert facts["current_turn_user_request_is_objective"] is True and facts["current_turn_user_request"] is None
+            assert instructions.count(state["objective"]) == 1
+            assert len(facts["recent_artifacts"]) == 24
+            assert original["artifact_id"] not in str(facts["recent_artifacts"])
+            assert facts["recent_artifacts"][-1] == {"artifact_id":products[-1]["artifact_id"], "name":"product-24.json"}
+            assert len(facts["recent_jobs"]) == 8 and facts["recent_jobs"][0]["job_id"] == "fixture-job-9"
+            assert facts["recent_jobs"][0]["recorded_status"] == "failed"
+            diagnostic = facts["recent_jobs"][0]["diagnostic"]
+            assert diagnostic["source_action_id"] == "fixture-observation" and diagnostic["truncated"] is True
+            assert len(diagnostic["text"].encode("utf-8")) <= 512 and "ModuleNotFoundError: no example" in diagnostic["text"]
+            assert "HIDDEN_DIAGNOSTIC_PREFIX" not in instructions
+            assert all(j["artifact_count"] == 25 and
+                j["artifact_ids"] == [p["artifact_id"] for p in products[-8:]] for j in facts["recent_jobs"])
+            assert "记录状态不是新的执行观察或验收" in instructions
+    finally:
+        await connection.aclose()

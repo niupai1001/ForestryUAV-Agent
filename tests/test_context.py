@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,7 +17,7 @@ from forestry_agent.agent import Deps
 from forestry_agent.client import collect_events
 from forestry_agent.context import input_bound, utf8_window
 from forestry_agent.contracts import Failure
-from forestry_agent.store import now
+from forestry_agent.store import encode, now
 
 
 def test_evidence_export_follows_every_event_page(client, app):
@@ -107,9 +108,62 @@ def test_prepared_budget_anchors_measured_tokens_and_counts_new_instructions_and
     new_tool = [{"name": "new", "schema": {"description": "中文新工具" * 50}}]
     with_schema, _ = input_bound(messages, params, new_tool)
     assert with_schema > bound + 500
+    signature = hashlib.sha256(encode(new_tool).encode()).hexdigest()
+    matched, _ = input_bound(messages, params, new_tool, measured_tools_sha256=signature)
+    assert with_schema-matched == len(encode(new_tool).encode())
+    changed, _ = input_bound(messages, params, [{"name":"changed"}], measured_tools_sha256=signature)
+    ordinary, _ = input_bound(messages, params, [{"name":"changed"}])
+    assert changed == ordinary  # An old schema receipt cannot discount a changed tool.
     response.usage = RequestUsage()
     fallback, anchored = input_bound(messages, params, [])
     assert not anchored and fallback > 100000
+    no_usage, _ = input_bound(messages, params, new_tool, measured_tools_sha256=signature)
+    unbound, _ = input_bound(messages, params, new_tool)
+    assert no_usage == unbound
+
+
+def test_schema_discount_requires_this_response_measured_in_this_task_turn_and_revision(client, app):
+    state, _ = task(client)
+    foreign, _ = task(client, request_id="foreign-schema")
+    engine = app.state.engine
+    deps = Deps(engine, state["task_id"], "schema-receipt", 1)
+    tool = SimpleNamespace(name="fixture", description="Bound schema fixture",
+        parameters_json_schema={"type":"object", "description":"诊断记录"*100})
+    params = SimpleNamespace(instruction_parts=[SimpleNamespace(content="fixed instructions", dynamic=False)],
+        function_tools=[tool], output_tools=[], tool_defs={})
+    first = ModelRequest(parts=[UserPromptPart("read")], instructions="fixed instructions")
+    request = SimpleNamespace(messages=[first], model_request_parameters=params, model_settings={})
+    profile = engine.config.models["small"]
+    manifest_id = engine.contexts.compile(deps, request, profile)
+    response = ModelResponse(parts=[], usage=RequestUsage(input_tokens=500, output_tokens=20))
+    engine.contexts.measured(manifest_id, response.usage, response=response)
+    # Native bookkeeping may be added after hooks without changing paid content.
+    response.run_id = "new-bookkeeping-id"
+    response.metadata = {"receipt":"framework bookkeeping"}
+    request.messages = [first, response, ModelRequest(parts=[UserPromptPart("continue")], instructions="fixed instructions")]
+    def compile_for(current_deps=deps):
+        ref = engine.contexts.compile(current_deps, request, profile)
+        with engine.store.transaction() as db:
+            return json.loads(db.execute("SELECT payload FROM contexts WHERE id=?", (ref,)).fetchone()[0])
+    paid = compile_for()
+    assert paid["schema_cost_accounting"] == "bound_measured_schema"
+    assert compile_for(Deps(engine, foreign["task_id"], deps.turn_id, 1))["schema_cost_accounting"] == "full_current_schema"
+    assert compile_for(Deps(engine, state["task_id"], "other-turn", 1))["schema_cost_accounting"] == "full_current_schema"
+    params.function_tools = [SimpleNamespace(name="changed", description=tool.description, parameters_json_schema=tool.parameters_json_schema)]
+    changed = compile_for()
+    assert changed["schema_cost_accounting"] == "full_current_schema" and changed["estimated_tokens_upper_bound"] > paid["estimated_tokens_upper_bound"]
+    params.function_tools = [tool]
+    request.messages[1] = replace(response, parts=[ToolCallPart("fixture", {}, "different-provider-content")])
+    assert compile_for()["schema_cost_accounting"] == "full_current_schema"
+    request.messages[1] = response
+    engine.store.change(state["task_id"], "fixture.new-revision", lambda s, _: s.update(spec_revision=2))
+    assert compile_for(Deps(engine, state["task_id"], deps.turn_id, 2))["schema_cost_accounting"] == "full_current_schema"
+    engine.store.change(state["task_id"], "fixture.restore-revision", lambda s, _: s.update(spec_revision=1))
+    with engine.store.transaction() as db:
+        old = json.loads(db.execute("SELECT payload FROM contexts WHERE id=?", (manifest_id,)).fetchone()[0])
+        old.pop("response_sha256")  # Legacy or unbound accounting must retain the full margin.
+        db.execute("UPDATE contexts SET payload=? WHERE id=?", (encode(old),manifest_id))
+    assert compile_for()["schema_cost_accounting"] == "full_current_schema"
 
 
 @pytest.mark.asyncio

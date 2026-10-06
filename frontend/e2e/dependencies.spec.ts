@@ -89,6 +89,15 @@ for(const model of ['small','large'])test(`${model} repairs and reuses real offl
   }
   const text=await (await page.request.get(report.preview_url)).text();expect(text).toMatch(/[\u4e00-\u9fff]/);
   for(const value of ['ModuleNotFoundError','2.2.6','1.17.0','2.9.0.post0','37.5','12.5',refs[0],archive.artifact_id])expect(text).toContain(value);
+  const knownIds=new Set([taskId,...refs,...observed.artifacts.map((a:any)=>a.artifact_id),
+    ...observed.jobs.map(c=>c.job.job_id),...observed.events.map(e=>e.event_id),
+    ...observed.events.filter(e=>e.type==='action.started').map(e=>e.payload.action_id)]);
+  const reportedIds=text.match(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi)||[];
+  expect(reportedIds.filter(id=>!knownIds.has(id.toLowerCase())),'Report references must identify actual task evidence.').toEqual([]);
+  const actualJobIds=new Set(observed.jobs.map(c=>c.job.job_id));
+  const claimedJobIds=Array.from(text.matchAll(/(?:作业|job)[^\n]{0,40}?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/gi),m=>m[1].toLowerCase());
+  expect(claimedJobIds.filter(id=>!actualJobIds.has(id)),'An action receipt ID cannot be labelled as a job ID.').toEqual([]);
+  for(const job of [missing,incompatible,environments[0],...computations])expect(text).toContain(job.job.job_id);
   expect(observed.events.some(e=>e.type==='action.started'&&['web.search','web.read','role.delegate','memory.read','environment.inspect'].includes(e.payload.tool))).toBe(false);
   paths.forEach((p,i)=>expect(sha(p)).toBe(hashes[i]));
   await page.getByRole('button',{name:'dependency-report.md',exact:true}).last().click();

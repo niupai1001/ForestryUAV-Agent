@@ -8,8 +8,8 @@
 |---|---|---|---|---|
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
-| P2 | in_progress | 动作/attempt、请求去重、修订隔离、检查点；断网容器、独立 WSL、终态日志、同回合恢复事实；离线范围依赖和环境复用 | 真实计算/取消/超时、两模型运行中作业真实进程恢复通过；大模型调试 UI 通过；离线依赖真实15项通过；完整回归165项 | Agent依赖获取/源码构建、两模型完整依赖UI、完整资源准入、全部恢复窗口及 UI、小模型完整调试/报告质量 |
-| P3 | in_progress | 候选指纹/验收/清单；文档/知识/记忆；原生上下文/角色；H0/H1/H2；已有网络边界、持久输入/引用、无进展保护、工具范围与 UI 修订 | 完整回归165项；两模型文件范围恢复与修订/重传 UI 通过；历史搜索单项证据保留 | 角色异常/冲突交互、两模型完整本地通用及长任务质量、完整报告/通用评估；联网搜索用户暂缓 |
+| P2 | in_progress | 动作/attempt、请求去重、修订隔离、检查点；断网容器、独立 WSL、终态日志、同回合恢复事实；离线范围依赖和环境复用 | 真实计算/取消/超时、两模型运行中作业真实进程恢复通过；大模型调试和加强后的依赖UI通过；离线依赖真实15项通过；完整回归169项 | Agent依赖获取/源码构建、小模型完整依赖UI、完整资源准入、全部恢复窗口及 UI、小模型完整调试/报告质量 |
+| P3 | in_progress | 候选指纹/验收/清单；文档/知识/记忆；原生上下文/角色；H0/H1/H2；已有网络边界、持久输入/引用、无进展保护、工具范围与 UI 修订；有界作业/产物事实及Schema实测绑定 | 完整回归169项；两模型文件范围恢复与修订/重传 UI 通过；45份最新依赖输入快照独立审计通过；历史搜索单项证据保留 | 角色异常/冲突交互、两模型完整本地通用及长任务质量、完整报告/通用评估；联网搜索用户暂缓 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -182,8 +182,28 @@ English: Both models pass 14 checks following real interruption of an owned serv
 
 English: Baseline1.7 adds scoped offline wheel preparation and immutable reuse through existing Jobs and permissions. The real core trial passes all15 checks; earlier NTFS/noexec failures remain preserved. Both final model UI trials perform real installation and one correct computation but remain failed for small-model tool arguments and large-model recursive inspection/context exhaustion. Separate read-only audits confirm exact first results, hashes and unchanged sources. 165 regressions, Ruff/diff and production frontend build pass. Agent acquisition/source builds and full local general acceptance remain incomplete; search stays user-deferred.
 
+## Confirmed dependency facts and schema accounting / 依赖事实与Schema计费（1.8）
+
+2026-10-07收尾，试次文件保留20261006运行标识。H1/H2根指令从现有产物/Jobs记录取得最近24个名称/ID和当前修订最近8个作业的有界身份、状态、环境与结果引用；不复制代码/环境清单/文件正文、不新增Docker探测。失败/超时诊断只复制已确认终态job.observe回执的stderr末尾512 UTF-8字节，保留source_action_id与截断标记，视为不可信正文。记录状态不等于新的观察或验收。H0不增加辅助事实，子角色不接收父产物/作业元数据。初始回合请求与objective完全一致时以全文objective和显式标志表示，不重复注入；不同后续请求仍完整保留。
+
+上下文估算沿用原生正用量锚点；只有对应响应内容摘要、实测用量及同task/turn/revision/assignment的已覆盖请求清单一致，且当前工具Schema摘要相同，才避免再次计费已由锚点覆盖的Schema。变化的工具/响应、其他任务/回合/修订、缺用量及无响应摘要的旧记录均保留完整Schema余量。响应摘要仅排除框架后加的run_id/conversation_id/metadata/workspace_ref，不排除实际响应parts或provider用量。实际用量超过估算仍停止，不创建第二套历史。原生分层压缩目标从可用输入预算1/2改为3/4（32K/4K配置为21,504），ClearToolResults、滑窗、外置及硬上下文/输出上限继续保留；这是保留阈值调整，尚不证明完整长任务质量或小模型稳定性。
+
+UI第4轮1通过/1失败，原报告 `ui-dependencies-tests-20261006-v4.json` 保留。small `6569a17a-0a68-42da-a276-2b655b76e8f2` 曾通过原流程检查，但独立读回发现成功环境被列在失败过程，真实environment.prepare动作ID被当成作业ID。所有UUID已登记仍不足以证明引用类型正确；补充报告/引用审计明确完整报告质量失败，不回写原流程JSON。large `66178daf-9d45-4ec9-a58d-23c78fbe7d10` 已实际完成两次计算及读回，查旧观察后上下文估算耗尽。第5轮两模型均因重复旧观察触发NO_PROGRESS而失败（small `3e4dc56c-3bd6-4f97-b9fe-f0c82d5c30a4`、large `3103b601-669b-4d9b-9d7b-0f27616503ff`）；Schema新计费实际生效，仍不将质量失败改为通过。
+
+提示现明确resource_id/artifact_id/job_id/action_id不可混用，read_artifact没有limit；仅实际来源读取返回citation时才用citation_actions，代码/作业通常没有来源citation。第6轮1通过/1失败：small `6493f5cd-1305-4f4f-b985-529da5428b7b` 重复读锁/首次结果后NO_PROGRESS；large `538470d1-a04d-44f7-93a8-a870adafbc2a` 通过加强的完整UI及独立报告阅读。检查新增所有UUID须属于真实任务证据、作业标签只能对应真实job_id、五个实际作业均须引用；其余两次失败、唯一环境/两次复用、精确数值/版本、实际三份读回和源保护要求不删除。正则检查只覆盖标识，报告语义另外审查。
+
+最终第7轮1通过/1失败，总3.9分钟，`ui-dependencies-tests-20261006-v7.json`。small `3923952f-416e-47c4-a1cc-bfb1b509fa38` 已产生正确命名的两个JSON，又重复计算/安装，最终10个作业（7成功/3失败）和30请求后由原调用上限暂停；报告错把artifact.read动作ID当缺包作业ID、将准备环境写成生成计算结果、遗漏重复执行，并声称只读CSV无法核验，报告也未实际读回。独立报告审计明确失败。不能因产物存在或数值正确宣称该任务通过。
+
+large `979c4090-c284-4f7e-ba14-f7438e251d31` 15请求、16注册动作，保持revision1/waiting_user。实际缺包失败 `9dd5a10d-9a33-415a-a1dd-247fc80df355`、平台失败 `92cfd3fe-9d47-41f2-b859-af42686f4d59`、成功准备 `c0d32bc0-4c03-4b62-bebd-57cac149870e`、计算 `c072cfb9-7f09-4ffe-9e17-32e2a4aa1a33` 和 `3342c127-9b4b-49d2-8228-dcab28aa0e43` 均准确。复用同一 `7c70fdb1-e441-4d74-8f3b-c5581a506873` 环境/哈希/镜像，两个JSON均3/37.5/12.5、日期2026-10-06及三个固定版本；报告 `22aadec9-2bae-4bae-807e-4599f5682e8d` 的SHA、全部五个真实作业引用、顺序/状态/来源/环境/产品/局限另行核对一致。三份产物实际读回，页面刷新仍待确认，无页面错误。完整UI通过不是用户验收，也不证明科学精度。
+
+独立只读审计第7轮全部45份私有prepared输入（small30、large15）：原文件SHA、实际SchemaSHA、严格同回合/修订/角色响应回执绑定、正用量且估算覆盖、初始请求全文一次、有界任务归属与512字节已确认诊断均通过；43份使用bound_measured_schema、2份初始输入全额Schema。证据 `ui-dependencies-context-audit-corrected-<task_id>.json`；首次审计错误以未转义原文搜索JSON字符串，导致canonical_request检查失败，原JSON保留，修正为JSON编码后的全文比对后另存审计，非产品失败。独立报告审计 `ui-dependencies-report-audit-v7-<task_id>.json` 保存完整正文与质量结论。输入证据通过不代表small质量通过。所有历次试次和截图保留；最终large截图已视觉检查，报告预览可读；来源选择器累积同名夹具使页面很长，完整UI成熟度仍需处理。
+
+完整回归 `pytest -q --basetemp workspace/test-temp-20261006-131`：169 passed（34.36秒），最终Ruff/diff通过。新增原生三模式有界元数据/诊断、真实Schema收据隔离及父元数据不进入子角色的检查。此前恢复测试虽参数化H0/H1/H2却遗漏make_agent快照，实际均用H1；现传入冻结快照后三种真实模式通过，旧测试不夸称三模式覆盖。新增测试初期动作外键及夹具参数错误已修复，夹具不是实际执行器证据。产品前端源码未改动，无需重新打包；专用8768加载最终API，其他已有服务未重载。最终只读DB检查无active任务、非终态作业或未确认动作，未停止既有服务。
+
+English: Baseline1.8 adds bounded root-only artifact/job facts, confirmed diagnostic tails and schema accounting bound to the actual measured native response and exact scope/schema. The native compaction target changes from half to three quarters of available input budget; hard limits remain. The strengthened final dependency UI trial is one pass/one failure: large passes actual flow and independent report review; small repeats execution/installation, exhausts30 requests and mislabels a read-action ID as a job. All45 prepared inputs pass separate provenance/usage audits, not task acceptance. Original failures remain, including an audit JSON-escaping mistake corrected in a separate file.169 regressions and Ruff/diff pass. Complete local general quality, dependency acquisition/source builds and recovery/UI gates remain pending; search is user-deferred.
+
 ## Next / 下一步
 
 脚本收尾后再次实际运行，试次 `26a3dc4a-0562-44a4-88db-0cb26d1b1eb7`、task `0b6e9e64-944c-44fe-936f-6c7a2904a3a3` 返回0；原15项检查再次全通过，六个作业终态均确认（预期失败3个、成功安装及复用3个），cleanup无未确认项。此成功路径不冒充观察超时或停止拒绝的实测。证据 `dependencies-real-26a3dc4a-0562-44a4-88db-0cb26d1b1eb7.json`。最终Ruff/diff及Python语法检查通过。
 
-继续P2依赖自动获取/条件源码构建、两模型完整依赖UI、剩余真实恢复窗口及报告质量，再闭合本地UI/通用评估；当前离线增量不代表完整依赖功能验收。Agent 联网搜索按用户指示暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件仍由用户在 pilot 后决定，不能填入假定设备或测量。
+继续P2小模型重复操作/报告质量、依赖自动获取/条件源码构建、剩余真实恢复窗口，再闭合本地UI/通用评估。大模型依赖UI的有限通过不代表两模型或完整依赖验收；不继续通过增加预算或删除检查追求通过。Agent 联网搜索按用户指示暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件仍由用户在 pilot 后决定，不能填入假定设备或测量。
