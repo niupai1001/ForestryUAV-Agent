@@ -10,19 +10,13 @@ from typing import Literal
 import yaml
 from pydantic import Field, field_validator
 
-from .contracts import Boundary, Failure
+from .contracts import CAPABILITY_NAMES, Boundary, Failure
 from .resources import inside, version
 from .store import encode, now, uid
 
 RoleID = Literal["coordinator", "environment", "data", "code_experiment", "quality"]
 TERMINAL = {"succeeded", "partial", "failed", "cancelled"}
 CURRENT_ASSIGNMENT: ContextVar[str | None] = ContextVar("forestry_assignment", default=None)
-CAPABILITY_NAMES = {"list_inputs": "fs.inputs", "list_files": "fs.list", "read_file": "fs.read",
-    "write_file": "fs.write_workspace", "inspect_artifact": "artifact.inspect", "read_artifact": "artifact.read",
-    "inspect_action": "action.inspect", "read_document": "document.read", "index_document": "knowledge.index",
-    "search_knowledge": "knowledge.search", "read_user_memory": "memory.read", "inspect_environment": "environment.inspect",
-    "code_execute": "code.execute", "wait_job": "job.observe", "delegate_task": "role.delegate",
-    "search_web": "web.search", "read_web_page": "web.read"}
 
 
 class PermissionCeiling(Boundary):
@@ -148,6 +142,7 @@ class Roles:
                 raise Failure("PERMISSION_DENIED", "当前配方禁用角色委派", 403)
             if state["spec_revision"] != deps.revision or state["pause_requested"] or state["cancellation_requested"]:
                 raise Failure("EXECUTION_STOPPED", "当前任务不能创建新委派", 409)
+            self.store.authorize_capability(db, state, "role.delegate")
             prior = db.execute("SELECT payload FROM assignments WHERE action_id=?", (action_id,)).fetchone()
             if prior:
                 return {"assignment_id": json.loads(prior["payload"])["assignment_id"]}
@@ -179,7 +174,8 @@ class Roles:
                 "action_id": action_id, "run_id": uid(), "namespace": f"{deps.task_id}/{assignment_id}",
                 "request": request.model_dump(), "effective_input_refs": request.input_refs,
                 "effective_artifact_refs": request.artifact_refs, "input_versions": sources,
-                "effective_capabilities": [cap for cap in role.allowed_capabilities if cap in parent.allowed_capabilities], "role_snapshot": role.model_dump(),
+                "effective_capabilities": [cap for cap in role.allowed_capabilities if cap in parent.allowed_capabilities
+                    and self.store.capability_allowed(db, state, cap)], "role_snapshot": role.model_dump(),
                 "permission_ceiling": {**role.permission_ceiling.model_dump(), "workspace_write": role.permission_ceiling.workspace_write and parent.permission_ceiling.workspace_write},
                 "status": "queued", "model_requests": 0, "actions": 0, "created_at": now(),
                 "deadline_at": None, "result": None, "blocker": None}
@@ -189,8 +185,9 @@ class Roles:
             return {"assignment_id": assignment_id, "status": "queued", "namespace": value["namespace"]}
 
     def authorize(self, db, deps, kind, args, *, check_budget=True):
+        state = self.store.read_task(db, deps.task_id)
+        self.store.authorize_capability(db, state, kind)
         if not deps.assignment_id:
-            state = self.store.read_task(db, deps.task_id)
             role = self.configurations(state).get("coordinator")
             if role and (kind not in role.allowed_capabilities or (kind in {"fs.write_workspace", "code.execute"} and not role.permission_ceiling.workspace_write)):
                 raise Failure("PERMISSION_DENIED", "能力超出协调者配置上限", 403)

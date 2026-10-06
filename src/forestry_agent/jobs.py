@@ -104,6 +104,7 @@ class Jobs:
             state = self.store.read_task(db, task_id)
             if state["spec_revision"] != revision or state["pause_requested"] or state["cancellation_requested"]:
                 raise Failure("EXECUTION_STOPPED", "任务规范或控制状态不允许新作业", 409)
+            self.store.authorize_capability(db, state, "code.execute")
             job_id = uid()
             assignment = db.execute("SELECT id FROM assignments WHERE json_extract(payload,'$.run_id')=(SELECT turn_id FROM actions WHERE id=?)", (action_id,)).fetchone()
             job = {"schema_version": 1, "job_id": job_id, "task_id": task_id,
@@ -135,7 +136,9 @@ class Jobs:
             raise Failure("RECONCILIATION_REQUIRED", "容器 ID 发生变化", 409)
 
     def may_start(self, job):
-        state = self.store.task(job["task_id"])
+        with self.store.transaction() as db:
+            state = self.store.read_task(db, job["task_id"])
+            self.store.authorize_capability(db, state, "code.execute")
         current = self.read(job["job_id"])
         if current["cancel_requested"] or state["cancellation_requested"] or state["pause_requested"] or state["spec_revision"] != job["spec_revision"]:
             raise Failure("EXECUTION_STOPPED", "控制状态已变化，不启动新容器动作", 409)
@@ -148,7 +151,9 @@ class Jobs:
         for job in jobs:
             try:
                 state = self.store.task(job["task_id"])
-                stopping = job["cancel_requested"] or state["cancellation_requested"] or state["spec_revision"] != job["spec_revision"]
+                with self.store.transaction() as db:
+                    permitted = self.store.capability_allowed(db, state, "code.execute")
+                stopping = job["cancel_requested"] or state["cancellation_requested"] or state["spec_revision"] != job["spec_revision"] or not permitted
                 if job["status"] == "queued":
                     if stopping:
                         job["status"] = "cancelled"

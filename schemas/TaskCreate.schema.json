@@ -1,4 +1,48 @@
 {
+  "$defs": {
+    "TaskConstraints": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_capabilities": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "fs.inputs",
+                  "fs.list",
+                  "fs.read",
+                  "fs.write_workspace",
+                  "artifact.inspect",
+                  "artifact.read",
+                  "action.inspect",
+                  "document.read",
+                  "knowledge.index",
+                  "knowledge.search",
+                  "memory.read",
+                  "environment.inspect",
+                  "code.execute",
+                  "job.observe",
+                  "role.delegate",
+                  "web.search",
+                  "web.read"
+                ],
+                "type": "string"
+              },
+              "maxItems": 17,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allowed Capabilities"
+        }
+      },
+      "title": "TaskConstraints",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "properties": {
     "request_id": {
@@ -72,9 +116,7 @@
       "type": "string"
     },
     "constraints": {
-      "additionalProperties": true,
-      "title": "Constraints",
-      "type": "object"
+      "$ref": "#/$defs/TaskConstraints"
     },
     "output_preferences": {
       "additionalProperties": true,

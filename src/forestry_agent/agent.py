@@ -273,7 +273,16 @@ class Engine:
             self.publish(ctx.deps.task_id, "model.output_rejected", {"turn_id": ctx.deps.turn_id, "details": details})
 
         async def prepare_tools(ctx, tool_defs):
-            classification = self.store.task(ctx.deps.task_id)["config_snapshot"].get("context_classification", "private")
+            with self.store.transaction() as db:
+                state = self.store.read_task(db, ctx.deps.task_id)
+                allowed = self.store.capabilities(db, state)
+                restricted = self.store.constraints(db, state).allowed_capabilities is not None
+            classification = state["config_snapshot"].get("context_classification", "private")
+            # Native overflow readers only inspect this run's already-owned tool results.
+            # They do not expose new source, filesystem, network or execution authority.
+            if restricted:
+                tool_defs = [t for t in tool_defs if t.name in {"read_tool_result", "read_tool_result_window"}
+                             or CAPABILITY_NAMES.get(t.name) in allowed]
             if classification == "public":
                 tool_defs = [t for t in tool_defs if t.name not in {"read_user_memory", "inspect_environment"}]
             tool_defs = [replace(t, parameters_json_schema={**t.parameters_json_schema, "properties": {

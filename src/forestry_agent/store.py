@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from .contracts import Failure
+from .contracts import CAPABILITY_NAMES, Failure, TaskConstraints
 
 
 def uid() -> str:
@@ -113,10 +113,34 @@ class Store:
         with self.transaction() as db:
             return self.read_task(db, task_id)
 
+    def constraints(self, db, state):
+        row = db.execute("SELECT payload FROM specs WHERE task_id=? AND revision=?",
+                         (state["task_id"], state["spec_revision"])).fetchone()
+        if row is None:
+            raise Failure("PRECONDITION_MISSING", "当前任务规范缺失，不能推断工具范围", 422)
+        return TaskConstraints.model_validate(json.loads(row["payload"]).get("constraints", {}))
+
+    def capabilities(self, db, state):
+        allowed = self.constraints(db, state).allowed_capabilities
+        return set(CAPABILITY_NAMES.values() if allowed is None else allowed)
+
+    def capability_allowed(self, db, state, kind):
+        return kind in self.capabilities(db, state)
+
+    def authorize_capability(self, db, state, kind):
+        if not self.capability_allowed(db, state, kind):
+            raise Failure("PERMISSION_DENIED", "能力超出当前任务规范的允许范围上限；须由用户修订规范", 403)
+
+    def describe_task(self, task_id):
+        with self.transaction() as db:
+            state = self.read_task(db, task_id)
+            return {**state, "constraints": self.constraints(db, state).model_dump()}
+
     def tasks(self):
         with self.transaction() as db:
-            return [json.loads(row["state"]) for row in db.execute(
+            states = [json.loads(row["state"]) for row in db.execute(
                 "SELECT state FROM tasks ORDER BY updated_at DESC LIMIT 200")]
+            return [{**state, "constraints": self.constraints(db, state).model_dump()} for state in states]
 
     def save_task(self, db, state: dict, expected: int):
         state["state_version"] = expected + 1

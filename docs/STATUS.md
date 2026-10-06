@@ -7,7 +7,7 @@
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
 | P2 | in_progress | 动作/attempt 先登记、请求去重、修订隔离、检查点保护、持久无网络容器作业与原生等待工具 | 18 项边界/故障测试通过；容器真实执行尚未通过 | Docker 环境修复、依赖准备、完整资源准入、真实重启/取消场景 |
-| P3 | in_progress | 候选指纹、显式验收/清单；文档/知识/记忆；原生上下文整理/委派；H0/H1/H2；外发审批、公开读取/搜索、持久输入、完整引用、持久无进展保护 | 完整回归128项；两模型真实搜索报告 UI 检查通过；两模型无进展停止通过，大模型 UI 纠正恢复通过 | 明确工具范围与小模型恢复质量、搜索稳定性及严格事实验收、本地 SearXNG、角色异常/冲突交互、各模型长任务质量、完整报告/通用评估 |
+| P3 | in_progress | 候选指纹、显式验收/清单；文档/知识/记忆；原生上下文整理/委派；H0/H1/H2；外发审批、公开读取/搜索、持久输入、完整引用、无进展保护、规范工具范围与 UI 修订 | 完整回归140项；两模型搜索报告、文件范围纠正恢复、范围创建/修订/重传 UI 通过 | 搜索稳定性及严格事实验收、本地 SearXNG、角色异常/冲突交互、两模型完整通用及长任务质量、完整报告/通用评估 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -108,6 +108,22 @@ small恢复失败：尽管纠正请求明确不要执行代码，模型提交两
 
 English: 128 regression tests pass; both real models trigger the persistent repeated-observation guard. Only the large-model UI correction trial passes. The small-model correction trial submitted forbidden-by-request code jobs, which remained unstarted and were explicitly cancelled after evidence capture. General-stage acceptance remains incomplete.
 
+## Task scope and corrective recovery / 任务工具范围与纠正恢复
+
+基线1.4增加真实 TaskConstraints 边界，允许能力必须是已注册、无重复的列表，拒绝未知约束。约束来自认证创建/规范修订，存入已有 specs 并从该权威记录投影到 UI；未新增权限服务或第二份运行状态。省略/null继承配置，空列表禁用所有注册动作。未提交 constraints 的修订保留前一修订范围，响应丢失重试根据不可变原修订重新解析，普通消息不能扩权。原生工具发现、实际执行、委派交集和作业提交/启动共享同一检查；原生溢出读取只观察当前运行已有结果。完整通用能力默认保留。
+
+UI 提供通用能力、文件与报告、仅回答、自定义选择，显示当前范围，并可明确修订目标/输入/范围、暂停后对账恢复；运行中补充消息可以排队。完整回归 `pytest -q --basetemp workspace/test-temp-20261006-101`：136 passed（38.01秒），Ruff/diff通过；前端正式构建通过。新增8例验证非法能力/字段、执行前拒绝、重开数据库、原生模型工具展示、委派交集、消息不能扩权、修订/重放、直接代码提交拒绝和排队作业取消。
+
+显式文件范围下，两模型重新通过刻意重复读取保护：small `3b8e7f01-d375-4935-86af-9748e80ecd0a`，large `22790df4-4e3c-4314-89fa-8ebf1fc1c190`，各4次真实读取并暂停。浏览器纠正恢复2 passed（42.5秒）：small17.9秒、large23.4秒；均同一revision1保留原停止和累计预算，JSON准确为3/37.5/12.5，中文报告/两文件实际读回，源保护与重载通过，无代码、委派或网络动作。small累计11请求/10动作，large9请求/11动作。此前未设置显式范围的小模型失败仍保留，不把本次文件范围通过外推为全部通用能力质量通过。证据 `workspace/evidence/ui-progress-<model>-<task_id>.json`，截图已检查。
+
+最终回归 `pytest -q --basetemp workspace/test-temp-20261006-103`：140 passed（29.61秒）；Ruff/diff通过。额外覆盖修订时保留输出偏好/指标请求/冻结字段，以及缓存控制回执不能取消后来回合、恢复重传不能新发起模型回合。暂停/修订/取消仅停止本次真实变更时捕获的执行令牌；恢复仅在本次真实变更后调度。旧请求重放只返回原始回执。
+
+最终服务上的范围 UI：2 passed（1.2分钟），small `8ce4f59d-5f62-4030-85e2-73a2693b6fd9`（21.9秒，10请求/8动作）、large `01498d03-a4bb-4c5f-a2b5-f3c8df77fdc0`（49.2秒，7请求/9动作）。从“仅回答”创建开始，首回合零注册动作且回答4；经真实 UI 将目标/CSV输入/工具范围修订为revision2，保持模型配置、暂停并重载，显式恢复后交付准确3/37.5/12.5的JSON与中文报告、两文件真实读回、无代码/网络/委派/环境/记忆动作，保持待确认。再次实际POST原恢复请求返回原回执，任务状态及事件不变，没有新模型回合。证据 `ui-scope-<model>-<task_id>.json`，修改对话框/报告截图已检查。
+
+范围 UI 测试的早期失败均保留：首次API登记遗漏Origin并与会话初始化竞争，未检查失败响应而等待不存在的来源；后一次从不同cwd启动时相对夹具路径错误；修正后又因未等待恢复HTTP回执而提前读取旧paused状态。后者两真实任务在测试离开后实际完成，失败JSON不回写成通过。脚本改为显式会话/Origin、登记响应检查、绝对夹具/证据路径、每试次唯一来源、等待恢复回执及失败后快照；原始失败报告/截图和任务记录均保留。上述测试脚本失败不能记作产品修订成功，也不把后续通过外推为通用阶段完成。
+
+English: 140 regressions, both file-scoped corrective trials and both final real-model scope/amendment UI trials pass. Cached control receipts cannot affect newer runs or create another model turn. Default general capabilities remain available; earlier unrestricted model failures and test setup/race failures remain recorded. General-stage acceptance remains incomplete.
+
 ## Next / 下一步
 
-推进明确任务工具范围、P2容器验证与依赖准备、受控本地搜索连接器及完整UI交互，继续闭合阶段1通用验收，并保留两模型恢复/长任务质量验证。阶段1验收前不开发领域功能。低资源硬件是用户明确推迟的发布决策，不能填入假定设备或测量。
+推进P2容器验证与依赖准备、受控本地搜索连接器及完整UI交互，闭合阶段1通用验收，并保留两模型通用能力及长任务质量验证。阶段1验收前不开发领域功能。低资源硬件是用户明确推迟的发布决策，不能填入假定设备或测量。

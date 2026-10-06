@@ -12,3 +12,4 @@ __pycache__/
 config/app.local.yaml
 !config/app.example.yaml
 
+fixtures/general/scope-ui-heights-*.csv

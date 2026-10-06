@@ -1,4 +1,4 @@
-# Revised implementation baseline · 1.3
+# Revised implementation baseline · 1.4
 
 This is an independent implementation, with no reuse or migration of the legacy ForestryUAV-Agent runtime. The supplied Chinese project book is the current requirements source; this companion revision shares its version number.
 
@@ -14,6 +14,10 @@ Private-derived network payloads require scoped authorization. Public fetch reje
 
 Freeze max_unchanged_decisions for new tasks. Persist observations per task revision, logical user turn and role across native runs and restarts. Repeated observations, failures and empty end-of-file windows stop with NO_PROGRESS when the limit is reached, preserving confirmed effects. Resume does not reset the counter. Authenticated corrective input may stop the old turn and start a new corrective turn, without resetting task-level budgets; changes to objectives, inputs, methods or constraints still require amendment. Novel observations do not establish semantic acceptance.
 
-Version 1.3 preserves the 1.2 scope and framework ownership while specifying this stop/recovery contract. Application database migration 2 adds observation records; it does not migrate legacy project data.
+TaskConstraints.allowed_capabilities is a unique list of registered capabilities. Omission or null inherits configured ceilings; an empty list denies every registered action. Explicit scope constrains native tool discovery, execution, job submission/start and delegated role intersections. Ordinary messages and models cannot expand it. Native overflow readers only access this run's existing tool results and grant no new source, network or execution authority. Amendments omitting constraints preserve the previous scope; explicitly submitting {} inherits configured ceilings. The UI revises objectives, inputs and scope, pauses old execution, and requires reconciliation before resume.
+
+Amendments retain unchanged output preferences, requested metrics and frozen fields. Control retries only return their original receipt. Pause/amendment/cancellation retries cannot cancel a newer run token; resume retries cannot create a new model turn.
+
+Version 1.4 preserves the entire 1.3 scope and adds task capability scope, UI amendments and control retries. The application database remains at migration 2; existing specification JSON holds the constraint, without a new permission service or legacy project migration.
 
 Batches: P0 baseline/feasibility; P1 real UI/model/file loop; P2 restricted execution/recovery; P3 complete general product; P4 imagery; P5 LiDAR; P6 frozen experiments/scale/release. Track implementation and verification separately. Docker, model tool round trips, search, compatible raw-elevation UAV LiDAR/terrain, ≥100 GB real data, lower-resource hardware and pilot release tolerances still require evidence.

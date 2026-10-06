@@ -21,6 +21,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--base-url", default="http://127.0.0.1:8766")
     parser.add_argument("--models", nargs="+", default=["small", "large"])
+    parser.add_argument("--file-only", action="store_true", help="Freeze an explicit file/report capability ceiling.")
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     fixture = root / "fixtures/general/heights.csv"
@@ -38,6 +39,8 @@ def main():
             started = time.monotonic()
             response = client.post("/tasks", json={"request_id": str(uuid4()), "model_profile": model,
                 "harness_mode": "H1", "context_classification": "public", "input_refs": [resource_id],
+                "constraints": {"allowed_capabilities": ["fs.inputs", "fs.list", "fs.read", "fs.write_workspace",
+                    "artifact.inspect", "artifact.read", "action.inspect", "document.read", "knowledge.index", "knowledge.search"]} if args.file_only else {},
                 "objective": "这是无进展保护的软件故障测试。请连续六次真实调用read_file读取同一个已授权资源"
                     + resource_id + "，relative_path为空字符串、offset=0。每次只发起一个工具调用并等待结果；"
                     "即使结果相同也再次读取。不要写文件、不要换工具、不要委派、不要联网；"

@@ -201,7 +201,7 @@ def create_app(config: Config, *, enable_agent: bool = True):
 
     @app.get("/tasks/{task_id}")
     def task(task_id: str):
-        return store.task(task_id)
+        return store.describe_task(task_id)
 
     @app.get("/tasks/{task_id}/acceptance-candidate")
     def acceptance_candidate(task_id: str):
@@ -231,7 +231,20 @@ def create_app(config: Config, *, enable_agent: bool = True):
 
     @app.post("/tasks/{task_id}/amendments")
     def amendment(task_id: str, payload: Amendment):
+        amended = payload.model_dump()
+        stop_token = None
+        if "constraints" not in payload.model_fields_set:
+            # Resolve against the immutable referenced revision, so a retry produces
+            # the same receipt even after the task advances to a newer revision.
+            with store.transaction() as db:
+                store.read_task(db, task_id)
+                if not db.execute("SELECT 1 FROM specs WHERE task_id=? AND revision=?",
+                                  (task_id, payload.expected_spec_revision)).fetchone():
+                    raise Failure("VERSION_CONFLICT", "引用的规范修订不存在", 409)
+                amended["constraints"] = store.constraints(db, {"task_id": task_id,
+                    "spec_revision": payload.expected_spec_revision}).model_dump()
         def mutate(state, db):
+            nonlocal stop_token
             if state["spec_revision"] != payload.expected_spec_revision:
                 raise Failure("VERSION_CONFLICT", "规范修订已变化", 409)
             if payload.requested_method_id is not None:
@@ -242,33 +255,41 @@ def create_app(config: Config, *, enable_agent: bool = True):
                     raise Failure("PERMISSION_DENIED", "新输入资源尚未授权", 403)
                 if state["config_snapshot"].get("context_classification") == "public" and json.loads(resource["payload"])["classification"] != "public":
                     raise Failure("PERMISSION_DENIED", "公开任务不能新增私密输入", 403)
-            store.user_event(db, "task_amendment", payload.model_dump())
+            previous = json.loads(db.execute("SELECT payload FROM specs WHERE task_id=? AND revision=?",
+                                            (task_id, state["spec_revision"])).fetchone()[0])
+            store.user_event(db, "task_amendment", amended)
             state["spec_revision"] += 1
             db.execute("UPDATE turns SET status='cancelled' WHERE task_id=? AND status='queued'", (task_id,))
             state.update(objective=payload.objective, input_refs=payload.input_refs,
                          requested_method_id=payload.requested_method_id, status="paused", pause_requested=True,
                          acceptance=None, blockers=[{"code": "AMENDED", "message": "规范已修改，请对账后恢复"}])
-            db.execute("INSERT INTO specs VALUES(?,?,?)", (task_id, state["spec_revision"], encode(payload.model_dump())))
-        result = store.change(task_id, "task.amended", mutate, payload.model_dump())
-        if task_id in engine.tokens:
-            engine.tokens[task_id].cancel()
+            db.execute("INSERT INTO specs VALUES(?,?,?)", (task_id, state["spec_revision"], encode({**previous, **amended})))
+            stop_token = engine.tokens.get(task_id)
+        result = store.change(task_id, "task.amended", mutate, amended)
+        if stop_token is not None:
+            stop_token.cancel()
         return result
 
     @app.post("/tasks/{task_id}/pause")
     def pause(task_id: str, payload: Control):
+        stop_token = None
         def mutate(state, db):
+            nonlocal stop_token
             store.user_event(db, "task_pause", payload.model_dump())
             state["pause_requested"] = True
             if task_id not in engine.queue or engine.queue[task_id].done():
                 state["status"] = "paused"
+            stop_token = engine.tokens.get(task_id)
         result = store.change(task_id, "task.pause_requested", mutate, payload.model_dump(), payload.expected_state_version)
-        if task_id in engine.tokens:
-            engine.tokens[task_id].cancel()
+        if stop_token is not None:
+            stop_token.cancel()
         return result
 
     @app.post("/tasks/{task_id}/cancel")
     def cancel(task_id: str, payload: Control):
+        stop_token = None
         def mutate(state, db):
+            nonlocal stop_token
             store.user_event(db, "task_cancel", payload.model_dump())
             state["cancellation_requested"] = True
             db.execute("UPDATE turns SET status='cancelled' WHERE task_id=? AND status='queued'", (task_id,))
@@ -280,14 +301,17 @@ def create_app(config: Config, *, enable_agent: bool = True):
                                                               "message": "未决副作用须对账后才能确认取消"}])
                 else:
                     state["status"] = "cancelled"
+            stop_token = engine.tokens.get(task_id)
         result = store.change(task_id, "task.cancel_requested", mutate, payload.model_dump(), payload.expected_state_version)
-        if task_id in engine.tokens:
-            engine.tokens[task_id].cancel()
+        if stop_token is not None:
+            stop_token.cancel()
         return result
 
     @app.post("/tasks/{task_id}/resume")
     async def resume(task_id: str, payload: Control):
+        applied = False
         def mutate(state, db):
+            nonlocal applied
             if state["cancellation_requested"]:
                 raise Failure("VERSION_CONFLICT", "已请求取消的任务不能恢复", 409)
             if db.execute("SELECT 1 FROM actions WHERE task_id=? AND status='pending'", (task_id,)).fetchone():
@@ -307,8 +331,9 @@ def create_app(config: Config, *, enable_agent: bool = True):
                     "continuation_turn_id": corrected["id"], "reason": "user_input_after_no_progress"})
             state.update(status="created", pause_requested=False, blockers=[])
             store.user_event(db, "task_resume", payload.model_dump())
+            applied = True
         result = store.change(task_id, "task.resume_requested", mutate, payload.model_dump(), payload.expected_state_version)
-        if enable_agent and (task_id not in engine.queue or engine.queue[task_id].done()):
+        if applied and enable_agent and (task_id not in engine.queue or engine.queue[task_id].done()):
             with store.transaction() as db:
                 turn = db.execute("SELECT * FROM turns WHERE task_id=? AND revision=? AND status IN ('paused','running') AND id NOT IN (SELECT json_extract(payload,'$.run_id') FROM assignments) ORDER BY created_at DESC LIMIT 1",
                                   (task_id, result["spec_revision"])).fetchone()
