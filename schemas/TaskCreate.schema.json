@@ -62,6 +62,15 @@
       "title": "Harness Mode",
       "type": "string"
     },
+    "context_classification": {
+      "default": "private",
+      "enum": [
+        "private",
+        "public"
+      ],
+      "title": "Context Classification",
+      "type": "string"
+    },
     "constraints": {
       "additionalProperties": true,
       "title": "Constraints",

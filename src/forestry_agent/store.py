@@ -46,6 +46,7 @@ class Store:
             CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS settings(id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL, payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS turns(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),revision INTEGER NOT NULL,prompt TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS turn_requests(request_id TEXT PRIMARY KEY,turn_id TEXT NOT NULL UNIQUE REFERENCES turns(id),user_event_id TEXT NOT NULL REFERENCES user_events(id));
             CREATE TABLE IF NOT EXISTS attempts(id TEXT PRIMARY KEY,action_id TEXT NOT NULL REFERENCES actions(id),effect_state TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT);
             CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),action_id TEXT NOT NULL UNIQUE REFERENCES actions(id),revision INTEGER NOT NULL,status TEXT NOT NULL,payload TEXT NOT NULL,updated_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS deliveries(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),revision INTEGER NOT NULL,request_id TEXT NOT NULL UNIQUE,payload TEXT NOT NULL,status TEXT NOT NULL,UNIQUE(task_id,revision));
@@ -55,6 +56,7 @@ class Store:
             CREATE TABLE IF NOT EXISTS contexts(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),turn_id TEXT NOT NULL,payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS assignments(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),parent_run_id TEXT NOT NULL,role_id TEXT NOT NULL,action_id TEXT NOT NULL UNIQUE REFERENCES actions(id),status TEXT NOT NULL,payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS agent_runs(id TEXT PRIMARY KEY,turn_id TEXT NOT NULL,created_at TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS approvals(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),revision INTEGER NOT NULL,status TEXT NOT NULL,payload TEXT NOT NULL,user_event_id TEXT REFERENCES user_events(id));
             """)
             db.execute("INSERT OR IGNORE INTO schema_versions VALUES(1,?)", (now(),))
 
@@ -127,8 +129,11 @@ class Store:
             if replay is not None:
                 return replay
             for resource_id in payload["input_refs"]:
-                if not db.execute("SELECT 1 FROM resources WHERE id=?", (resource_id,)).fetchone():
+                resource = db.execute("SELECT payload FROM resources WHERE id=?", (resource_id,)).fetchone()
+                if not resource:
                     raise Failure("PERMISSION_DENIED", "输入尚未由用户登记", 403)
+                if payload.get("context_classification") == "public" and json.loads(resource["payload"])["classification"] != "public":
+                    raise Failure("PERMISSION_DENIED", "公开任务不能包含私密资源；请选择私密任务", 403)
             event_id = self.user_event(db, "task_create", payload)
             state = {"schema_version": 1, "task_id": uid(), "state_version": 1,
                 "spec_revision": 1, "status": "created", "objective": payload["objective"],
@@ -162,6 +167,15 @@ class Store:
             if payload and "request_id" in payload:
                 return self.receipt(db, payload["request_id"], request_payload, state)
             return state
+
+    @staticmethod
+    def enqueue_turn(db, state, prompt, request_id, user_event_id):
+        """Queue human input atomically with its event and idempotency receipt."""
+        turn_id = uid()
+        db.execute("INSERT INTO turns VALUES(?,?,?,?,?,?)",
+            (turn_id, state["task_id"], state["spec_revision"], prompt, "queued", now()))
+        db.execute("INSERT INTO turn_requests VALUES(?,?,?)", (request_id, turn_id, user_event_id))
+        return turn_id
 
     def events(self, task_id: str, after: int = 0, limit: int = 100):
         with self.transaction() as db:

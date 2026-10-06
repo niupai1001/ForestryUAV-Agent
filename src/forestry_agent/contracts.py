@@ -17,6 +17,7 @@ class TaskCreate(Boundary):
     requested_method_id: str | None = None
     model_profile: str | None = None
     harness_mode: Literal["H0", "H1", "H2"] = "H2"
+    context_classification: Literal["private", "public"] = "private"
     constraints: dict = Field(default_factory=dict)
     output_preferences: dict = Field(default_factory=lambda: {"report_language": "zh"})
 
@@ -78,4 +79,11 @@ class MemorySave(Boundary):
 
 class MemoryForget(Boundary):
     request_id: str = Field(min_length=1, max_length=200)
+
+
+class ApprovalResolution(Boundary):
+    request_id: str = Field(min_length=1, max_length=200)
+    expected_spec_revision: int = Field(ge=1)
+    request_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    verdict: Literal["approve", "reject", "revoke"]
 

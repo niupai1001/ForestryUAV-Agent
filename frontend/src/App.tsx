@@ -5,7 +5,7 @@ import { ArrowDownToLine, ArrowUpRight, Check, ChevronDown, CircleHelp, File, Fo
 
 type Task = {task_id: string; objective: string; status: string; state_version: number;
   spec_revision: number; model_profile: string; input_refs: string[]; artifact_ids: string[];
-  config_snapshot?: {harness_mode?: string};
+  config_snapshot?: {harness_mode?: string;context_classification?:string};
   messages: {id: string; role: string; text: string; limitations?: string[]}[];
   blockers: {code: string; message: string}[]; action_count: number;
   last_usage?: {requests: number; input_tokens: number; output_tokens: number}};
@@ -16,6 +16,9 @@ type Event = {sequence: number; event_id: string; type: string; payload: Record<
 type Candidate = {candidate_sha256:string; state_version:number; candidate:{spec_revision:number; answer:string;
   limitations:string[]; outputs:{artifact_id:string;name:string;sha256:string}[]}};
 type Note = {memory_id:string;text:string;tags:string[]};
+type Approval = {approval_id:string;spec_revision:number;request_sha256:string;status:string;expires_at:string;
+  request:{kind:string;value:string;url:string;destinations:string[];sources:{resource_id:string;version:string}[]}};
+const approvalLabels:Record<string,string> = {pending:'待审批',approved:'已批准，待执行',consumed:'已使用',rejected:'已拒绝',revoked:'已撤销',expired:'已过期'};
 type Assignment = {assignment_id:string;role_id:string;status:string;model_requests:number;actions:number;
   effective_input_refs:string[];effective_artifact_refs:string[];request:{objective:string};
   result?:{summary:string;artifact_ids:string[];limitations:string[];checks:{criterion:string;status:string;observation:string}[]} | null;
@@ -38,6 +41,7 @@ export default function App() {
   const [resources,setResources] = useState<Resource[]>([]), [selected,setSelected] = useState<string[]>([]);
   const [artifacts,setArtifacts] = useState<Artifact[]>([]), [events,setEvents] = useState<Event[]>([]);
   const [assignments,setAssignments] = useState<Assignment[]>([]), [harness,setHarness] = useState('H2');
+  const [approvals,setApprovals] = useState<Approval[]>([]), [publicTask,setPublicTask] = useState(false);
   const [text,setText] = useState(''), [error,setError] = useState(''), [busy,setBusy] = useState(false);
   const [settings,setSettings] = useState<{version:number; default_model:string; models:Record<string,any>}|null>(null);
   const [showSettings,setShowSettings] = useState(false), [showSource,setShowSource] = useState(false);
@@ -59,7 +63,7 @@ export default function App() {
     if(saved) try {setActive(await api<Task>(`/tasks/${saved}`));} catch {localStorage.removeItem('forestry.task');}
   });},[]);
   useEffect(()=>{
-    if(!active) {setArtifacts([]); setEvents([]); setAssignments([]); return;}
+    if(!active) {setArtifacts([]); setEvents([]); setAssignments([]); setApprovals([]); return;}
     localStorage.setItem('forestry.task',active.task_id);
     seen.current = new Set(); setEvents([]);
     const id = active.task_id;
@@ -71,10 +75,12 @@ export default function App() {
       if(event.type !== 'model.text') void guarded(async()=>{
         setActive(await api<Task>(`/tasks/${id}`)); setArtifacts(await api<Artifact[]>(`/tasks/${id}/artifacts`));
         setAssignments(await api<Assignment[]>(`/tasks/${id}/assignments`)); await refresh();
+        setApprovals(await api<Approval[]>(`/tasks/${id}/approvals`));
       });
     };
     void guarded(async()=>{setArtifacts(await api<Artifact[]>(`/tasks/${id}/artifacts`));
-      setAssignments(await api<Assignment[]>(`/tasks/${id}/assignments`));});
+      setAssignments(await api<Assignment[]>(`/tasks/${id}/assignments`));
+      setApprovals(await api<Approval[]>(`/tasks/${id}/approvals`));});
     return ()=>source.close();
   },[active?.task_id]);
   const newTask = () => {setActive(null); setSelected([]); setText(''); localStorage.removeItem('forestry.task'); input.current?.focus();};
@@ -86,7 +92,7 @@ export default function App() {
       if(active) result = await api(`/tasks/${active.task_id}/messages`,{request_id:requestId(),
         expected_spec_revision:active.spec_revision,text});
       else result = await api('/tasks',{request_id:requestId(),objective:text,input_refs:selected,
-        harness_mode:harness,requested_metrics:[],requested_method_id:null, constraints:{},output_preferences:{report_language:'zh'}});
+        harness_mode:harness,context_classification:publicTask?'public':'private',requested_metrics:[],requested_method_id:null, constraints:{},output_preferences:{report_language:'zh'}});
       setActive(result); setText(''); await refresh();
     }); setBusy(false);
   };
@@ -111,6 +117,15 @@ export default function App() {
     }
   };
   const live = active?.status === 'active' || active?.status === 'created';
+  const resolveApproval = async (record:Approval,verdict:'approve'|'reject'|'revoke') => {
+    if(!active||busy)return;
+    setBusy(true); await guarded(async()=>{
+      await api(`/tasks/${active.task_id}/approvals/${record.approval_id}`,{request_id:requestId(),
+        expected_spec_revision:active.spec_revision,request_sha256:record.request_sha256,verdict});
+      setApprovals(await api(`/tasks/${active.task_id}/approvals`));
+      setActive(await api(`/tasks/${active.task_id}`)); await refresh();
+    }); setBusy(false);
+  };
   const accept = async (verdict:'accept'|'request_changes') => {
     if(!active||!candidate)return;
     setBusy(true); await guarded(async()=>{setActive(await api(`/tasks/${active.task_id}/acceptance`,{
@@ -132,7 +147,7 @@ export default function App() {
       <div className="history">{tasks.length===0?<p className="muted empty-small">任务会保存在这台电脑上</p>:tasks.map(task=><button key={task.task_id}
         className={`history-item ${active?.task_id===task.task_id?'current':''}`} onClick={()=>setActive(task)}>
         <span className={`status-dot ${task.status}`}/><span>{task.objective}</span></button>)}</div>
-      <div className="sidebar-bottom"><div className="local-note"><ShieldCheck size={17}/><div>本地执行与存储<span>输入只读 · 数据留在本机</span></div></div>
+      <div className="sidebar-bottom"><div className="local-note"><ShieldCheck size={17}/><div>本地执行与存储<span>输入只读 · 联网请求受控</span></div></div>
         <button className="nav-item" onClick={()=>{setShowSettings(true); void guarded(async()=>setDiagnostics(await api('/models/profiles')));}}><Settings size={18}/>模型与环境设置</button>
         <div className="developer"><div className="avatar">L</div><div>本地开发者<span>独立开发版</span></div><MoreHorizontal size={17}/></div>
       </div>
@@ -153,13 +168,25 @@ export default function App() {
                 ['编写处理脚本','阅读已选数据文件，编写可复现的数据处理 Python 脚本；当前代码执行未启用时请明确标注未运行。',Terminal]
               ].map(([title,prompt,Icon])=>{const Symbol=Icon as typeof File; return <button key={String(title)} onClick={()=>{setText(String(prompt));input.current?.focus();}}><Symbol size={17}/><span>{String(title)}</span><ArrowUpRight size={14}/></button>;})}</div>
               <div className="honesty-note"><CircleHelp size={15}/>当前可使用真实模型与文件工具；搜索、受限代码及林业流程逐阶段验收。</div></>:
-              <><div className="user-message"><span className="message-label">你的目标</span><p>{active.objective}</p><div className="task-meta">修订 {active.spec_revision} · {active.model_profile==='large'?'Qwen3.8 · 27B':'Qwen3.5 · 4B'} · {active.config_snapshot?.harness_mode||'H1'}</div></div>
+              <><div className="user-message"><span className="message-label">你的目标</span><p>{active.objective}</p><div className="task-meta">修订 {active.spec_revision} · {active.model_profile==='large'?'Qwen3.8 · 27B':'Qwen3.5 · 4B'} · {active.config_snapshot?.harness_mode||'H1'} · {active.config_snapshot?.context_classification==='public'?'公开上下文':'私密上下文，外发需审批'}</div></div>
                 {active.messages.map(message=><div key={message.id} className={`message ${message.role}`}><span className="message-label">{message.role==='assistant'?'林遥 Agent':'你的补充'}</span><div className="message-text">{message.text}</div>
                   {message.limitations?.length?<div className="limitations">{message.limitations.map((l,i)=><p key={i}>{l}</p>)}</div>:null}</div>)}
                 {live&&<div className="running"><div className="pulse-ring"/><div><strong>Agent 正在工作</strong><p>{tools.length?`${tools.filter(e=>e.type==='action.started').length} 次工具调用已登记`:'正在连接本地模型…'}</p></div></div>}
                 {live&&liveText&&<pre className="stream-text">{liveText}</pre>}
                 {active.blockers.map((b,i)=><div key={i} className="blocker"><CircleHelp size={16}/><span>{b.message}</span></div>)}
-                {active.status==='waiting_user'&&<button className="primary" onClick={()=>void guarded(async()=>{
+                {approvals.length>0&&<section className="network-approvals" aria-label="网络请求审批"><h3>网络请求审批</h3>
+                  <p>核对将发送的完整载荷、目的地和来源版本。每次批准仅用于这一项请求；网页内容仍需核验。</p>
+                  {approvals.map(record=><details key={record.approval_id} open={record.status==='pending'} className="network-approval">
+                    <summary>{record.request.kind==='web.search'?'搜索请求':'网页读取'} · {approvalLabels[record.status]||record.status}</summary>
+                    <dl><dt>完整载荷</dt><dd>{record.request.value}</dd><dt>实际 GET 地址</dt><dd>{record.request.url}</dd>
+                      <dt>允许目的地</dt><dd>{record.request.destinations.join('\n')}</dd><dt>规范修订 / 到期</dt><dd>{record.spec_revision} / {new Date(record.expires_at).toLocaleString()}</dd>
+                      <dt>请求 SHA256</dt><dd>{record.request_sha256}</dd><dt>来源版本</dt><dd>{record.request.sources.length?JSON.stringify(record.request.sources,null,2):'无本地输入来源'}</dd></dl>
+                    <div className="approval-actions">{record.status==='pending'&&record.spec_revision===active.spec_revision&&<>
+                      <button disabled={busy||Date.parse(record.expires_at)<=Date.now()} onClick={()=>void resolveApproval(record,'approve')}>批准这项请求</button>
+                      <button disabled={busy||Date.parse(record.expires_at)<=Date.now()} onClick={()=>void resolveApproval(record,'reject')}>拒绝</button></>}
+                      {['pending','approved','consumed'].includes(record.status)&&record.spec_revision===active.spec_revision&&<button disabled={busy} onClick={()=>void resolveApproval(record,'revoke')}>撤销授权</button>}</div>
+                  </details>)}</section>}
+                {active.status==='waiting_user'&&!approvals.some(a=>a.spec_revision===active.spec_revision&&['pending','approved'].includes(a.status))&&<button className="primary" onClick={()=>void guarded(async()=>{
                   setCandidate(await api(`/tasks/${active.task_id}/acceptance-candidate`));setAcceptComment('');
                 })}><Check size={15}/>检查并验收结果</button>}
                 {active.status==='completed'&&<div className="honesty-note"><ShieldCheck size={15}/>结果已经你确认，交付清单已封存，可在产物中下载。</div>}
@@ -167,11 +194,15 @@ export default function App() {
               </>}
           </div>
           <div className="composer">
+            {!active&&<label className="context-choice"><input type="checkbox" checked={publicTask} onChange={e=>{
+              setPublicTask(e.target.checked); if(e.target.checked)setSelected(old=>old.filter(id=>resources.find(r=>r.resource_id===id)?.classification==='public'));
+            }}/>这项任务的目标、补充消息和输入均为公开信息
+              <span>{publicTask?'允许发送公开搜索词和网页地址；本任务不能读取私密来源、长期记忆或本机环境。':'默认按私密上下文处理。搜索词或网页地址发送前，逐项核对并批准。'}</span></label>}
             {!active&&<label className="harness-choice">工作方式<select aria-label="工作方式" value={harness} onChange={e=>setHarness(e.target.value)}>
               <option value="H2">H2 · 按需独立复核</option><option value="H1">H1 · 单个助手持续处理</option><option value="H0">H0 · 基础工具对照</option></select>
               <span>{harness==='H2'?'助手可将独立工作交给专门角色，返回结果后统一整理。':harness==='H1'?'同一个助手完成工作，保留上下文整理与结果读回。':'用于基础对照，关闭角色委派、知识检索与自动上下文整理。'}</span></label>}
             {resources.length>0&&<div className="source-chips">{resources.map(r=><button key={r.resource_id}
-              className={(active?active.input_refs:selected).includes(r.resource_id)?'checked':''} disabled={!!active}
+              className={(active?active.input_refs:selected).includes(r.resource_id)?'checked':''} disabled={!!active||(publicTask&&r.classification!=='public')}
               onClick={()=>setSelected(old=>old.includes(r.resource_id)?old.filter(id=>id!==r.resource_id):[...old,r.resource_id])}>
               <FolderOpen size={13}/>{r.name}{(active?active.input_refs:selected).includes(r.resource_id)&&<Check size={12}/>}</button>)}</div>}
             <textarea ref={input} value={text} onChange={e=>setText(e.target.value)} placeholder={active?'补充信息或提出后续问题…':'描述你的目标，例如：阅读这份数据，整理重点并生成报告…'}

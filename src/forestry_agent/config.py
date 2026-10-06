@@ -27,6 +27,7 @@ class Config(BaseModel):
     models: dict[str, ModelProfile]
     default_model: str = "small"
     search_base_url: str | None = None
+    search_provider: Literal["bing_rss", "searxng"] = "bing_rss"
     roles_path: Path | None = None
     max_model_requests_per_turn: int = Field(default=30, ge=1, le=1000)
     max_output_retries: int = Field(default=3, ge=0, le=5)

@@ -1,0 +1,38 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "expected_spec_revision": {
+      "minimum": 1,
+      "title": "Expected Spec Revision",
+      "type": "integer"
+    },
+    "request_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Request Sha256",
+      "type": "string"
+    },
+    "verdict": {
+      "enum": [
+        "approve",
+        "reject",
+        "revoke"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "expected_spec_revision",
+    "request_sha256",
+    "verdict"
+  ],
+  "title": "ApprovalResolution",
+  "type": "object"
+}

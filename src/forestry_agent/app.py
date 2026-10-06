@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -16,6 +17,7 @@ from .config import Config
 from .contracts import (
     Acceptance,
     Amendment,
+    ApprovalResolution,
     Control,
     Failure,
     MemoryForget,
@@ -180,6 +182,8 @@ def create_app(config: Config, *, enable_agent: bool = True):
         identity = await model_identity(config, config.models[profile]) if enable_agent else {"backend": "test_fixture"}
         state = store.create_task(payload.model_dump(), {"model_profile": profile,
             "harness_mode": payload.harness_mode, "role_catalog": engine.roles.catalog,
+            "context_classification": payload.context_classification,
+            "search": {"provider": config.search_provider, "base_url": config.search_base_url or "https://www.bing.com"} if config.search_provider == "bing_rss" or config.search_base_url else {},
             "settings_version": current["version"], "model": config.models[profile].model_dump(),
             "model_identity": identity, "model_base_url": config.model_base_url,
             "generation": {"temperature": 0.2, "think": False, "max_output_retries": config.max_output_retries,
@@ -208,21 +212,20 @@ def create_app(config: Config, *, enable_agent: bool = True):
 
     @app.post("/tasks/{task_id}/messages")
     async def message(task_id: str, payload: Message):
-        if task_id in engine.queue and not engine.queue[task_id].done():
-            raise Failure("VERSION_CONFLICT", "当前运行尚未结束；暂停后再调整或等待回答", 409)
         def mutate(state, db):
             if state["spec_revision"] != payload.expected_spec_revision:
                 raise Failure("VERSION_CONFLICT", "规范修订已变化", 409)
             event_id = store.user_event(db, "user_message", payload.model_dump())
             state["messages"].append({"id": uid(), "role": "user", "text": payload.text,
                                       "user_event_id": event_id, "at": now()})
-            state.update(status="created", pause_requested=False, blockers=[])
+            if state["cancellation_requested"]:
+                raise Failure("VERSION_CONFLICT", "已请求取消的任务不能接收新执行回合", 409)
+            store.enqueue_turn(db, state, payload.text, payload.request_id, event_id)
+            if not state["pause_requested"] and state["status"] != "paused":
+                state.update(status="active" if task_id in engine.queue and not engine.queue[task_id].done() else "created", blockers=[])
         result = store.change(task_id, "user.message", mutate, payload.model_dump())
-        with store.transaction() as db:
-            existing = db.execute("SELECT id FROM turns WHERE task_id=? AND prompt=? AND status!='queued'",
-                                  (task_id, "[message:" + payload.request_id + "] " + payload.text)).fetchone()
-        if enable_agent and not existing and (task_id not in engine.queue or engine.queue[task_id].done()):
-            engine.submit(task_id, "[message:" + payload.request_id + "] " + payload.text)
+        if enable_agent:
+            engine.start_queued(task_id)
         return result
 
     @app.post("/tasks/{task_id}/amendments")
@@ -233,10 +236,14 @@ def create_app(config: Config, *, enable_agent: bool = True):
             if payload.requested_method_id is not None:
                 raise Failure("PRECONDITION_MISSING", "指定领域方法尚未实现", 422)
             for resource_id in payload.input_refs:
-                if not db.execute("SELECT 1 FROM resources WHERE id=?", (resource_id,)).fetchone():
+                resource = db.execute("SELECT payload FROM resources WHERE id=?", (resource_id,)).fetchone()
+                if not resource:
                     raise Failure("PERMISSION_DENIED", "新输入资源尚未授权", 403)
+                if state["config_snapshot"].get("context_classification") == "public" and json.loads(resource["payload"])["classification"] != "public":
+                    raise Failure("PERMISSION_DENIED", "公开任务不能新增私密输入", 403)
             store.user_event(db, "task_amendment", payload.model_dump())
             state["spec_revision"] += 1
+            db.execute("UPDATE turns SET status='cancelled' WHERE task_id=? AND status='queued'", (task_id,))
             state.update(objective=payload.objective, input_refs=payload.input_refs,
                          requested_method_id=payload.requested_method_id, status="paused", pause_requested=True,
                          acceptance=None, blockers=[{"code": "AMENDED", "message": "规范已修改，请对账后恢复"}])
@@ -263,6 +270,7 @@ def create_app(config: Config, *, enable_agent: bool = True):
         def mutate(state, db):
             store.user_event(db, "task_cancel", payload.model_dump())
             state["cancellation_requested"] = True
+            db.execute("UPDATE turns SET status='cancelled' WHERE task_id=? AND status='queued'", (task_id,))
             engine.roles.cancel_waiting(task_id, db)
             live = task_id in engine.queue and not engine.queue[task_id].done()
             if not live:
@@ -290,11 +298,11 @@ def create_app(config: Config, *, enable_agent: bool = True):
         result = store.change(task_id, "task.resume_requested", mutate, payload.model_dump(), payload.expected_state_version)
         if enable_agent and (task_id not in engine.queue or engine.queue[task_id].done()):
             with store.transaction() as db:
-                turn = db.execute("SELECT * FROM turns WHERE task_id=? AND revision=? AND id NOT IN (SELECT json_extract(payload,'$.run_id') FROM assignments) ORDER BY created_at DESC LIMIT 1",
+                turn = db.execute("SELECT * FROM turns WHERE task_id=? AND revision=? AND status IN ('paused','running') AND id NOT IN (SELECT json_extract(payload,'$.run_id') FROM assignments) ORDER BY created_at DESC LIMIT 1",
                                   (task_id, result["spec_revision"])).fetchone()
-            if turn and turn["status"] not in {"completed", "cancelled"}:
+            if turn:
                 engine.submit(task_id, turn["prompt"], turn["id"])
-            else:
+            elif not engine.start_queued(task_id):
                 engine.submit(task_id, result["objective"])
         return result
 
@@ -329,6 +337,17 @@ def create_app(config: Config, *, enable_agent: bool = True):
     @app.get("/roles")
     def role_catalog():
         return engine.roles.catalog
+
+    @app.get("/tasks/{task_id}/approvals")
+    def approvals(task_id: str):
+        return engine.network.list(task_id)
+
+    @app.post("/tasks/{task_id}/approvals/{approval_id}")
+    async def resolve_approval(task_id: str, approval_id: str, payload: ApprovalResolution):
+        result = engine.network.resolve(task_id, approval_id, payload.model_dump())
+        if enable_agent:
+            engine.start_queued(task_id)
+        return result
 
     @app.get("/roles/schemas")
     def role_schemas():

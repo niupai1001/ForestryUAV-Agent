@@ -16,6 +16,7 @@ models:
     context_limit: 32768
     output_limit: 4096
 default_model: small
+search_provider: bing_rss
 search_base_url: null
 max_model_requests_per_turn: 30
 max_actions_per_task: 1000

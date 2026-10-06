@@ -32,6 +32,10 @@ class Delivery:
             pending = db.execute("SELECT 1 FROM actions WHERE task_id=? AND status='pending'", (task_id,)).fetchone()
             active = db.execute("SELECT 1 FROM jobs WHERE task_id=? AND status NOT IN ('succeeded','failed','cancelled','timed_out')", (task_id,)).fetchone()
             assignments = db.execute("SELECT 1 FROM assignments WHERE task_id=? AND status NOT IN ('succeeded','partial','failed','cancelled')", (task_id,)).fetchone()
+            if db.execute("SELECT 1 FROM turns WHERE task_id=? AND revision=? AND status IN ('queued','running')", (task_id, state["spec_revision"])).fetchone():
+                raise Failure("RECONCILIATION_REQUIRED", "仍有未处理的用户消息或执行回合，不能验收", 409)
+            if db.execute("SELECT 1 FROM approvals WHERE task_id=? AND revision=? AND status IN ('pending','approved')", (task_id, state["spec_revision"])).fetchone():
+                raise Failure("APPROVAL_REQUIRED", "网络请求仍待审批或执行，不能封存为已完成", 409)
         if pending or active or assignments:
             raise Failure("RECONCILIATION_REQUIRED", "副作用或作业未确认结束，不能验收", 409)
         latest = next((m for m in reversed(state["messages"]) if m["role"] == "assistant"), None)

@@ -4,6 +4,7 @@ import hashlib
 import mimetypes
 import os
 import shutil
+from contextlib import nullcontext
 from pathlib import Path
 
 from .contracts import Failure
@@ -64,13 +65,13 @@ class Resources:
         with self.store.transaction() as db:
             return [json.loads(r["payload"]) for r in db.execute("SELECT payload FROM resources")]
 
-    def resolve(self, resource_id: str, relative: str = "", task_id: str | None = None) -> Path:
+    def resolve(self, resource_id: str, relative: str = "", task_id: str | None = None, *, db=None) -> Path:
         import json
-        with self.store.transaction() as db:
-            row = db.execute("SELECT payload FROM resources WHERE id=?", (resource_id,)).fetchone()
+        with self.store.transaction() if db is None else nullcontext(db) as connection:
+            row = connection.execute("SELECT payload FROM resources WHERE id=?", (resource_id,)).fetchone()
             if not row:
                 raise Failure("PERMISSION_DENIED", "资源未授权或已撤销", 403)
-            if task_id and resource_id not in self.store.read_task(db, task_id)["input_refs"]:
+            if task_id and resource_id not in self.store.read_task(connection, task_id)["input_refs"]:
                 raise Failure("PERMISSION_DENIED", "资源不属于当前任务的输入范围", 403)
             resource = json.loads(row["payload"])
         root = Path(resource["locator"])

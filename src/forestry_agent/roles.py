@@ -21,13 +21,14 @@ CAPABILITY_NAMES = {"list_inputs": "fs.inputs", "list_files": "fs.list", "read_f
     "write_file": "fs.write_workspace", "inspect_artifact": "artifact.inspect", "read_artifact": "artifact.read",
     "inspect_action": "action.inspect", "read_document": "document.read", "index_document": "knowledge.index",
     "search_knowledge": "knowledge.search", "read_user_memory": "memory.read", "inspect_environment": "environment.inspect",
-    "code_execute": "code.execute", "wait_job": "job.observe", "delegate_task": "role.delegate"}
+    "code_execute": "code.execute", "wait_job": "job.observe", "delegate_task": "role.delegate",
+    "search_web": "web.search", "read_web_page": "web.read"}
 
 
 class PermissionCeiling(Boundary):
     workspace_write: bool
     source_write: Literal[False] = False
-    network: Literal["none"] = "none"
+    network: Literal["none", "public_scoped"] = "none"
     parent_task_mutation: Literal[False] = False
 
 
@@ -193,6 +194,8 @@ class Roles:
             role = self.configurations(state).get("coordinator")
             if role and (kind not in role.allowed_capabilities or (kind in {"fs.write_workspace", "code.execute"} and not role.permission_ceiling.workspace_write)):
                 raise Failure("PERMISSION_DENIED", "能力超出协调者配置上限", 403)
+            if role and kind in {"web.search", "web.read"} and role.permission_ceiling.network == "none":
+                raise Failure("PERMISSION_DENIED", "协调者配置禁止网络请求", 403)
             if role and db.execute("SELECT COUNT(*) FROM actions WHERE turn_id=?", (deps.turn_id,)).fetchone()[0] >= role.max_actions:
                 raise Failure("RESOURCE_EXHAUSTED", "协调者回合动作预算已用尽", 422)
             return

@@ -1,0 +1,46 @@
+import { test, expect } from '@playwright/test';
+
+test('public context choice and a real pending request can be inspected and rejected', async ({page}) => {
+  const taskId = process.env.NETWORK_PENDING_TASK;
+  test.skip(!taskId, 'Set NETWORK_PENDING_TASK to a real-model pending approval task.');
+  const errors:string[] = [];
+  page.on('pageerror', error=>errors.push(error.message));
+  await page.goto('/');
+  await page.getByRole('button',{name:'新建任务'}).click();
+  const choice = page.getByRole('checkbox',{name:'这项任务的目标、补充消息和输入均为公开信息'});
+  await expect(choice).not.toBeChecked();
+  await choice.check();
+  await expect(page.getByText('允许发送公开搜索词和网页地址；本任务不能读取私密来源、长期记忆或本机环境。')).toBeVisible();
+  await choice.uncheck();
+  await page.evaluate(id=>localStorage.setItem('forestry.task', id!), taskId);
+  await page.reload();
+  const approvals = page.getByRole('region',{name:'网络请求审批'});
+  await expect(approvals).toContainText('https://www.python.org/');
+  await expect(approvals).toContainText('请求 SHA256');
+  await expect(approvals).toContainText('规范修订 / 到期');
+  await expect(approvals.getByRole('button',{name:'批准这项请求'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'检查并验收结果'})).toHaveCount(0);
+  await approvals.getByRole('button',{name:'批准这项请求'}).scrollIntoViewIfNeeded();
+  await page.screenshot({path:'../workspace/evidence/workbench-network-desktop.png',fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  await approvals.getByRole('button',{name:'批准这项请求'}).scrollIntoViewIfNeeded();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await page.screenshot({path:'../workspace/evidence/workbench-network-mobile.png',fullPage:true});
+  await approvals.getByRole('button',{name:'拒绝',exact:true}).click();
+  await expect(approvals.locator('summary')).toContainText('已拒绝');
+  const state = await (await page.request.get(`/tasks/${taskId}`)).json();
+  const records = await (await page.request.get(`/tasks/${taskId}/approvals`)).json();
+  expect(records).toHaveLength(1);
+  expect(records[0].status).toBe('rejected');
+  expect(records[0].authorizing_user_event_id).toBeTruthy();
+  expect(records[0].continuation_turn_id).toBeTruthy();
+  expect(state.spec_revision).toBe(1);
+  await expect.poll(async()=> (await (await page.request.get(`/tasks/${taskId}`)).json()).status,
+    {timeout:45000}).toBe('waiting_user');
+  const finalRecords = await (await page.request.get(`/tasks/${taskId}/approvals`)).json();
+  expect(finalRecords).toHaveLength(1);
+  expect(finalRecords[0].status).toBe('rejected');
+  const outputs = await (await page.request.get(`/tasks/${taskId}/artifacts`)).json();
+  expect(outputs.some((artifact:{name:string})=>artifact.name==='source.bin')).toBe(false);
+  expect(errors).toEqual([]);
+});

@@ -14,8 +14,11 @@
           "type": "boolean"
         },
         "network": {
-          "const": "none",
           "default": "none",
+          "enum": [
+            "none",
+            "public_scoped"
+          ],
           "title": "Network",
           "type": "string"
         },

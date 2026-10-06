@@ -10,6 +10,8 @@ import httpx
 import psutil
 
 from .config import Config
+from .contracts import Failure
+from .network import PublicHTTP, decode_text, search_request, search_results
 from .store import now
 
 
@@ -46,18 +48,16 @@ async def doctor(config: Config, *, probe_search: bool = True) -> dict:
                     "capabilities": match.get("capabilities", []) if match else []}
         except (httpx.HTTPError, KeyError, ValueError) as error:
             report["capabilities"]["local_models"] = {"status": "failed", "message": str(error)}
-        if config.search_base_url and probe_search:
-            try:
-                response = await client.get(config.search_base_url.rstrip("/") + "/search",
-                                            params={"q": "OpenDroneMap", "format": "json"})
-                response.raise_for_status()
-                if not isinstance(response.json().get("results"), list):
-                    raise TypeError("Search response does not include a results array")
-                report["capabilities"]["search"] = {"status": "available"}
-            except (httpx.HTTPError, ValueError, TypeError) as error:
-                report["capabilities"]["search"] = {"status": "failed", "message": str(error)}
-        else:
-            report["capabilities"]["search"] = {"status": "not_probed" if config.search_base_url else "not_configured"}
+    base = config.search_base_url or ("https://www.bing.com" if config.search_provider == "bing_rss" else None)
+    report["capabilities"]["search"] = {"status": "not_probed" if base else "not_configured", "provider": config.search_provider}
+    if base and probe_search:
+        try:
+            url, origins = search_request(config.search_provider, base, "OpenDroneMap")
+            response = await asyncio.to_thread(PublicHTTP(timeout_seconds=10).get, url, allowed_origins=origins)
+            results = search_results(config.search_provider, decode_text(response["body"], response["headers"].get("content-type", "")))
+            report["capabilities"]["search"].update(status="available" if results else "empty_not_verified", result_count=len(results))
+        except (Failure, OSError, ValueError) as error:
+            report["capabilities"]["search"].update(status="failed", message=str(error))
     try:
         command = await asyncio.to_thread(subprocess.run,
             ["docker", "--config", str(config.workspace_root / ".forestry" / "docker"),

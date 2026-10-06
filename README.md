@@ -43,6 +43,7 @@ uv run --locked python scripts/smoke_models.py --models small large
 uv run --locked python scripts/smoke_documents.py --models small large
 uv run --locked python scripts/smoke_context.py --model large
 uv run --locked python scripts/smoke_roles.py --models small large
+uv run --locked python scripts/smoke_network.py --base-url http://127.0.0.1:8765 --models small large
 uv run --locked forestry-agent schema
 ```
 
@@ -63,6 +64,9 @@ uv run --locked forestry-agent schema
 - 当前规范、控制状态及当前回合原始请求逐次重新注入；按当前任务/修订找回已确认动作，按窗口读取封存文本产物。
 - 五个长期角色配置、原生按需委派；子角色独立历史、权限交集、输出目录、结构化结果和累计预算，结果不自动验收父任务。
 - 工作台选择 H0/H1/H2 并查看实际委派范围、状态、检查和产物；CLI 支持相同配方。
+- 网络查询/网页地址的精确范围审批、单次消费和撤销；发送前检查规范、来源与控制状态，审批前不解析 DNS。
+- 固定公开 DNS 地址、逐跳检查重定向、总时限和大小限制；网页原始字节快照与 SHA-256 引用。
+- 活跃运行中的补充消息和审批决策持久排队、请求 ID 去重；暂停保持暂停，重启须显式恢复。
 
 模型输出不会自动被当成已验收成功。文件层检查完成后显示“待确认”，用户检查后可以要求修改，或确认满足目标并封存交付。用户验收不代表科学精度验证。服务重启先暂停并对账，缺少匹配检查点的已执行动作不会盲目重跑。受限代码真实执行、依赖准备、搜索、角色异常/冲突处理的完整 UI、各模型的长任务质量、完整报告、领域处理与正式评估尚未全部验证，不能据此宣称阶段 1 或完整 V1 已完成。
 
@@ -71,5 +75,9 @@ uv run --locked forestry-agent schema
 上下文预算当前使用 UTF-8 字节保守估算，并预留输出和工具协议开销；超限明确停止，不静默改写用户目标。模型响应缺少用量时标记 unavailable，不能当作零用量校准。每个新任务冻结单次模型请求的总时限（默认 300 秒），流式响应也不能无限延长等待。完整输入快照仅保存在私有 `.forestry/model-inputs`，界面事件只返回引用与计数。软件烟测夹具不构成现场观测或科学精度证明。
 
 文档读取当前支持最大 64 MiB：PDF 按文本页读取，未启用 OCR；DOCX 提取逻辑文本，不伪造版面页码。知识索引保存在本地，检索时检查任务授权与来源 SHA-256；内容变化后须重建索引。长期记忆停用后不再供模型检索，已有任务和授权审计历史保留。
+
+新任务默认是私密上下文：联网工具先提出完整查询/URL、允许目的地、来源版本、请求 SHA-256 和 30 分钟有效期，用户在工作台逐项批准、拒绝或撤销。批准只消费一次，任何修改须重新申请。用户可在创建时明确声明任务目标、补充消息和输入均为公开信息；该任务不能读取私密来源、长期记忆或本机环境。普通消息或模型输出不能修改此冻结分类。网页最多 2 MiB，仅提取 HTML、文本、Markdown、JSON，保存原始快照；不执行页面脚本或抓取子资源。各跳只允许 HTTP(S) 80/443 的公开地址，拒绝私密/混合 DNS、超范围或 HTTPS 降级重定向。子角色目前禁用网络。
+
+搜索连接器支持 `search_provider: bing_rss`（默认）和配置 `search_base_url` 的 `searxng`；SearXNG 的 JSON 查询格式依据[官方搜索 API](https://docs.searxng.org/dev/search_api.html)，服务器须启用 JSON 输出。当前公开地址规则也用于搜索，私有/回环部署及自定义端口的本地 SearXNG 尚未支持。真实网页读取在两个模型上通过，但当前环境 Bing 搜索超时，诊断如实返回 failed，不能把连接器代码或解析夹具当成真实搜索成功。`smoke_network.py` 的脚本审批仅包含公开 Python 官方网页地址，用于验证授权机制，不代表真实用户已批准其他载荷，也不替代完整搜索流程验收。
 
 不要将真实私密输入、凭证、模型检查点、工作区和大数据提交到 Git。`workspace/.forestry/local.key` 仅供本地 CLI/API 使用，浏览器凭证在 HttpOnly Cookie 中。应用只绑定本机，不支持远程共享部署。
