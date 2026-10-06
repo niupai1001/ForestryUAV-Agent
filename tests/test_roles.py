@@ -35,11 +35,15 @@ async def test_native_two_delegations_are_isolated_scoped_and_do_not_finish_pare
     grant = client.post("/resources/register", json={"request_id": "scope", "path": str(source)}).json()
     state, _ = task(client, objective="PARENT_PRIVATE_MARKER：独立数据准备与质量复核", input_refs=[grant["resource_id"]])
     engine, returns_seen, scopes_seen = app.state.engine, [], []
+    with engine.store.transaction() as db:
+        engine.store.event(db, state["task_id"], "run.reconciled", {"spec_revision": 1,
+            "turn_id": "root-role-test", "private": "PARENT_RECOVERY_MARKER"})
     def model(messages, info):
         child = "委派的权威范围" in (info.instructions or "")
         returns = [p for m in messages if isinstance(m, ModelRequest) for p in m.parts if isinstance(p, ToolReturnPart)]
         if child:
             assert "PARENT_PRIVATE_MARKER" not in (info.instructions or "") + str(messages)
+            assert "PARENT_RECOVERY_MARKER" not in (info.instructions or "") + str(messages)
             names = {t.name for t in info.function_tools}
             assert "delegate_task" not in names and "code_execute" not in names and "read_user_memory" not in names
             role = "quality" if '"role_id":"quality"' in info.instructions else "data"
@@ -54,6 +58,7 @@ async def test_native_two_delegations_are_isolated_scoped_and_do_not_finish_pare
                 "summary": f"{role}观察42", "artifact_ids": [artifact], "evidence_refs": [grant["resource_id"]],
                 "checks": [{"criterion": "实际读取", "status": "passed", "observation": "42", "evidence_refs": [grant["resource_id"]]}],
                 "limitations": ["软件夹具"]}, f"final-{role}")])
+        assert "PARENT_RECOVERY_MARKER" in (info.instructions or "")
         delegated = [p for p in returns if p.tool_name == "delegate_task"]
         if len(delegated) < 2:
             role = "data" if not delegated else "quality"

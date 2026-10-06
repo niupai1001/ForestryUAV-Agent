@@ -49,6 +49,7 @@ uv run --locked python scripts/smoke_models.py --models small large
 uv run --locked python scripts/smoke_documents.py --models small large
 uv run --locked python scripts/smoke_context.py --model large
 uv run --locked python scripts/smoke_roles.py --models small large
+uv run --locked python scripts/smoke_recovery.py --config config/app.wsl.example.yaml --models small large
 uv run --locked python scripts/smoke_network.py --base-url http://127.0.0.1:8765 --models small large
 uv run --locked python scripts/smoke_search.py --base-url http://127.0.0.1:8765 --models small large
 uv run --locked python scripts/smoke_progress.py --base-url http://127.0.0.1:8765 --models small large
@@ -64,13 +65,14 @@ uv run --locked forestry-agent schema
 - 原生模型工具循环、模型检查点、跨重启累计动作和模型请求预算。
 - 持久工具观察与无进展保护；重复结果、循环重读、失败和空末尾窗口触发真实暂停，恢复不清零。
 - 文件窗口读取、任务工作区写入、不可变产物、SHA-256 检查、隔离 HTML 预览。
-- 无网络容器作业句柄、身份对账、实际停止确认、重新打开存储后观察、流式封存输出；独立 WSL 真实合成计算/取消/超时通过，实际服务进程中断恢复仍待验证。终态 wait_job 带有界真实日志，可据 traceback 修复代码。
+- 无网络容器作业句柄、身份对账、实际停止确认、流式封存输出；独立 WSL 真实合成计算/取消/超时通过，两模型运行中作业的真实服务进程恢复试次通过14项检查。完整恢复边界与 UI 仍待验证；终态 wait_job 带有界真实日志，可据 traceback 修复代码。
 - UI 历史、模型切换、来源选择、执行记录、产物预览/下载、暂停/取消与恢复入口。
 - 候选结果指纹、显式验收/要求修改、最终清单封存、发布后终态及封存中断恢复。
 - PDF/DOCX/文本的有界读取与来源引用；中文本地知识索引、任务权限和源版本/字节核对。
 - 工作台显式保存/停用长期记忆；模型可读，不能写入或制造授权。
 - 原生工具结果外置/按句柄或 UTF-8 字节窗口读回、分层清理与滑窗；每次实际输入保留私有快照、SHA-256、源/动作/产物引用和用量核对。
 - 当前规范、控制状态及当前回合原始请求逐次重新注入；按当前任务/修订找回已确认动作，按窗口读取封存文本产物。
+- 应用恢复记录仅注入对应任务/修订/逻辑回合，H0/H1/H2 共享，子角色不接收父记录；该记录本身不证明进程中断或计算正确。
 - 五个长期角色配置、原生按需委派；子角色独立历史、权限交集、输出目录、结构化结果和累计预算，结果不自动验收父任务。
 - 工作台选择 H0/H1/H2 并查看实际委派范围、状态、检查和产物；CLI 支持相同配方。
 - 网络查询/网页地址的精确范围审批、单次消费和撤销；发送前检查规范、来源与控制状态，审批前不解析 DNS。

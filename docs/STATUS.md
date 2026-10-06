@@ -8,8 +8,8 @@
 |---|---|---|---|---|
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
-| P2 | in_progress | 动作/attempt、请求去重、修订隔离、检查点；持久断网容器、独立 WSL 传输、终态真实日志 | 真实受限计算/重新打开存储/取消/超时通过；大模型代码调试 UI 通过；完整回归151项 | 范围依赖、完整资源准入、真实服务进程中断恢复、小模型完整调试/报告质量 |
-| P3 | in_progress | 候选指纹/验收/清单；文档/知识/记忆；原生上下文/角色；H0/H1/H2；已有网络边界、持久输入/引用、无进展保护、工具范围与 UI 修订 | 完整回归151项；两模型文件范围恢复与修订/重传 UI 通过；历史搜索单项证据保留 | 角色异常/冲突交互、两模型完整本地通用及长任务质量、完整报告/通用评估；联网搜索用户暂缓 |
+| P2 | in_progress | 动作/attempt、请求去重、修订隔离、检查点；断网容器、独立 WSL、终态日志、同回合恢复事实 | 真实计算/取消/超时、两模型运行中作业真实进程恢复通过；大模型调试 UI 通过；完整回归154项 | 范围依赖、完整资源准入、全部恢复窗口及 UI、小模型完整调试/报告质量 |
+| P3 | in_progress | 候选指纹/验收/清单；文档/知识/记忆；原生上下文/角色；H0/H1/H2；已有网络边界、持久输入/引用、无进展保护、工具范围与 UI 修订 | 完整回归154项；两模型文件范围恢复与修订/重传 UI 通过；历史搜索单项证据保留 | 角色异常/冲突交互、两模型完整本地通用及长任务质量、完整报告/通用评估；联网搜索用户暂缓 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -144,6 +144,24 @@ Docker适配器复用现有Jobs：显式Unix套接字、不新增TCP服务，参
 
 English: The independent signed WSL runtime and immutable Python image are available. Real restricted compute, cancellation and timeout pass; store/object reopening is explicitly not process restart. The large-model debugging UI trial passes, while the small-model trial fails for omitted report readback despite real repair and correct computation. All failed setup/trials are preserved. 151 regressions pass. Dependencies, actual service-process recovery and complete local general acceptance remain pending; Agent network-search work is user-deferred.
 
+## Real process recovery / 真实进程恢复
+
+新增 `scripts/smoke_recovery.py`，为每个模型使用独立工作目录、数据库和 localhost 服务。核对新进程的命令、配置绝对路径、启动时间及自身进程树后，只有真实容器输出 RESTART_READY 才中断自己拥有的服务；确认原进程退出、同一容器仍运行，再启动新进程、观察 SERVICE_RESTARTED 暂停并显式恢复。原有8765/8766/8767服务没有停止或切换。生成代码仍在原受限容器中，测试驱动的真实终止不等于 mock。
+
+初次 small `7b593322-bd82-4d4a-9658-7860a69afbfe` 已通过13/14检查，报告未实际读回而失败；large `8380ff83-7ed1-4c99-b627-76b6c7828e21` 实际恢复并结束，但验证脚本5秒HTTP读预算在收集日志时超时，整次记录仍失败，未回写为通过。日志端点包括inspect及logs两个各自有界的Docker调用，脚本现给出70秒HTTP读预算并记录失败阶段；超时不启动替代服务。读回检查改为实际确认的artifact.read回执，失败动作不能满足读回。
+
+应用曾经历恢复但模型只看到已清除的阻塞，因此补充既有 `run.reconciled` 事件的任务修订/逻辑回合/原状态/阻塞原因，恢复后重新注入同一回合的权威事实。H0/H1/H2共享控制记录，子角色没有父记录，其他任务/修订/回合及没有回合字段的旧事件均排除。该事件不单独证明进程崩溃、容器存活或结果正确，也不授予权限。无需迁移数据库或第二套历史。
+
+复验 `scripts/smoke_recovery.py --models small large` 返回0，两模型各14检查通过：small `07fa0365-22ca-4d46-9887-e0f216494ba2`、large `cb1a43aa-9f1c-4b25-b1f3-c3a2e79d8fb1`。均7累计模型请求/5注册动作，保留revision1；新服务进程身份、容器中断后继续运行/保持同一ID、一次代码提交/作业/完成标记、待确认、3/37.5/12.5精确、源哈希、报告存在和结果/报告真实读回、累计预算均通过。small服务PID456676→463408；large完整身份见证据。证据 `recovery-real-small-a10ef305-cd4b-4851-9494-19590811ac0c.json` 与 `recovery-real-large-a30d1b49-c526-4288-b9af-e623efb985f8.json`。
+
+独立只读后审计，两模型各6检查通过：实际后续模型输入含同一恢复event_id，输入快照SHA一致、同一逻辑回合/两个不同原生run_id、报告SHA正确、脚本拥有的两次服务均已退出。审计 `recovery-input-audit-<model>-<trial_id>.json` 保存完整模型报告，未修改原始试次。报告语义仍有限：small一处称“未观察到重启中断”又称恢复正常；large承认应用SERVICE_RESTARTED记录，但将测试驱动的真实终止描述成框架“模拟”。14项通过不代表报告全部陈述正确，此质量问题仍保留。来源为3行合成CSV，不证明科学精度。
+
+完整回归 `pytest -q --basetemp workspace/test-temp-20261006-112`：154 passed（30.59秒），Ruff/diff通过。新增三个原生H0/H1/H2恢复记录测试，覆盖恢复清除blocker后的重新注入、其他任务/修订/回合排除；角色隔离原生试次另检查父恢复记录不进入子角色。初次夹具错误假定enable_agent=false也创建turn，三项失败；改为显式建立运行中回合后通过，未作为真实恢复证据。
+
+加入父恢复记录隔离断言后的最终完整回归 `pytest -q --basetemp workspace/test-temp-20261006-113`：154 passed（36.55秒），Ruff/diff及恢复脚本语法检查通过。脚本另保证首次运行创建证据目录、health/session独立2秒读预算、用PID与创建时间共同识别新进程、清理未确认时保存失败证据。产品前端未改动，无需重建；脚本这些生命周期收尾不改变上述真实试次输入和计算路径，实际试次记录保持原样。
+
+English: Both models pass 14 checks following real interruption of an owned service while an already confirmed container job is running. A separate six-check audit verifies actual prepared inputs, same logical turn/fresh native runs, hashes and terminated owned processes. Original failures remain. Scoped application recovery facts are reinjected without leaking parent facts to roles or other turns. Model reports retain ambiguous interruption statements; this is limited recovery evidence, not complete report, AC-07, UI or general-stage acceptance. 154 regressions pass; search remains user-deferred.
+
 ## Next / 下一步
 
-推进P2范围依赖准备、真实服务进程中断恢复和小模型报告检查，继续完整本地UI/通用评估，闭合当前本地阶段验收。Agent 联网搜索按用户指示暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件仍由用户在 pilot 后决定，不能填入假定设备或测量。
+推进P2范围依赖准备、剩余真实恢复窗口/UI及报告质量，继续完整本地UI/通用评估，闭合当前本地阶段验收。Agent 联网搜索按用户指示暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件仍由用户在 pilot 后决定，不能填入假定设备或测量。

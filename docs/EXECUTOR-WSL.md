@@ -27,12 +27,15 @@ Docker 通过 guest Unix socket 访问，不开启未认证 TCP 端口。包与�
 ```powershell
 uv run --locked forestry-agent serve --config config/app.wsl.example.yaml
 uv run --locked python scripts/smoke_executor.py --config config/app.wsl.example.yaml
+uv run --locked python scripts/smoke_recovery.py --config config/app.wsl.example.yaml --models small large
 ```
 
 首次检查使用项目内合成 CSV，记录真实作业、容器身份/限制、结果、输入哈希、日志、取消和超时。重新打开对象/数据库的观察测试明确标记 `real_process_restart=false`，不能冒充进程中断恢复。浏览器真实模型调试检查另见 `frontend/e2e/executor.spec.ts`；使用 `RUN_EXECUTOR_UI=1` 显式启用，测试服务可用 `FORESTRY_TEST_BASE_URL` 指定。
 
 实际终态日志随 `wait_job` 返回，使模型能够观察 traceback 并修复。日志最多最后 200 行、stdout 64 KiB、stderr 4 KiB，标记有界，不保证保留完整历史。WSL 自身的本地代理提示目前仍可能混入 stderr，不能把它误判为容器计算失败；作业终态依据匹配容器的实际退出码。
 
-完整依赖准备、真实服务进程中断恢复、低资源和长任务质量仍待验证。联网搜索按用户 2026-10-06 指示暂缓开发；本部署下载运行时与 Agent 搜索能力分别记录。
+`smoke_recovery.py` 为每个模型创建独立配置、数据库和服务进程。在真实日志出现 RESTART_READY 后，只终止自己启动且核对过身份的服务，检查容器继续运行，再新建服务并显式恢复同一回合。记录两次进程身份、同一容器、一次提交/完成、数值、源哈希及实际读回；HTTP 日志读取预算覆盖两个有界 Docker 调用。失败记录和真实模型报告保留，不自动重跑未确认停止的服务，也不停止已有工作台服务。
+
+两模型该运行中作业的真实进程恢复试次已通过14项检查，见 STATUS；仍未覆盖全部崩溃窗口、恢复 UI、完整依赖、低资源和长任务质量。模型报告存在含混表述，不能替代脚本进程/容器证据。联网搜索按用户 2026-10-06 指示暂缓开发；本部署下载运行时与 Agent 搜索能力分别记录。
 
 English: This optional project-owned WSL distribution uses the existing isolated Docker job manager, an explicit Unix socket, fixed signed Ubuntu image, pinned guest packages and immutable Python image. It does not reset existing Docker/WSL data. Real restricted compute, cancellation and timeout were exercised; object/store reopen is not process restart. Dependency preparation and complete general-stage acceptance remain pending. Agent network-search development is deferred by the user's instruction.
