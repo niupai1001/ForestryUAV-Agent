@@ -62,7 +62,8 @@ def main():
                         "tree_count":3,"total_height_m":37.5,"mean_height_m":12.5}
                 if artifact["name"] == "report.md":
                     checks["report_exists"] = "12.5" in content.text and bool(re.search("[\u4e00-\u9fff]", content.text))
-            events = client.get(f"/tasks/{task_id}/events", params={"format":"json"}).json()
+            from forestry_agent.client import collect_events
+            events = collect_events(client, task_id)
             checks["real_read"] = any(e["type"]=="action.observed" and e["payload"].get("tool")=="fs.read"
                                       and e["payload"]["result"]["kind"]=="completed" for e in events)
             checks["real_write"] = any(e["type"]=="action.observed" and e["payload"].get("tool")=="fs.write_workspace"

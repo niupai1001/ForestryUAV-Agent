@@ -29,6 +29,7 @@ class Config(BaseModel):
     search_base_url: str | None = None
     max_model_requests_per_turn: int = Field(default=30, ge=1, le=1000)
     max_output_retries: int = Field(default=3, ge=0, le=5)
+    max_model_request_seconds: int = Field(default=300, ge=1, le=1800)
     max_model_requests_per_task: int = Field(default=1000, ge=1)
     max_actions_per_task: int = Field(default=1000, ge=1)
     max_assignments_per_task: int = Field(default=32, ge=1)

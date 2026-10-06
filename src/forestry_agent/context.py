@@ -1,0 +1,111 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from pathlib import Path
+
+from pydantic_ai.messages import ModelMessagesTypeAdapter
+from pydantic_ai_harness.compaction import estimate_context_tokens, estimate_token_count
+
+from .contracts import Failure
+from .store import Store, encode, now, uid
+
+ESTIMATOR = "utf8-byte-bound-v2-active-instructions-and-schema-margin"
+
+
+def byte_bound(text: str):
+    """Conservative text estimate; measure actual provider usage separately."""
+    return len(text.encode("utf-8"))
+
+
+class Contexts:
+    """Application provenance, while Harness owns history rewriting and checkpoints."""
+
+    def __init__(self, store: Store, workspace: Path):
+        self.store, self.root = store, workspace / ".forestry" / "model-inputs"
+
+    def compile(self, deps, request_context, profile):
+        params = request_context.model_request_parameters
+        tools = [{"name": t.name, "description": t.description, "schema": t.parameters_json_schema}
+                 for t in [*params.function_tools, *params.output_tools]]
+        body = {"messages": ModelMessagesTypeAdapter.dump_python(request_context.messages, mode="json"),
+            "instructions": [p.content for p in params.instruction_parts], "tools": tools, "settings": request_context.model_settings}
+        # History snapshots carry earlier instruction sets and bookkeeping metadata that
+        # are not all sent to the model. The native text collector counts active
+        # instructions once. Add the schemas and a conservative framing margin.
+        data = encode(body).encode("utf-8")
+        bound = estimate_token_count(request_context.messages, byte_bound) + byte_bound(encode(tools)) + 256 + 16 * len(request_context.messages) + 32 * len(tools)
+        available = profile.context_limit - profile.output_limit
+        if bound > available:
+            raise Failure("CONTEXT_EXHAUSTED", f"编译输入保守估算 {bound} 超过预留输出后的 {available}；请使用更短目标或引用读取", 422)
+        with self.store.transaction() as db:
+            state = self.store.read_task(db, deps.task_id)
+            if state["spec_revision"] != deps.revision or state["pause_requested"] or state["cancellation_requested"]:
+                raise Failure("EXECUTION_STOPPED", "任务规范或控制状态不允许编译新请求", 409)
+            refs = state["input_refs"]
+            rows = db.execute("SELECT id,payload FROM resources WHERE id IN (" + ",".join("?" for _ in refs) + ")", refs).fetchall() if refs else []
+            by_id = {r["id"]: json.loads(r["payload"]) for r in rows}
+            sources = [by_id[ref] for ref in refs if ref in by_id]
+            actions = [r["id"] for r in db.execute("SELECT id FROM actions WHERE task_id=? AND revision=? AND status IN ('confirmed','failed') ORDER BY rowid DESC LIMIT 64", (deps.task_id, deps.revision))]
+            prior = db.execute("SELECT id,payload FROM contexts WHERE task_id=? ORDER BY rowid DESC LIMIT 1", (deps.task_id,)).fetchone()
+            jobs = [r["id"] for r in db.execute("SELECT id FROM jobs WHERE task_id=? AND revision=? AND status NOT IN ('succeeded','failed','cancelled','timed_out')", (deps.task_id, deps.revision))]
+        manifest_id = uid()
+        directory = self.root / deps.task_id
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / (manifest_id + ".json")
+        staging = path.with_suffix(".staging")
+        staging.write_bytes(data)
+        os.replace(staging, path)
+        count = len(request_context.messages)
+        previous = json.loads(prior["payload"]) if prior else None
+        message_refs = [hashlib.sha256(encode(message).encode()).hexdigest() for message in body["messages"]]
+        manifest = {"schema_version": 1, "context_manifest_id": manifest_id, "task_id": deps.task_id,
+            "turn_id": deps.turn_id, "spec_revision": deps.revision, "prepared_input_ref": str(path),
+            "prepared_input_sha256": hashlib.sha256(data).hexdigest(), "estimated_tokens_upper_bound": bound,
+            "prepared_snapshot_bytes": len(data),
+            "native_usage_estimate": estimate_context_tokens(request_context.messages, byte_bound,
+                model_request_parameters=params), "estimator_id": ESTIMATOR,
+            "context_limit": profile.context_limit, "output_reserve": profile.output_limit,
+            "message_count": count, "tool_names": [t["name"] for t in tools],
+            "ordered_message_refs": message_refs,
+            "prior_message_refs_absent": [ref for ref in previous.get("ordered_message_refs", []) if ref not in message_refs] if previous else [],
+            "model_manifest": state["config_snapshot"],
+            "prompt_template_sha256": hashlib.sha256(encode([p.content for p in params.instruction_parts if not p.dynamic]).encode()).hexdigest(),
+            "ordered_sources": [{k: r[k] for k in ["resource_id", "version", "classification"]} for r in sources],
+            "action_refs": actions, "artifact_refs": state["artifact_ids"], "active_job_refs": jobs,
+            "previous_context_ref": prior["id"] if prior else None,
+            "history_message_count_reduced": bool(previous and count < previous["message_count"]),
+            "compression_policy": "harness-tiered-clear-and-window-v1", "recorded_at": now(),
+            "actual_input_tokens": None, "actual_output_tokens": None}
+        with self.store.transaction() as db:
+            db.execute("INSERT INTO contexts VALUES(?,?,?,?)", (manifest_id, deps.task_id, deps.turn_id, encode(manifest)))
+            self.store.event(db, deps.task_id, "context.compiled", self.public(manifest))
+        return manifest_id
+
+    @staticmethod
+    def public(manifest):
+        # UI receives provenance and counts, never private model history or its locator.
+        return {k: v for k, v in manifest.items() if k != "prepared_input_ref"}
+
+    def measured(self, manifest_id, usage):
+        if not manifest_id:
+            return
+        with self.store.transaction() as db:
+            row = db.execute("SELECT payload FROM contexts WHERE id=?", (manifest_id,)).fetchone()
+            if not row:
+                raise Failure("RECONCILIATION_REQUIRED", "模型返回没有对应输入清单", 409)
+            value = json.loads(row["payload"])
+            # A prepared request contains instructions and tools. Zero input usage
+            # therefore means missing provider accounting, not a measured zero.
+            available = usage.input_tokens > 0
+            value.update(actual_input_tokens=usage.input_tokens if available else None,
+                         actual_output_tokens=usage.output_tokens if available else None,
+                         provider_reported_input_tokens=usage.input_tokens,
+                         provider_reported_output_tokens=usage.output_tokens,
+                         usage_measurement_status="measured" if available else "unavailable")
+            value["estimate_covers_observed_usage"] = usage.input_tokens <= value["estimated_tokens_upper_bound"] if available else None
+            db.execute("UPDATE contexts SET payload=? WHERE id=?", (encode(value), manifest_id))
+            self.store.event(db, value["task_id"], "context.measured", self.public(value))
+        if value["estimate_covers_observed_usage"] is False:
+            raise Failure("CONTEXT_ESTIMATOR_INVALID", "实测输入用量超过保守估算，停止并重新校准上下文配方", 422)

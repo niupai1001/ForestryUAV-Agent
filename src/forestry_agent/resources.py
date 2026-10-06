@@ -151,19 +151,45 @@ class Resources:
         return {**artifact, "preview_url": f"/artifacts/{artifact_id}/content",
                 "download_url": f"/artifacts/{artifact_id}/content?download=true"}
 
-    def artifact(self, artifact_id: str):
+    def artifact(self, artifact_id: str, task_id: str | None = None):
         import json
         with self.store.transaction() as db:
             row = db.execute("SELECT payload FROM artifacts WHERE id=?", (artifact_id,)).fetchone()
             if not row:
                 raise Failure("NOT_FOUND", "产物不存在", 404)
             artifact = json.loads(row["payload"])
+        if task_id is not None and artifact["task_id"] != task_id:
+            raise Failure("PERMISSION_DENIED", "产物不属于当前任务", 403)
         path = Path(artifact["locator"])
         if not path.resolve().is_relative_to(self.workspace / "tasks" / artifact["task_id"] / "artifacts"):
             raise Failure("PERMISSION_DENIED", "产物路径超出封存目录", 403)
         if file_hash(path) != artifact["sha256"]:
             raise Failure("VERIFICATION_FAILED", "封存产物校验和不一致", 422)
         return artifact
+
+    def read_artifact(self, task_id: str, artifact_id: str, offset: int = 0):
+        """Read a bounded window from verified immutable task output."""
+        artifact = self.artifact(artifact_id, task_id)
+        if offset < 0:
+            raise Failure("SCHEMA_INVALID", "分页游标不能为负")
+        limit = 12000
+        with Path(artifact["locator"]).open("rb") as stream:
+            stream.seek(offset)
+            raw = stream.read(limit + 1)
+        chunk = raw[:limit]
+        # Do not consume half of a UTF-8 code point at a window boundary.
+        try:
+            text = chunk.decode("utf-8-sig")
+        except UnicodeDecodeError as error:
+            if error.reason == "unexpected end of data" and len(raw) > limit:
+                chunk = chunk[:error.start]
+                text = chunk.decode("utf-8-sig")
+            else:
+                raise Failure("PRECONDITION_MISSING", "产物不是 UTF-8 文本，请使用对应格式读取器", 422) from error
+        if "\x00" in text:
+            raise Failure("PRECONDITION_MISSING", "二进制产物需要对应格式读取器", 422)
+        return {"artifact_id": artifact_id, "sha256": artifact["sha256"], "offset": offset,
+                "next": offset + len(chunk), "has_more": len(raw) > len(chunk), "text": text}
 
     def import_file(self, task_id: str, action_id: str, source: Path, relative: str):
         """Stream large completed outputs into immutable, idempotent evidence versions."""

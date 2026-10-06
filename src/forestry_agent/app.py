@@ -181,7 +181,8 @@ def create_app(config: Config, *, enable_agent: bool = True):
         state = store.create_task(payload.model_dump(), {"model_profile": profile,
             "settings_version": current["version"], "model": config.models[profile].model_dump(),
             "model_identity": identity, "model_base_url": config.model_base_url,
-            "generation": {"temperature": 0.2, "think": False, "max_output_retries": config.max_output_retries}})
+            "generation": {"temperature": 0.2, "think": False, "max_output_retries": config.max_output_retries,
+                           "max_model_request_seconds": config.max_model_request_seconds}})
         actual = store.task(state["task_id"])
         with store.transaction() as db:
             initial_turn_exists = db.execute("SELECT 1 FROM turns WHERE task_id=?", (state["task_id"],)).fetchone()

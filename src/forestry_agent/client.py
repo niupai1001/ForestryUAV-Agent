@@ -10,6 +10,23 @@ from .config import Config
 from .contracts import Failure, TaskCreate
 
 
+def collect_events(client, task_id: str):
+    """Follow the bounded event API cursor; never mistake its first page for a journal."""
+    result, cursor = [], 0
+    while len(result) < 100000:
+        response = client.get(f"/tasks/{task_id}/events", params={"format": "json", "cursor": cursor})
+        response.raise_for_status()
+        page = response.json()
+        if not page:
+            return result
+        next_cursor = page[-1]["sequence"]
+        if next_cursor <= cursor or any(e["sequence"] <= cursor for e in page):
+            raise Failure("RECONCILIATION_REQUIRED", "事件分页游标未前进", 409)
+        result.extend(page)
+        cursor = next_cursor
+    raise Failure("RESOURCE_EXHAUSTED", "事件导出超出上限；请使用分段游标", 422)
+
+
 class LocalClient:
     def __init__(self, config: Config):
         key = config.workspace_root / ".forestry" / "local.key"

@@ -52,6 +52,7 @@ class Store:
             CREATE TABLE IF NOT EXISTS knowledge_chunks(id TEXT PRIMARY KEY,resource_id TEXT NOT NULL,relative_path TEXT NOT NULL,source_version TEXT NOT NULL,citation TEXT NOT NULL,content TEXT NOT NULL);
             CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(chunk_id UNINDEXED,terms);
             CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY,payload TEXT NOT NULL,event_id TEXT NOT NULL REFERENCES user_events(id));
+            CREATE TABLE IF NOT EXISTS contexts(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),turn_id TEXT NOT NULL,payload TEXT NOT NULL);
             """)
             db.execute("INSERT OR IGNORE INTO schema_versions VALUES(1,?)", (now(),))
 
