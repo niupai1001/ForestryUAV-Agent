@@ -47,6 +47,7 @@ uv run --locked python scripts/smoke_context.py --model large
 uv run --locked python scripts/smoke_roles.py --models small large
 uv run --locked python scripts/smoke_network.py --base-url http://127.0.0.1:8765 --models small large
 uv run --locked python scripts/smoke_search.py --base-url http://127.0.0.1:8765 --models small large
+uv run --locked python scripts/smoke_progress.py --base-url http://127.0.0.1:8765 --models small large
 uv run --locked forestry-agent schema
 ```
 
@@ -57,6 +58,7 @@ uv run --locked forestry-agent schema
 - 本地会话认证、Origin/Host 检查；用户显式登记只读绝对路径，模型仅访问任务的资源 ID。
 - SQLite 持久任务、规范修订、动作/attempt、追加事件；请求 ID 重放与冲突检查。
 - 原生模型工具循环、模型检查点、跨重启累计动作和模型请求预算。
+- 持久工具观察与无进展保护；重复结果、循环重读、失败和空末尾窗口触发真实暂停，恢复不清零。
 - 文件窗口读取、任务工作区写入、不可变产物、SHA-256 检查、隔离 HTML 预览。
 - 无网络容器作业句柄、身份对账、实际停止确认、重启观察、流式封存输出；真实 Docker 烟测仍待环境恢复。
 - UI 历史、模型切换、来源选择、执行记录、产物预览/下载、暂停/取消与恢复入口。
@@ -72,6 +74,10 @@ uv run --locked forestry-agent schema
 - 活跃运行中的补充消息和审批决策持久排队、请求 ID 去重；暂停保持暂停，重启须显式恢复。
 
 模型输出不会自动被当成已验收成功。文件层检查完成后显示“待确认”，用户检查后可以要求修改，或确认满足目标并封存交付。用户验收不代表科学精度验证。服务重启先暂停并对账，缺少匹配检查点的已执行动作不会盲目重跑。受限代码真实执行、依赖准备、搜索、角色异常/冲突处理的完整 UI、各模型的长任务质量、完整报告、领域处理与正式评估尚未全部验证，不能据此宣称阶段 1 或完整 V1 已完成。
+
+`max_unchanged_decisions`（默认3）冻结到新任务，旧任务在首次工具观察时固定实际值。保护按任务修订、逻辑用户回合和角色隔离，跨原生运行/重启保留；新文件字节、来源内容、文本窗口或作业状态是可观察的进展，重复观察、失败和空窗口累积连续计数。动作ID、时间戳或嵌套检查包装不会制造新进展。观察经排序后的 JSON 计指纹，新模型决策重复使用调用ID仍计数；恢复重放同一观察不重复计数。观察新颖性不证明目标已经完成，语义验收仍独立。
+
+达到上限后返回 `NO_PROGRESS` 并暂停，已经确认的副作用保留；直接恢复返回同一错误，不增加模型请求。可在工作台补充纠正说明，再显式恢复：旧回合记录为 stopped，持久用户消息启动新回合；任务规范和累计动作/模型预算不因此重置。修改目标、输入、方法或约束仍使用任务 amendment。`smoke_progress.py` 故意重复读取软件夹具来触发保护，并保留暂停任务供 UI 检查；不代表普通任务质量评分。
 
 角色定义在 `src/forestry_agent/roles.yaml`，也可用 `roles_path` 配置自定义 YAML；新任务冻结目录及其指纹。H0 为基础工具对照，关闭知识/记忆检索、委派和自动外置/压缩；H1 加入上下文整理和结果读回；H2 在 H1 上允许按需隔离委派。三种配方共有身份核对、权限、动作登记、预算和用户验收边界。配方入口不代表六组合正式实验已完成。恢复时保留逻辑回合与动作账本，每次 `Agent.run` 使用新的原生运行 ID，检查点仍由 Harness 保存，应用只记录回合与原生运行的关联。
 

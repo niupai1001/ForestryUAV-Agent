@@ -3,6 +3,7 @@
 workspace/
 node_modules/
 frontend/dist/
+*.tsbuildinfo
 __pycache__/
 .pytest_cache/
 .ruff_cache/

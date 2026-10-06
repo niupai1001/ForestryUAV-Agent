@@ -57,8 +57,11 @@ class Store:
             CREATE TABLE IF NOT EXISTS assignments(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),parent_run_id TEXT NOT NULL,role_id TEXT NOT NULL,action_id TEXT NOT NULL UNIQUE REFERENCES actions(id),status TEXT NOT NULL,payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS agent_runs(id TEXT PRIMARY KEY,turn_id TEXT NOT NULL,created_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS approvals(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),revision INTEGER NOT NULL,status TEXT NOT NULL,payload TEXT NOT NULL,user_event_id TEXT REFERENCES user_events(id));
+            CREATE TABLE IF NOT EXISTS progress_observations(task_id TEXT NOT NULL REFERENCES tasks(id),revision INTEGER NOT NULL,scope TEXT NOT NULL,turn_id TEXT NOT NULL,call_id TEXT NOT NULL,request_id TEXT NOT NULL,tool TEXT NOT NULL,decision_sha256 TEXT NOT NULL,fingerprint TEXT,stalled INTEGER NOT NULL,limit_value INTEGER NOT NULL,at TEXT NOT NULL,PRIMARY KEY(task_id,revision,scope,turn_id,call_id,request_id));
+            CREATE INDEX IF NOT EXISTS progress_seen ON progress_observations(task_id,revision,scope,turn_id,fingerprint);
             """)
             db.execute("INSERT OR IGNORE INTO schema_versions VALUES(1,?)", (now(),))
+            db.execute("INSERT OR IGNORE INTO schema_versions VALUES(2,?)", (now(),))
 
     @contextmanager
     def transaction(self):

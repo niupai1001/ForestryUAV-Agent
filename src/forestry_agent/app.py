@@ -12,7 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from .agent import Engine
+from .agent import Deps, Engine
 from .config import Config
 from .contracts import (
     Acceptance,
@@ -189,6 +189,7 @@ def create_app(config: Config, *, enable_agent: bool = True):
             "generation": {"temperature": 0.2, "think": False, "max_output_retries": config.max_output_retries,
                            "max_model_requests_per_turn": config.max_model_requests_per_turn,
                            "max_assignments_per_task": config.max_assignments_per_task,
+                           "max_unchanged_decisions": config.max_unchanged_decisions,
                            "max_model_request_seconds": config.max_model_request_seconds}})
         actual = store.task(state["task_id"])
         with store.transaction() as db:
@@ -293,6 +294,17 @@ def create_app(config: Config, *, enable_agent: bool = True):
                 raise Failure("RECONCILIATION_REQUIRED", "未决副作用须先对账", 409)
             if task_id in engine.queue and not engine.queue[task_id].done():
                 raise Failure("VERSION_CONFLICT", "执行端尚未确认停止", 409)
+            turn = db.execute("SELECT * FROM turns WHERE task_id=? AND revision=? AND status IN ('paused','running') AND id NOT IN (SELECT json_extract(payload,'$.run_id') FROM assignments) ORDER BY created_at DESC LIMIT 1",
+                (task_id, state["spec_revision"])).fetchone()
+            progress = engine.progress.latest(db, Deps(engine, task_id, turn["id"], state["spec_revision"])) if turn else None
+            if progress and progress["stalled"] >= progress["limit_value"]:
+                corrected = db.execute("SELECT t.id FROM turns t JOIN turn_requests r ON r.turn_id=t.id WHERE t.task_id=? AND t.revision=? AND t.status='queued' ORDER BY t.created_at,t.rowid LIMIT 1",
+                    (task_id, state["spec_revision"])).fetchone()
+                if not corrected:
+                    raise Failure("NO_PROGRESS", "本回合无进展预算已用尽。请先补充纠正说明再恢复，或修改任务规范；直接恢复不会重置计数。", 422)
+                db.execute("UPDATE turns SET status='stopped' WHERE id=?", (turn["id"],))
+                store.event(db, task_id, "run.superseded", {"stopped_turn_id": turn["id"],
+                    "continuation_turn_id": corrected["id"], "reason": "user_input_after_no_progress"})
             state.update(status="created", pause_requested=False, blockers=[])
             store.user_event(db, "task_resume", payload.model_dump())
         result = store.change(task_id, "task.resume_requested", mutate, payload.model_dump(), payload.expected_state_version)

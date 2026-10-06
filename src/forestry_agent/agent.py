@@ -39,6 +39,7 @@ from .jobs import TERMINAL, Jobs
 from .knowledge import Knowledge, Memory
 from .models import model_identity
 from .network import Network
+from .progress import Progress
 from .resources import Resources
 from .roles import CAPABILITY_NAMES, CURRENT_ASSIGNMENT, AssignmentRequest, AssignmentResult, Roles
 from .roles import TERMINAL as ASSIGNMENT_TERMINAL
@@ -78,6 +79,7 @@ class Engine:
         self.roles = Roles(self)
         self.jobs.cancel_assignments = self.roles.cancel_waiting
         self.network = Network(self)
+        self.progress = Progress(store, config)
         self.assignment_slot = asyncio.Semaphore(1)
 
     def publish(self, task_id, kind, payload):
@@ -226,6 +228,8 @@ class Engine:
             except TimeoutError as error:
                 raise Failure("MODEL_REQUEST_TIMED_OUT", "单次模型请求超过冻结的墙钟时间预算，已停止本回合", 422) from error
         async def before_model(ctx, request_context):
+            with self.store.transaction() as db:
+                self.progress.check(db, ctx.deps)
             if ctx.model.system != "test":
                 saved = self.store.task(ctx.deps.task_id)["config_snapshot"]
                 expected = saved.get("model_identity", {})
@@ -320,6 +324,19 @@ class Engine:
             finally:
                 CURRENT_ASSIGNMENT.reset(token)
 
+        async def guarded_tool(ctx, *, call, tool_def, args, handler):
+            with self.store.transaction() as db:
+                self.progress.check(db, ctx.deps)
+            try:
+                result = await delegate(ctx, call=call, tool_def=tool_def, args=args, handler=handler)
+            except (Failure, ModelRetry) as error:
+                if not isinstance(error, Failure) or error.code not in {"EXECUTION_STOPPED", "VERSION_CONFLICT"}:
+                    self.progress.record(ctx.deps, call.tool_call_id, tool_def.name, args,
+                        {"kind": "failed", "error": {"code": getattr(error, "code", "MODEL_PROTOCOL_ERROR")}})
+                raise
+            self.progress.record(ctx.deps, call.tool_call_id, tool_def.name, args, result)
+            return result
+
         capabilities = []
         spill_store = None
         if mode != "H0":
@@ -346,7 +363,7 @@ class Engine:
                 event_stream_handler=lambda ctx, stream: self.model_events(ctx.deps, stream)))
         capabilities.extend([Hooks(before_model_request=before_model, after_model_request=after_model,
             output_validate_error=output_error, model_request=bounded_model, prepare_tools=prepare_tools,
-            tool_execute=delegate), StepPersistence(store=self.steps, run_id=native_run_id or turn_id)])
+            tool_execute=guarded_tool), StepPersistence(store=self.steps, run_id=native_run_id or turn_id)])
         role_prompt = role["prompt_template"] if role else (
             next((r["prompt_template"] for r in snapshot.get("role_catalog", {}).get("roles", []) if r["role_id"] == "coordinator"), "") if snapshot and mode == "H2" else "")
         agent = Agent(model, deps_type=Deps, output_type=AssignmentResult if role else Answer,

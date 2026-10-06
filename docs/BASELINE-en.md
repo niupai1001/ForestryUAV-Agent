@@ -1,4 +1,4 @@
-# Revised implementation baseline · 1.2
+# Revised implementation baseline · 1.3
 
 This is an independent implementation, with no reuse or migration of the legacy ForestryUAV-Agent runtime. The supplied Chinese project book is the current requirements source; this companion revision shares its version number.
 
@@ -11,5 +11,9 @@ Use one PydanticAI/Harness loop, native history, persistence and compaction. App
 Use spatial_support_ref consistently. Implement only real external/persistent boundaries, without one repository or service for each record. WP describes implementation, AC describes acceptance and DOM maps to WP. Share execution, resources, events, verification and delivery between general and domain features.
 
 Private-derived network payloads require scoped authorization. Public fetch rejects private/loopback destinations and unsafe redirects. HTML previews isolate scripts and network. Reject extra fields at control boundaries, keep sources read-only, issue user grants only through authenticated human routes, and confirm worker termination before final cancellation.
+
+Freeze max_unchanged_decisions for new tasks. Persist observations per task revision, logical user turn and role across native runs and restarts. Repeated observations, failures and empty end-of-file windows stop with NO_PROGRESS when the limit is reached, preserving confirmed effects. Resume does not reset the counter. Authenticated corrective input may stop the old turn and start a new corrective turn, without resetting task-level budgets; changes to objectives, inputs, methods or constraints still require amendment. Novel observations do not establish semantic acceptance.
+
+Version 1.3 preserves the 1.2 scope and framework ownership while specifying this stop/recovery contract. Application database migration 2 adds observation records; it does not migrate legacy project data.
 
 Batches: P0 baseline/feasibility; P1 real UI/model/file loop; P2 restricted execution/recovery; P3 complete general product; P4 imagery; P5 LiDAR; P6 frozen experiments/scale/release. Track implementation and verification separately. Docker, model tool round trips, search, compatible raw-elevation UAV LiDAR/terrain, ≥100 GB real data, lower-resource hardware and pilot release tolerances still require evidence.
