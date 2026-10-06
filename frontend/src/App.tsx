@@ -14,6 +14,7 @@ type Artifact = {artifact_id: string; name: string; size_bytes: number; media_ty
 type Event = {sequence: number; event_id: string; type: string; payload: Record<string, any>; at: string};
 type Candidate = {candidate_sha256:string; state_version:number; candidate:{spec_revision:number; answer:string;
   limitations:string[]; outputs:{artifact_id:string;name:string;sha256:string}[]}};
+type Note = {memory_id:string;text:string;tags:string[]};
 const labels: Record<string,string> = {created:'等待运行', active:'运行中', paused:'已暂停',
   completed:'已完成', failed:'失败', cancelled:'已取消', waiting_user:'待确认', waiting_job:'处理中', publishing:'正在封存'};
 const requestId = () => crypto.randomUUID();
@@ -36,10 +37,14 @@ export default function App() {
   const [diagnostics,setDiagnostics] = useState<any>(null), [panel,setPanel] = useState<'artifacts'|'trace'>('artifacts');
   const [preview,setPreview] = useState<Artifact|null>(null), [previewText,setPreviewText] = useState('');
   const [candidate,setCandidate] = useState<Candidate|null>(null), [acceptComment,setAcceptComment] = useState('');
+  const [notes,setNotes] = useState<Note[]>([]), [noteText,setNoteText] = useState('');
   const seen = useRef(new Set<string>()), input = useRef<HTMLTextAreaElement>(null);
 
   const guarded = async (work:()=>Promise<void>) => {setError(''); try {await work();} catch(e) {setError(String((e as Error).message));}};
   const refresh = async () => {setTasks(await api<Task[]>('/tasks'));};
+  useEffect(()=>{if(showSettings) void guarded(async()=>{
+    setNotes((await api<{notes:Note[]}>('/memory')).notes);
+  });},[showSettings]);
   useEffect(()=>{void guarded(async()=>{await api('/session'); await refresh();
     setResources(await api<Resource[]>('/resources')); setSettings(await api('/settings'));
     const saved = localStorage.getItem('forestry.task');
@@ -109,7 +114,7 @@ export default function App() {
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand"><div className="brand-icon"><Leaf size={23}/></div><div><strong>林遥</strong><span>ForestryUAV Agent</span></div><span className="version">V1</span></div>
-      <button className="new-task" onClick={newTask}><Plus size={18}/>新建任务<span>⌘ N</span></button>
+      <button className="new-task" onClick={newTask}><Plus size={18}/>新建任务</button>
       <div className="section-caption">工作空间</div>
       <button className="nav-item selected" onClick={()=>input.current?.focus()}><MessageSquare size={18}/>Agent 工作台</button>
       <button className="nav-item" onClick={()=>setShowSource(true)}><FolderOpen size={18}/>本地数据源<span className="small-count">{resources.length}</span></button>
@@ -183,7 +188,17 @@ export default function App() {
       <button className="probe-button" onClick={()=>void guarded(async()=>setDiagnostics(await api('/models/profiles')))}><RefreshCw size={15}/>重新探测环境</button>
       {diagnostics&&<div className="diagnostics">{Object.entries(diagnostics.models||{}).map(([key,value]:[string,any])=><div key={key}><span>{value.profile.served_name}</span><b>{value.status==='available_not_tool_verified'?'权重可用 · 协议待验收':value.status}</b></div>)}
         <div><span>受限代码执行</span><b>{diagnostics.capabilities?.restricted_code?.status==='available'?'容器服务可用':'容器服务不可用'}</b></div><div><span>公开搜索</span><b>{diagnostics.capabilities?.search?.status}</b></div><div><span>系统内存</span><b>{(diagnostics.ram_bytes/1024**3).toFixed(1)} GiB</b></div></div>}
-      <div className="modal-info"><ShieldCheck size={16}/>只连接本机模型。没有自动云端回退。</div></div></div>}
+      <section className="memory-panel"><h3>你保存的长期记忆</h3><p>仅手动保存的内容会供后续任务读取。停用后不再检索，既有任务及授权审计历史保留。</p>
+        <label>希望长期记住的内容<input value={noteText} onChange={e=>setNoteText(e.target.value)} maxLength={8000}/></label>
+        <button className="primary" disabled={!noteText.trim()} onClick={()=>void guarded(async()=>{
+          await api('/memory',{request_id:requestId(),text:noteText,tags:[]});setNoteText('');
+          setNotes((await api<{notes:Note[]}>('/memory')).notes);
+        })}>明确保存这条记忆</button>
+        <div className="memory-list">{notes.map(note=><div key={note.memory_id}><span>{note.text}</span><button title="停用这条记忆" onClick={()=>void guarded(async()=>{
+          await api(`/memory/${note.memory_id}`,{request_id:requestId()},'DELETE');
+          setNotes((await api<{notes:Note[]}>('/memory')).notes);
+        })}><X size={16}/></button></div>)}</div>
+      </section><div className="modal-info"><ShieldCheck size={16}/>只连接本机模型。没有自动云端回退。</div></div></div>}
     {preview&&<div className="modal-backdrop"><div className="modal preview-modal"><div className="modal-heading"><h2>{preview.name}</h2><button onClick={()=>setPreview(null)}><X size={20}/></button></div>
       {preview.media_type==='text/html'?<iframe title={preview.name} sandbox="" src={preview.preview_url}/>:preview.media_type.startsWith('image/')?<img alt={preview.name} src={preview.preview_url}/>:<pre>{previewText||'正在读取…'}</pre>}
       <div className="preview-footer"><span>SHA-256 · {preview.sha256.slice(0,20)}…</span><a href={preview.download_url}><ArrowDownToLine size={15}/>下载完整文件</a></div></div></div>}

@@ -68,3 +68,13 @@ class Failure(Exception):
         super().__init__(message)
         self.code, self.message, self.status, self.retryable = code, message, status, retryable
 
+
+class MemorySave(Boundary):
+    request_id: str = Field(min_length=1, max_length=200)
+    text: str = Field(min_length=1, max_length=8000)
+    tags: list[str] = Field(default_factory=list, max_length=10)
+
+
+class MemoryForget(Boundary):
+    request_id: str = Field(min_length=1, max_length=200)
+

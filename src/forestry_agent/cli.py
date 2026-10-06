@@ -43,7 +43,7 @@ def main():
         from . import contracts
         target = Path(args.output)
         target.mkdir(parents=True, exist_ok=True)
-        for name in ["TaskCreate", "Message", "Amendment", "Control", "RegisterResource", "SettingsChange", "Acceptance"]:
+        for name in ["TaskCreate", "Message", "Amendment", "Control", "RegisterResource", "SettingsChange", "Acceptance", "MemorySave", "MemoryForget"]:
             model = getattr(contracts, name)
             (target / f"{name}.schema.json").write_text(
                 json.dumps(model.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf-8")

@@ -35,6 +35,22 @@ test('server rejects invalid source path with a visible explanation', async ({ p
   await expect(page.getByRole('alert')).toBeVisible();
 });
 
+test('long-term memory is explicitly saved, survives reload and can be disabled', async ({page}) => {
+  const note = `浏览器记忆夹具 ${Date.now()}：报告使用中文。`;
+  await page.goto('/');
+  await page.getByRole('button',{name:'模型与环境设置'}).click();
+  await page.getByLabel('希望长期记住的内容').fill(note);
+  await page.getByRole('button',{name:'明确保存这条记忆'}).click();
+  await expect(page.locator('.memory-list')).toContainText(note);
+  await page.screenshot({path:'../workspace/evidence/workbench-memory.png',fullPage:true});
+  await page.reload();
+  await page.getByRole('button',{name:'模型与环境设置'}).click();
+  const row = page.locator('.memory-list>div').filter({hasText:note});
+  await expect(row).toBeVisible();
+  await row.getByTitle('停用这条记忆').click();
+  await expect(page.locator('.memory-list')).not.toContainText(note);
+});
+
 test('real model reads a registered source and seals only after explicit acceptance', async ({page}) => {
   test.setTimeout(180000);
   const source = resolve('../fixtures/general/ui-heights.csv');

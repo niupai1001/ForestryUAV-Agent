@@ -1,0 +1,31 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "text": {
+      "maxLength": 8000,
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 10,
+      "title": "Tags",
+      "type": "array"
+    }
+  },
+  "required": [
+    "request_id",
+    "text"
+  ],
+  "title": "MemorySave",
+  "type": "object"
+}

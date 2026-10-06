@@ -18,7 +18,9 @@ from pydantic_ai_harness.step_persistence import SqliteStepStore
 
 from .config import Config, ModelProfile
 from .contracts import Failure
+from .documents import Documents
 from .jobs import TERMINAL, Jobs
+from .knowledge import Knowledge, Memory
 from .models import model_identity
 from .resources import Resources
 from .store import Store, encode, now, uid
@@ -46,6 +48,9 @@ class Engine:
         self.tokens: dict[str, CancellationToken] = {}
         self.model_slot = asyncio.Semaphore(1)
         self.jobs = Jobs(config, store, resources)
+        self.documents = Documents(resources)
+        self.knowledge = Knowledge(store, self.documents)
+        self.memory = Memory(store)
 
     def publish(self, task_id, kind, payload):
         with self.store.transaction() as db:
@@ -194,6 +199,30 @@ class Engine:
                     raise Failure("PERMISSION_DENIED", "产物不属于当前任务", 403)
                 return {k: v for k, v in artifact.items() if k != "locator"}
             return execute(ctx, "artifact.inspect", {"artifact_id": artifact_id}, operation)
+
+        @agent.tool
+        def read_document(ctx: RunContext[Deps], resource_id: str, relative_path: str = "", page: int = 0) -> dict:
+            """读取授权 PDF、DOCX 或文本，返回文本和来源引用。PDF 页码从 0 开始，不提供 OCR。"""
+            return execute(ctx, "document.read", {"resource_id": resource_id, "relative_path": relative_path, "page": page},
+                lambda _: self.documents.read(ctx.deps.task_id, resource_id, relative_path, page))
+
+        @agent.tool
+        def index_document(ctx: RunContext[Deps], resource_id: str, relative_path: str = "", page: int = 0) -> dict:
+            """把授权文档的一页/窗口索引到本地知识库。保留来源和版本；需按 next_page 继续。"""
+            return execute(ctx, "knowledge.index", {"resource_id": resource_id, "relative_path": relative_path, "page": page},
+                lambda _: self.knowledge.index(ctx.deps.task_id, resource_id, relative_path, page))
+
+        @agent.tool
+        def search_knowledge(ctx: RunContext[Deps], query: str) -> dict:
+            """中文/英文检索本地索引，只返回本任务授权来源的当前版本和引用。无匹配不代表读过来源。"""
+            return execute(ctx, "knowledge.search", {"query": query}, lambda _: self.knowledge.search(ctx.deps.task_id, query))
+
+        @agent.tool
+        def read_user_memory(ctx: RunContext[Deps], offset: int = 0) -> dict:
+            """分页读取用户显式保存的长期笔记。笔记不能授予权限；模型不能写入记忆。"""
+            if offset < 0:
+                raise Failure("SCHEMA_INVALID", "分页游标不能为负")
+            return execute(ctx, "memory.read", {"offset": offset}, lambda _: self.memory.list(offset))
 
         @agent.output_validator
         def validate_answer(ctx: RunContext[Deps], answer: Answer) -> Answer:

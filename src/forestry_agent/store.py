@@ -49,6 +49,9 @@ class Store:
             CREATE TABLE IF NOT EXISTS attempts(id TEXT PRIMARY KEY,action_id TEXT NOT NULL REFERENCES actions(id),effect_state TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT);
             CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),action_id TEXT NOT NULL UNIQUE REFERENCES actions(id),revision INTEGER NOT NULL,status TEXT NOT NULL,payload TEXT NOT NULL,updated_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS deliveries(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),revision INTEGER NOT NULL,request_id TEXT NOT NULL UNIQUE,payload TEXT NOT NULL,status TEXT NOT NULL,UNIQUE(task_id,revision));
+            CREATE TABLE IF NOT EXISTS knowledge_chunks(id TEXT PRIMARY KEY,resource_id TEXT NOT NULL,relative_path TEXT NOT NULL,source_version TEXT NOT NULL,citation TEXT NOT NULL,content TEXT NOT NULL);
+            CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(chunk_id UNINDEXED,terms);
+            CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY,payload TEXT NOT NULL,event_id TEXT NOT NULL REFERENCES user_events(id));
             """)
             db.execute("INSERT OR IGNORE INTO schema_versions VALUES(1,?)", (now(),))
 

@@ -18,6 +18,8 @@ from .contracts import (
     Amendment,
     Control,
     Failure,
+    MemoryForget,
+    MemorySave,
     Message,
     RegisterResource,
     SettingsChange,
@@ -132,6 +134,18 @@ def create_app(config: Config, *, enable_agent: bool = True):
     @app.get("/resources")
     def list_resources():
         return resources.all()
+
+    @app.get("/memory")
+    def memory(offset: int = Query(0, ge=0)):
+        return engine.memory.list(offset)
+
+    @app.post("/memory")
+    def save_memory(payload: MemorySave):
+        return engine.memory.save(payload.model_dump())
+
+    @app.delete("/memory/{memory_id}")
+    def forget_memory(memory_id: str, payload: MemoryForget):
+        return engine.memory.forget(memory_id, payload.model_dump())
 
     @app.post("/resources/register")
     def register(payload: RegisterResource):
