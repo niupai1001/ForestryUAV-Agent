@@ -9,6 +9,7 @@ from pydantic_ai.messages import ModelMessagesTypeAdapter
 from pydantic_ai_harness.compaction import estimate_context_tokens, estimate_token_count
 
 from .contracts import Failure
+from .resources import native_path
 from .store import Store, encode, now, uid
 
 ESTIMATOR = "utf8-byte-bound-v2-active-instructions-and-schema-margin"
@@ -25,7 +26,7 @@ class Contexts:
     def __init__(self, store: Store, workspace: Path):
         self.store, self.root = store, workspace / ".forestry" / "model-inputs"
 
-    def compile(self, deps, request_context, profile):
+    def compile(self, deps, request_context, profile, native_run_id=None):
         params = request_context.model_request_parameters
         tools = [{"name": t.name, "description": t.description, "schema": t.parameters_json_schema}
                  for t in [*params.function_tools, *params.output_tools]]
@@ -43,25 +44,27 @@ class Contexts:
             state = self.store.read_task(db, deps.task_id)
             if state["spec_revision"] != deps.revision or state["pause_requested"] or state["cancellation_requested"]:
                 raise Failure("EXECUTION_STOPPED", "任务规范或控制状态不允许编译新请求", 409)
-            refs = state["input_refs"]
+            assignment = deps.engine.roles.read(deps.assignment_id, deps.task_id, db) if deps.assignment_id else None
+            refs = assignment["effective_input_refs"] if assignment else state["input_refs"]
             rows = db.execute("SELECT id,payload FROM resources WHERE id IN (" + ",".join("?" for _ in refs) + ")", refs).fetchall() if refs else []
             by_id = {r["id"]: json.loads(r["payload"]) for r in rows}
             sources = [by_id[ref] for ref in refs if ref in by_id]
-            actions = [r["id"] for r in db.execute("SELECT id FROM actions WHERE task_id=? AND revision=? AND status IN ('confirmed','failed') ORDER BY rowid DESC LIMIT 64", (deps.task_id, deps.revision))]
-            prior = db.execute("SELECT id,payload FROM contexts WHERE task_id=? ORDER BY rowid DESC LIMIT 1", (deps.task_id,)).fetchone()
-            jobs = [r["id"] for r in db.execute("SELECT id FROM jobs WHERE task_id=? AND revision=? AND status NOT IN ('succeeded','failed','cancelled','timed_out')", (deps.task_id, deps.revision))]
+            actions = [r["id"] for r in db.execute("SELECT id FROM actions WHERE task_id=? AND revision=? AND (? IS NULL OR turn_id=?) AND status IN ('confirmed','failed') ORDER BY rowid DESC LIMIT 64", (deps.task_id, deps.revision, deps.assignment_id, deps.turn_id))]
+            prior = db.execute("SELECT id,payload FROM contexts WHERE task_id=? AND json_extract(payload,'$.assignment_id') IS ? ORDER BY rowid DESC LIMIT 1", (deps.task_id, deps.assignment_id)).fetchone()
+            jobs = [r["id"] for r in db.execute("SELECT j.id FROM jobs j JOIN actions a ON j.action_id=a.id WHERE j.task_id=? AND j.revision=? AND (? IS NULL OR a.turn_id=?) AND j.status NOT IN ('succeeded','failed','cancelled','timed_out')", (deps.task_id, deps.revision, deps.assignment_id, deps.turn_id))]
         manifest_id = uid()
-        directory = self.root / deps.task_id
-        directory.mkdir(parents=True, exist_ok=True)
+        directory = self.root / deps.task_id / (deps.assignment_id or "coordinator")
+        native_path(directory).mkdir(parents=True, exist_ok=True)
         path = directory / (manifest_id + ".json")
         staging = path.with_suffix(".staging")
-        staging.write_bytes(data)
-        os.replace(staging, path)
+        native_path(staging).write_bytes(data)
+        os.replace(native_path(staging), native_path(path))
         count = len(request_context.messages)
         previous = json.loads(prior["payload"]) if prior else None
         message_refs = [hashlib.sha256(encode(message).encode()).hexdigest() for message in body["messages"]]
         manifest = {"schema_version": 1, "context_manifest_id": manifest_id, "task_id": deps.task_id,
             "turn_id": deps.turn_id, "spec_revision": deps.revision, "prepared_input_ref": str(path),
+            "assignment_id": deps.assignment_id, "native_run_id": native_run_id,
             "prepared_input_sha256": hashlib.sha256(data).hexdigest(), "estimated_tokens_upper_bound": bound,
             "prepared_snapshot_bytes": len(data),
             "native_usage_estimate": estimate_context_tokens(request_context.messages, byte_bound,
@@ -73,10 +76,10 @@ class Contexts:
             "model_manifest": state["config_snapshot"],
             "prompt_template_sha256": hashlib.sha256(encode([p.content for p in params.instruction_parts if not p.dynamic]).encode()).hexdigest(),
             "ordered_sources": [{k: r[k] for k in ["resource_id", "version", "classification"]} for r in sources],
-            "action_refs": actions, "artifact_refs": state["artifact_ids"], "active_job_refs": jobs,
+            "action_refs": actions, "artifact_refs": deps.engine.roles.artifacts(assignment) if assignment else state["artifact_ids"], "active_job_refs": jobs,
             "previous_context_ref": prior["id"] if prior else None,
             "history_message_count_reduced": bool(previous and count < previous["message_count"]),
-            "compression_policy": "harness-tiered-clear-and-window-v1", "recorded_at": now(),
+            "compression_policy": "native-only-bounded-input-v1" if state["config_snapshot"].get("harness_mode", "H1") == "H0" else "harness-tiered-clear-and-window-v2-current-turn", "recorded_at": now(),
             "actual_input_tokens": None, "actual_output_tokens": None}
         with self.store.transaction() as db:
             db.execute("INSERT INTO contexts VALUES(?,?,?,?)", (manifest_id, deps.task_id, deps.turn_id, encode(manifest)))

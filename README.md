@@ -17,7 +17,7 @@ uv run --locked forestry-agent serve --config config/app.example.yaml
 命令行使用相同本地服务、授权与任务契约：
 
 ```powershell
-uv run --locked forestry-agent run --objective "读取输入，检查内容并保存中文报告" --input fixtures/general/heights.csv --model small
+uv run --locked forestry-agent run --objective "读取输入，检查内容并保存中文报告" --input fixtures/general/heights.csv --model small --harness H2
 uv run --locked forestry-agent tasks candidate --task <task-id>
 # 实际检查回答和产物后，明确确认或要求修改：
 uv run --locked forestry-agent tasks accept --task <task-id> --comment "已检查，满足目标"
@@ -42,6 +42,7 @@ uv run --locked pytest -q --basetemp workspace/test-tmp
 uv run --locked python scripts/smoke_models.py --models small large
 uv run --locked python scripts/smoke_documents.py --models small large
 uv run --locked python scripts/smoke_context.py --model large
+uv run --locked python scripts/smoke_roles.py --models small large
 uv run --locked forestry-agent schema
 ```
 
@@ -60,8 +61,12 @@ uv run --locked forestry-agent schema
 - 工作台显式保存/停用长期记忆；模型可读，不能写入或制造授权。
 - 原生工具结果外置/按句柄读回、分层清理与滑窗；每次实际输入保留私有快照、SHA-256、源/动作/产物引用和用量核对。
 - 当前规范、控制状态及当前回合原始请求逐次重新注入；按当前任务/修订找回已确认动作，按窗口读取封存文本产物。
+- 五个长期角色配置、原生按需委派；子角色独立历史、权限交集、输出目录、结构化结果和累计预算，结果不自动验收父任务。
+- 工作台选择 H0/H1/H2 并查看实际委派范围、状态、检查和产物；CLI 支持相同配方。
 
-模型输出不会自动被当成已验收成功。文件层检查完成后显示“待确认”，用户检查后可以要求修改，或确认满足目标并封存交付。用户验收不代表科学精度验证。服务重启先暂停并对账，缺少匹配检查点的已执行动作不会盲目重跑。受限代码真实执行、依赖准备、搜索、固定角色、各模型的长任务质量、完整报告、领域处理与正式评估尚未全部验证，不能据此宣称阶段 1 或完整 V1 已完成。
+模型输出不会自动被当成已验收成功。文件层检查完成后显示“待确认”，用户检查后可以要求修改，或确认满足目标并封存交付。用户验收不代表科学精度验证。服务重启先暂停并对账，缺少匹配检查点的已执行动作不会盲目重跑。受限代码真实执行、依赖准备、搜索、角色异常/冲突处理的完整 UI、各模型的长任务质量、完整报告、领域处理与正式评估尚未全部验证，不能据此宣称阶段 1 或完整 V1 已完成。
+
+角色定义在 `src/forestry_agent/roles.yaml`，也可用 `roles_path` 配置自定义 YAML；新任务冻结目录及其指纹。H0 为基础工具对照，关闭知识/记忆检索、委派和自动外置/压缩；H1 加入上下文整理和结果读回；H2 在 H1 上允许按需隔离委派。三种配方共有身份核对、权限、动作登记、预算和用户验收边界。配方入口不代表六组合正式实验已完成。恢复时保留逻辑回合与动作账本，每次 `Agent.run` 使用新的原生运行 ID，检查点仍由 Harness 保存，应用只记录回合与原生运行的关联。
 
 上下文预算当前使用 UTF-8 字节保守估算，并预留输出和工具协议开销；超限明确停止，不静默改写用户目标。模型响应缺少用量时标记 unavailable，不能当作零用量校准。每个新任务冻结单次模型请求的总时限（默认 300 秒），流式响应也不能无限延长等待。完整输入快照仅保存在私有 `.forestry/model-inputs`，界面事件只返回引用与计数。软件烟测夹具不构成现场观测或科学精度证明。
 

@@ -27,6 +27,7 @@ class Config(BaseModel):
     models: dict[str, ModelProfile]
     default_model: str = "small"
     search_base_url: str | None = None
+    roles_path: Path | None = None
     max_model_requests_per_turn: int = Field(default=30, ge=1, le=1000)
     max_output_retries: int = Field(default=3, ge=0, le=5)
     max_model_request_seconds: int = Field(default=300, ge=1, le=1800)
@@ -62,5 +63,7 @@ def load_config(path: str | Path = "config/app.example.yaml") -> Config:
     config = Config.model_validate(raw)
     if not config.workspace_root.is_absolute():
         config.workspace_root = (config_path.parent.parent / config.workspace_root).resolve()
+    if config.roles_path and not config.roles_path.is_absolute():
+        config.roles_path = (config_path.parent / config.roles_path).resolve()
     return config
 

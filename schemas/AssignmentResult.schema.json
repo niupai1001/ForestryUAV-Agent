@@ -1,0 +1,121 @@
+{
+  "$defs": {
+    "CheckItem": {
+      "additionalProperties": false,
+      "properties": {
+        "criterion": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Criterion",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "observation": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Observation",
+          "type": "string"
+        },
+        "evidence_refs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Evidence Refs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "criterion",
+        "status",
+        "observation"
+      ],
+      "title": "CheckItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "status": {
+      "enum": [
+        "succeeded",
+        "partial",
+        "failed",
+        "cancelled"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "environment_manifest",
+        "dataset_manifest",
+        "experiment_result",
+        "quality_assessment"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "summary": {
+      "maxLength": 4000,
+      "minLength": 1,
+      "title": "Summary",
+      "type": "string"
+    },
+    "artifact_ids": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Artifact Ids",
+      "type": "array"
+    },
+    "evidence_refs": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 40,
+      "title": "Evidence Refs",
+      "type": "array"
+    },
+    "job_ids": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Job Ids",
+      "type": "array"
+    },
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/CheckItem"
+      },
+      "maxItems": 30,
+      "title": "Checks",
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Limitations",
+      "type": "array"
+    }
+  },
+  "required": [
+    "status",
+    "kind",
+    "summary"
+  ],
+  "title": "AssignmentResult",
+  "type": "object"
+}

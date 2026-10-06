@@ -13,7 +13,7 @@ from .config import Config
 from .store import now
 
 
-async def doctor(config: Config) -> dict:
+async def doctor(config: Config, *, probe_search: bool = True) -> dict:
     config.workspace_root.mkdir(parents=True, exist_ok=True)
     disk = shutil.disk_usage(config.workspace_root)
     report = {"schema_version": 1, "observed_at": now(), "system": platform.platform(),
@@ -46,7 +46,7 @@ async def doctor(config: Config) -> dict:
                     "capabilities": match.get("capabilities", []) if match else []}
         except (httpx.HTTPError, KeyError, ValueError) as error:
             report["capabilities"]["local_models"] = {"status": "failed", "message": str(error)}
-        if config.search_base_url:
+        if config.search_base_url and probe_search:
             try:
                 response = await client.get(config.search_base_url.rstrip("/") + "/search",
                                             params={"q": "OpenDroneMap", "format": "json"})
@@ -57,7 +57,7 @@ async def doctor(config: Config) -> dict:
             except (httpx.HTTPError, ValueError, TypeError) as error:
                 report["capabilities"]["search"] = {"status": "failed", "message": str(error)}
         else:
-            report["capabilities"]["search"] = {"status": "not_configured"}
+            report["capabilities"]["search"] = {"status": "not_probed" if config.search_base_url else "not_configured"}
     try:
         command = await asyncio.to_thread(subprocess.run,
             ["docker", "--config", str(config.workspace_root / ".forestry" / "docker"),

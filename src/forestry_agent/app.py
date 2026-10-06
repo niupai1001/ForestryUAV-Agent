@@ -179,9 +179,12 @@ def create_app(config: Config, *, enable_agent: bool = True):
             raise Failure("PRECONDITION_MISSING", "当前阶段尚未实现该指定方法", 422)
         identity = await model_identity(config, config.models[profile]) if enable_agent else {"backend": "test_fixture"}
         state = store.create_task(payload.model_dump(), {"model_profile": profile,
+            "harness_mode": payload.harness_mode, "role_catalog": engine.roles.catalog,
             "settings_version": current["version"], "model": config.models[profile].model_dump(),
             "model_identity": identity, "model_base_url": config.model_base_url,
             "generation": {"temperature": 0.2, "think": False, "max_output_retries": config.max_output_retries,
+                           "max_model_requests_per_turn": config.max_model_requests_per_turn,
+                           "max_assignments_per_task": config.max_assignments_per_task,
                            "max_model_request_seconds": config.max_model_request_seconds}})
         actual = store.task(state["task_id"])
         with store.transaction() as db:
@@ -260,6 +263,7 @@ def create_app(config: Config, *, enable_agent: bool = True):
         def mutate(state, db):
             store.user_event(db, "task_cancel", payload.model_dump())
             state["cancellation_requested"] = True
+            engine.roles.cancel_waiting(task_id, db)
             live = task_id in engine.queue and not engine.queue[task_id].done()
             if not live:
                 if engine.cancel_status(db, task_id) != "cancelled":
@@ -286,7 +290,7 @@ def create_app(config: Config, *, enable_agent: bool = True):
         result = store.change(task_id, "task.resume_requested", mutate, payload.model_dump(), payload.expected_state_version)
         if enable_agent and (task_id not in engine.queue or engine.queue[task_id].done()):
             with store.transaction() as db:
-                turn = db.execute("SELECT * FROM turns WHERE task_id=? AND revision=? ORDER BY created_at DESC LIMIT 1",
+                turn = db.execute("SELECT * FROM turns WHERE task_id=? AND revision=? AND id NOT IN (SELECT json_extract(payload,'$.run_id') FROM assignments) ORDER BY created_at DESC LIMIT 1",
                                   (task_id, result["spec_revision"])).fetchone()
             if turn and turn["status"] not in {"completed", "cancelled"}:
                 engine.submit(task_id, turn["prompt"], turn["id"])
@@ -321,6 +325,24 @@ def create_app(config: Config, *, enable_agent: bool = True):
         return [{**{k: v for k, v in resources.artifact(i).items() if k != "locator"},
             "preview_url": f"/artifacts/{i}/content", "download_url": f"/artifacts/{i}/content?download=true"}
             for i in state["artifact_ids"]]
+
+    @app.get("/roles")
+    def role_catalog():
+        return engine.roles.catalog
+
+    @app.get("/roles/schemas")
+    def role_schemas():
+        from .roles import AssignmentRequest, AssignmentResult, RoleCatalog
+        return {"AssignmentRequest": AssignmentRequest.model_json_schema(),
+                "AssignmentResult": AssignmentResult.model_json_schema(), "RoleCatalog": RoleCatalog.model_json_schema()}
+
+    @app.get("/tasks/{task_id}/assignments")
+    def assignments(task_id: str):
+        return engine.roles.list(task_id)
+
+    @app.get("/tasks/{task_id}/assignments/{assignment_id}")
+    def assignment(task_id: str, assignment_id: str):
+        return engine.roles.read(assignment_id, task_id)
 
     @app.get("/tasks/{task_id}/jobs/{job_id}")
     def job(task_id: str, job_id: str):

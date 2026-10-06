@@ -1,0 +1,38 @@
+import { test, expect } from '@playwright/test';
+
+test('work modes and persisted real delegation results are inspectable on desktop and mobile', async ({page}) => {
+  const taskId = process.env.ROLE_SMOKE_TASK;
+  test.skip(!taskId, 'Set ROLE_SMOKE_TASK to a recorded real-model smoke task.');
+  const errors:string[] = [];
+  page.on('pageerror', e=>errors.push(e.message));
+  await page.goto('/');
+  await page.getByRole('button',{name:'新建任务'}).click();
+  const mode = page.getByLabel('工作方式', {exact:true});
+  await expect(mode).toHaveValue('H2');
+  await mode.selectOption('H0');
+  await expect(page.getByText('用于基础对照，关闭角色委派、知识检索与自动上下文整理。')).toBeVisible();
+  await mode.selectOption('H1');
+  await expect(page.getByText('同一个助手完成工作，保留上下文整理与结果读回。')).toBeVisible();
+  await page.evaluate(id=>localStorage.setItem('forestry.task', id!), taskId);
+  await page.reload();
+  await expect(page.locator('.task-meta')).toContainText('H2');
+  await page.getByRole('button',{name:/^委派/}).click();
+  await expect(page.locator('.assignment-item')).toHaveCount(2);
+  const data = page.locator('.assignment-item').filter({has:page.locator('summary strong',{hasText:'数据准备'})});
+  const quality = page.locator('.assignment-item').filter({has:page.locator('summary strong',{hasText:'质量复核'})});
+  await data.locator('summary').click();
+  await quality.locator('summary').click();
+  await expect(data).toContainText('已返回');
+  await expect(quality).toContainText('已返回');
+  await expect(quality).toContainText('独立结果供协调者检查与整合，任务仍须由你验收。');
+  await expect(data.getByRole('button',{name:'data-result.json'})).toBeVisible();
+  await data.getByRole('button',{name:'data-result.json'}).click();
+  await expect(page.locator('.preview-modal pre')).toContainText('青杉42');
+  await expect(page.locator('.preview-modal pre')).toContainText('source_sha256');
+  await page.locator('.preview-modal .modal-heading button').click();
+  await page.screenshot({path:'../workspace/evidence/workbench-roles-desktop.png',fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
+  await page.screenshot({path:'../workspace/evidence/workbench-roles-mobile.png',fullPage:true});
+  expect(errors).toEqual([]);
+});

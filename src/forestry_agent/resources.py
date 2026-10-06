@@ -10,6 +10,18 @@ from .contracts import Failure
 from .store import Store, encode, now, uid
 
 
+def native_path(path: Path) -> Path:
+    """Use the Windows extended form for I/O without changing stored logical paths."""
+    if os.name != "nt":
+        return path
+    value = os.path.abspath(path)
+    if value.startswith("\\\\?\\") or len(value) < 240:
+        return Path(value)
+    if value.startswith("\\\\"):
+        return Path("\\\\?\\UNC\\" + value[2:])
+    return Path("\\\\?\\" + value)
+
+
 def inside(root: Path, relative: str) -> Path:
     target = (root / relative).resolve()
     if not target.is_relative_to(root.resolve()):
@@ -18,7 +30,7 @@ def inside(root: Path, relative: str) -> Path:
 
 
 def version(path: Path) -> str:
-    info = path.stat()
+    info = native_path(path).stat()
     return f"stat:{info.st_size}:{info.st_mtime_ns}:{info.st_ctime_ns}"
 
 
@@ -126,16 +138,16 @@ class Resources:
         path = inside(self.task_root(task_id), relative)
         if not relative or path == self.task_root(task_id):
             raise Failure("SCHEMA_INVALID", "需要任务工作区中的文件名")
-        path.parent.mkdir(parents=True, exist_ok=True)
+        native_path(path.parent).mkdir(parents=True, exist_ok=True)
         staging = path.with_name(f".{action_id}.staging")
-        staging.write_text(text, encoding="utf-8")
-        os.replace(staging, path)
+        native_path(staging).write_text(text, encoding="utf-8")
+        os.replace(native_path(staging), native_path(path))
         # Each artifact is an immutable copy. Working-file edits cannot rewrite evidence.
         artifact_id = uid()
         frozen = self.workspace / "tasks" / task_id / "artifacts" / artifact_id / path.name
-        frozen.parent.mkdir(parents=True, exist_ok=True)
-        content = path.read_bytes()
-        frozen.write_bytes(content)
+        native_path(frozen.parent).mkdir(parents=True, exist_ok=True)
+        content = native_path(path).read_bytes()
+        native_path(frozen).write_bytes(content)
         artifact = {"artifact_id": artifact_id, "schema_version": 1, "task_id": task_id,
             "relative_path": relative, "name": path.name, "locator": str(frozen),
             "sha256": hashlib.sha256(content).hexdigest(), "size_bytes": len(content),
@@ -173,7 +185,7 @@ class Resources:
         if offset < 0:
             raise Failure("SCHEMA_INVALID", "分页游标不能为负")
         limit = 12000
-        with Path(artifact["locator"]).open("rb") as stream:
+        with native_path(Path(artifact["locator"])).open("rb") as stream:
             stream.seek(offset)
             raw = stream.read(limit + 1)
         chunk = raw[:limit]
@@ -206,14 +218,14 @@ class Resources:
         before = version(source)
         artifact_id = uid()
         frozen = self.workspace / "tasks" / task_id / "artifacts" / artifact_id / source.name
-        frozen.parent.mkdir(parents=True, exist_ok=True)
-        with source.open("rb") as reader, frozen.open("xb") as writer:
+        native_path(frozen.parent).mkdir(parents=True, exist_ok=True)
+        with native_path(source).open("rb") as reader, native_path(frozen).open("xb") as writer:
             shutil.copyfileobj(reader, writer, length=1024 * 1024)
         if version(source) != before:
             raise Failure("VERSION_CONFLICT", "封存期间产物发生变化", 409)
         artifact = {"artifact_id": artifact_id, "schema_version": 1, "task_id": task_id,
             "relative_path": relative, "name": source.name, "locator": str(frozen),
-            "sha256": file_hash(frozen), "size_bytes": frozen.stat().st_size,
+            "sha256": file_hash(frozen), "size_bytes": native_path(frozen).stat().st_size,
             "media_type": mimetypes.guess_type(source.name)[0] or "application/octet-stream",
             "producer_action_id": action_id, "created_at": now(), "lifecycle": "available",
             "verification": {"file_readable": True, "answers_task": "not_assessed"}}
@@ -228,7 +240,7 @@ class Resources:
 
 def file_hash(path: Path):
     digest = hashlib.sha256()
-    with path.open("rb") as stream:
+    with native_path(path).open("rb") as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()

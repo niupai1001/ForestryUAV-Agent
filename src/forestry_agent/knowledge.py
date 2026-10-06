@@ -34,12 +34,12 @@ class Knowledge:
         return {"chunk_ids": [c[0] for c in chunks], "citation": citation,
                 "next_page": document["next_page"], "has_more": document["has_more"]}
 
-    def search(self, task_id, query: str, limit: int = 8):
+    def search(self, task_id, query: str, limit: int = 8, allowed_refs=None):
         terms = list(dict.fromkeys(tokens(query).split()))[:40]
         if not terms or len(query) > 2000 or limit < 1 or limit > 20:
             raise Failure("SCHEMA_INVALID", "检索查询或结果数不符合限制")
         state = self.store.task(task_id)
-        refs = state["input_refs"]
+        refs = [ref for ref in state["input_refs"] if allowed_refs is None or ref in allowed_refs]
         if not refs:
             return {"matches": [], "scope": "task_inputs_only"}
         expression = " OR ".join('"' + t.replace('"', '""') + '"' for t in terms)

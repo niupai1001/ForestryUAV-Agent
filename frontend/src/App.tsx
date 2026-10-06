@@ -5,6 +5,7 @@ import { ArrowDownToLine, ArrowUpRight, Check, ChevronDown, CircleHelp, File, Fo
 
 type Task = {task_id: string; objective: string; status: string; state_version: number;
   spec_revision: number; model_profile: string; input_refs: string[]; artifact_ids: string[];
+  config_snapshot?: {harness_mode?: string};
   messages: {id: string; role: string; text: string; limitations?: string[]}[];
   blockers: {code: string; message: string}[]; action_count: number;
   last_usage?: {requests: number; input_tokens: number; output_tokens: number}};
@@ -15,6 +16,12 @@ type Event = {sequence: number; event_id: string; type: string; payload: Record<
 type Candidate = {candidate_sha256:string; state_version:number; candidate:{spec_revision:number; answer:string;
   limitations:string[]; outputs:{artifact_id:string;name:string;sha256:string}[]}};
 type Note = {memory_id:string;text:string;tags:string[]};
+type Assignment = {assignment_id:string;role_id:string;status:string;model_requests:number;actions:number;
+  effective_input_refs:string[];effective_artifact_refs:string[];request:{objective:string};
+  result?:{summary:string;artifact_ids:string[];limitations:string[];checks:{criterion:string;status:string;observation:string}[]} | null;
+  blocker?:{message:string}|null};
+const roleNames:Record<string,string> = {environment:'环境检查',data:'数据准备',code_experiment:'代码实验',quality:'质量复核'};
+const assignmentLabels:Record<string,string> = {queued:'等待开始',running:'运行中',waiting:'等待恢复',succeeded:'已返回',partial:'部分结果',failed:'失败',cancelled:'已取消'};
 const labels: Record<string,string> = {created:'等待运行', active:'运行中', paused:'已暂停',
   completed:'已完成', failed:'失败', cancelled:'已取消', waiting_user:'待确认', waiting_job:'处理中', publishing:'正在封存'};
 const requestId = () => crypto.randomUUID();
@@ -30,11 +37,12 @@ export default function App() {
   const [tasks,setTasks] = useState<Task[]>([]), [active,setActive] = useState<Task|null>(null);
   const [resources,setResources] = useState<Resource[]>([]), [selected,setSelected] = useState<string[]>([]);
   const [artifacts,setArtifacts] = useState<Artifact[]>([]), [events,setEvents] = useState<Event[]>([]);
+  const [assignments,setAssignments] = useState<Assignment[]>([]), [harness,setHarness] = useState('H2');
   const [text,setText] = useState(''), [error,setError] = useState(''), [busy,setBusy] = useState(false);
   const [settings,setSettings] = useState<{version:number; default_model:string; models:Record<string,any>}|null>(null);
   const [showSettings,setShowSettings] = useState(false), [showSource,setShowSource] = useState(false);
   const [path,setPath] = useState(''), [privateSource,setPrivateSource] = useState(true);
-  const [diagnostics,setDiagnostics] = useState<any>(null), [panel,setPanel] = useState<'artifacts'|'trace'>('artifacts');
+  const [diagnostics,setDiagnostics] = useState<any>(null), [panel,setPanel] = useState<'artifacts'|'trace'|'roles'>('artifacts');
   const [preview,setPreview] = useState<Artifact|null>(null), [previewText,setPreviewText] = useState('');
   const [candidate,setCandidate] = useState<Candidate|null>(null), [acceptComment,setAcceptComment] = useState('');
   const [notes,setNotes] = useState<Note[]>([]), [noteText,setNoteText] = useState('');
@@ -51,7 +59,7 @@ export default function App() {
     if(saved) try {setActive(await api<Task>(`/tasks/${saved}`));} catch {localStorage.removeItem('forestry.task');}
   });},[]);
   useEffect(()=>{
-    if(!active) {setArtifacts([]); setEvents([]); return;}
+    if(!active) {setArtifacts([]); setEvents([]); setAssignments([]); return;}
     localStorage.setItem('forestry.task',active.task_id);
     seen.current = new Set(); setEvents([]);
     const id = active.task_id;
@@ -61,10 +69,12 @@ export default function App() {
       if(seen.current.has(event.event_id)) return;
       seen.current.add(event.event_id); setEvents(previous => [...previous,event].slice(-500));
       if(event.type !== 'model.text') void guarded(async()=>{
-        setActive(await api<Task>(`/tasks/${id}`)); setArtifacts(await api<Artifact[]>(`/tasks/${id}/artifacts`)); await refresh();
+        setActive(await api<Task>(`/tasks/${id}`)); setArtifacts(await api<Artifact[]>(`/tasks/${id}/artifacts`));
+        setAssignments(await api<Assignment[]>(`/tasks/${id}/assignments`)); await refresh();
       });
     };
-    void guarded(async()=>{setArtifacts(await api<Artifact[]>(`/tasks/${id}/artifacts`));});
+    void guarded(async()=>{setArtifacts(await api<Artifact[]>(`/tasks/${id}/artifacts`));
+      setAssignments(await api<Assignment[]>(`/tasks/${id}/assignments`));});
     return ()=>source.close();
   },[active?.task_id]);
   const newTask = () => {setActive(null); setSelected([]); setText(''); localStorage.removeItem('forestry.task'); input.current?.focus();};
@@ -76,7 +86,7 @@ export default function App() {
       if(active) result = await api(`/tasks/${active.task_id}/messages`,{request_id:requestId(),
         expected_spec_revision:active.spec_revision,text});
       else result = await api('/tasks',{request_id:requestId(),objective:text,input_refs:selected,
-        requested_metrics:[],requested_method_id:null, constraints:{},output_preferences:{report_language:'zh'}});
+        harness_mode:harness,requested_metrics:[],requested_method_id:null, constraints:{},output_preferences:{report_language:'zh'}});
       setActive(result); setText(''); await refresh();
     }); setBusy(false);
   };
@@ -109,7 +119,7 @@ export default function App() {
       verdict,comment:acceptComment})); setCandidate(null); await refresh();}); setBusy(false);
   };
   const tools = events.filter(e=>e.type === 'action.started' || e.type === 'action.observed');
-  const liveText = events.filter(e=>e.type === 'model.text').map(e=>e.payload.text).join('');
+  const liveText = events.filter(e=>e.type === 'model.text' && !e.payload.assignment_id).map(e=>e.payload.text).join('');
 
   return <div className="app-shell">
     <aside className="sidebar">
@@ -143,7 +153,7 @@ export default function App() {
                 ['编写处理脚本','阅读已选数据文件，编写可复现的数据处理 Python 脚本；当前代码执行未启用时请明确标注未运行。',Terminal]
               ].map(([title,prompt,Icon])=>{const Symbol=Icon as typeof File; return <button key={String(title)} onClick={()=>{setText(String(prompt));input.current?.focus();}}><Symbol size={17}/><span>{String(title)}</span><ArrowUpRight size={14}/></button>;})}</div>
               <div className="honesty-note"><CircleHelp size={15}/>当前可使用真实模型与文件工具；搜索、受限代码及林业流程逐阶段验收。</div></>:
-              <><div className="user-message"><span className="message-label">你的目标</span><p>{active.objective}</p><div className="task-meta">修订 {active.spec_revision} · {active.model_profile==='large'?'Qwen3.8 · 27B':'Qwen3.5 · 4B'}</div></div>
+              <><div className="user-message"><span className="message-label">你的目标</span><p>{active.objective}</p><div className="task-meta">修订 {active.spec_revision} · {active.model_profile==='large'?'Qwen3.8 · 27B':'Qwen3.5 · 4B'} · {active.config_snapshot?.harness_mode||'H1'}</div></div>
                 {active.messages.map(message=><div key={message.id} className={`message ${message.role}`}><span className="message-label">{message.role==='assistant'?'林遥 Agent':'你的补充'}</span><div className="message-text">{message.text}</div>
                   {message.limitations?.length?<div className="limitations">{message.limitations.map((l,i)=><p key={i}>{l}</p>)}</div>:null}</div>)}
                 {live&&<div className="running"><div className="pulse-ring"/><div><strong>Agent 正在工作</strong><p>{tools.length?`${tools.filter(e=>e.type==='action.started').length} 次工具调用已登记`:'正在连接本地模型…'}</p></div></div>}
@@ -157,6 +167,9 @@ export default function App() {
               </>}
           </div>
           <div className="composer">
+            {!active&&<label className="harness-choice">工作方式<select aria-label="工作方式" value={harness} onChange={e=>setHarness(e.target.value)}>
+              <option value="H2">H2 · 按需独立复核</option><option value="H1">H1 · 单个助手持续处理</option><option value="H0">H0 · 基础工具对照</option></select>
+              <span>{harness==='H2'?'助手可将独立工作交给专门角色，返回结果后统一整理。':harness==='H1'?'同一个助手完成工作，保留上下文整理与结果读回。':'用于基础对照，关闭角色委派、知识检索与自动上下文整理。'}</span></label>}
             {resources.length>0&&<div className="source-chips">{resources.map(r=><button key={r.resource_id}
               className={(active?active.input_refs:selected).includes(r.resource_id)?'checked':''} disabled={!!active}
               onClick={()=>setSelected(old=>old.includes(r.resource_id)?old.filter(id=>id!==r.resource_id):[...old,r.resource_id])}>
@@ -167,9 +180,16 @@ export default function App() {
           </div>
         </section>
         <aside className="inspector"><section className="inspector-card">
-          <div className="inspector-tabs"><button className={panel==='artifacts'?'active':''} onClick={()=>setPanel('artifacts')}>产物与文件<span>{artifacts.length}</span></button><button className={panel==='trace'?'active':''} onClick={()=>setPanel('trace')}>执行记录</button></div>
+          <div className="inspector-tabs"><button className={panel==='artifacts'?'active':''} onClick={()=>setPanel('artifacts')}>产物<span>{artifacts.length}</span></button><button className={panel==='trace'?'active':''} onClick={()=>setPanel('trace')}>执行记录</button><button className={panel==='roles'?'active':''} onClick={()=>setPanel('roles')}>委派<span>{assignments.length}</span></button></div>
           {panel==='artifacts'?<div className="artifact-list">{artifacts.length?artifacts.map(a=><div className="artifact-item" key={a.artifact_id}><div className="file-icon"><File size={20}/></div><div><button onClick={()=>void openPreview(a)}>{a.name}</button><span>{(a.size_bytes/1024).toFixed(1)} KB · 校验和已检查</span></div><a title="下载产物" href={a.download_url}><ArrowDownToLine size={15}/></a></div>):<div className="inspector-empty"><div><FolderOpen size={26}/></div><strong>结果会出现在这里</strong><p>真实生成的报告、代码与表格<br/>支持版本检查、预览和下载。</p></div>}</div>:
-            <div className="trace-list">{tools.length?tools.map(e=><details key={e.event_id}><summary><span className={e.type==='action.observed'?'observed':'started'}/>{e.payload.tool}<small>{e.type==='action.observed'?'已返回':'调用'}</small></summary><pre>{JSON.stringify(e.payload.arguments||e.payload.result,null,2)}</pre></details>):<div className="inspector-empty"><Terminal size={26}/><p>工具调用后显示真实参数和结果</p></div>}</div>}
+            panel==='trace'?<div className="trace-list">{tools.length?tools.map(e=><details key={e.event_id}><summary><span className={e.type==='action.observed'?'observed':'started'}/>{e.payload.tool}<small>{e.type==='action.observed'?'已返回':'调用'}</small></summary><pre>{JSON.stringify(e.payload.arguments||e.payload.result,null,2)}</pre></details>):<div className="inspector-empty"><Terminal size={26}/><p>工具调用后显示真实参数和结果</p></div>}</div>:
+            <div className="assignment-list">{assignments.length?assignments.map(a=><details key={a.assignment_id} className="assignment-item"><summary><strong>{roleNames[a.role_id]||a.role_id}</strong><span>{assignmentLabels[a.status]||a.status}</span></summary>
+              <p>{a.request.objective}</p><small>{a.model_requests} 次模型请求 · {a.actions} 次动作 · {a.effective_input_refs.length} 个授权输入</small>
+              {a.blocker&&<p className="limitations">{a.blocker.message}</p>}{a.result&&<><p>{a.result.summary}</p>
+                {a.result.checks.map((c,i)=><p className="role-check" key={i}>{c.status==='passed'?'通过':c.status==='failed'?'失败':'未知'} · {c.criterion}<br/>{c.observation}</p>)}
+                {a.result.artifact_ids.map(id=>{const artifact=artifacts.find(f=>f.artifact_id===id);return artifact?<button key={id} onClick={()=>void openPreview(artifact)}><File size={13}/>{artifact.name}</button>:null;})}
+                {a.result.limitations.map((l,i)=><p className="limitations" key={i}>{l}</p>)}</>}
+              <p className="muted">独立结果供协调者检查与整合，任务仍须由你验收。</p></details>):<div className="inspector-empty"><ShieldCheck size={26}/><p>需要独立工作时才会委派。<br/>这里显示实际范围、状态和结果。</p></div>}</div>}
         </section>
         <section className="guide-card"><span className="guide-label">工作方式</span><h3>可检查，才可交付。</h3><p>源文件保持只读。所有操作先登记，产物保留版本。执行成功与回答目标分别验收。</p><div><ShieldCheck size={16}/><span>权限与状态由应用控制</span></div></section>
         {active&&<section className="control-card"><div><span className={`status-dot ${active.status}`}/><strong>{labels[active.status]}</strong></div><div className="task-controls">

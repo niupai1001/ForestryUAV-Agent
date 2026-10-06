@@ -67,13 +67,13 @@ def test_actions_are_durable_and_replay_does_not_reexecute(client,app):
             assert db.execute("SELECT status FROM actions WHERE id=?",(action_id,)).fetchone()[0] == "pending"
         observed.append(action_id)
         return {"value":42}
-    one = app.state.engine.perform(deps,"call-1","fixture.effect",{"x":1},execute)
-    two = app.state.engine.perform(deps,"call-1","fixture.effect",{"x":1},execute)
+    one = app.state.engine.perform(deps,"call-1","fs.write_workspace",{"x":1},execute)
+    two = app.state.engine.perform(deps,"call-1","fs.write_workspace",{"x":1},execute)
     assert one == two and len(observed) == 1
-    app.state.engine.perform(deps,"call-2","fixture.effect",{"x":1},execute)
+    app.state.engine.perform(deps,"call-2","fs.write_workspace",{"x":1},execute)
     assert len(observed) == 2
     with pytest.raises(Failure):
-        app.state.engine.perform(deps,"call-1","fixture.effect",{"x":2},execute)
+        app.state.engine.perform(deps,"call-1","fs.write_workspace",{"x":2},execute)
     assert app.state.store.task(state["task_id"])["action_count"] == 2
 
 

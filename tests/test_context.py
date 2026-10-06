@@ -145,7 +145,7 @@ async def test_action_readback_is_revision_scoped_and_does_not_repeat_effect(cli
     state, _ = task(client)
     engine = app.state.engine
     original = Deps(engine, state["task_id"], "original-action", 1)
-    engine.perform(original, "read-one", "fixture.read", {}, lambda _: {"decisive": "42"})
+    engine.perform(original, "read-one", "fs.read", {}, lambda _: {"decisive": "42"})
     with engine.store.transaction() as db:
         action_id = db.execute("SELECT id FROM actions WHERE turn_id='original-action'").fetchone()[0]
     agent, connection = engine.make_agent("small", "recover-action", task_id=state["task_id"])
@@ -177,7 +177,7 @@ async def test_action_readback_is_revision_scoped_and_does_not_repeat_effect(cli
         finally:
             await connection2.aclose()
         with engine.store.transaction() as db:
-            assert db.execute("SELECT COUNT(*) FROM actions WHERE kind='fixture.read'").fetchone()[0] == 1
+            assert db.execute("SELECT COUNT(*) FROM actions WHERE kind='fs.read'").fetchone()[0] == 1
     finally:
         await connection.aclose()
 

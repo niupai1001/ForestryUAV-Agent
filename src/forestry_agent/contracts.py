@@ -16,6 +16,7 @@ class TaskCreate(Boundary):
     requested_metrics: list[str] = Field(default_factory=list)
     requested_method_id: str | None = None
     model_profile: str | None = None
+    harness_mode: Literal["H0", "H1", "H2"] = "H2"
     constraints: dict = Field(default_factory=dict)
     output_preferences: dict = Field(default_factory=lambda: {"report_language": "zh"})
 

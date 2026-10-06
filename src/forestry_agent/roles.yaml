@@ -1,0 +1,62 @@
+schema_version: 1
+roles:
+  - role_id: coordinator
+    objective_scope: 理解当前目标，按证据规划和整合；有独立工作收益时才委派。
+    model_profile: inherit_task
+    allowed_capabilities: [fs.inputs, fs.list, fs.read, fs.write_workspace, artifact.inspect, artifact.read, action.inspect, document.read, knowledge.index, knowledge.search, memory.read, environment.inspect, code.execute, job.observe, role.delegate]
+    permission_ceiling: {workspace_write: true, source_write: false, network: none, parent_task_mutation: false}
+    context_budget: 32768
+    return_schema: Answer
+    assignment_limit: 0
+    max_requests: 30
+    max_actions: 1000
+    seconds: 900
+    prompt_template: 按需选择独立数据准备、环境诊断、代码实验或质量检查。子结果是待验证建议；保留冲突和局限，不自动验收。子任务 task 参数必须是 AssignmentRequest JSON，显式包含 objective、input_refs、artifact_refs；不能复制父对话。委派目标必须保留与该工作有关的工具要求、输出字段和验收判据，不能删掉来源或独立核对要求。
+  - role_id: environment
+    objective_scope: 诊断本地环境与依赖就绪状态，提供可核查清单和阻塞证据。
+    model_profile: inherit_task
+    allowed_capabilities: [fs.inputs, fs.list, document.read, artifact.inspect, artifact.read, fs.write_workspace, environment.inspect]
+    permission_ceiling: {workspace_write: true, source_write: false, network: none, parent_task_mutation: false}
+    context_budget: 32768
+    return_schema: AssignmentResult
+    assignment_limit: 8
+    max_requests: 12
+    max_actions: 64
+    seconds: 900
+    prompt_template: 仅按实际环境检查返回 environment_manifest；未知能力保持未知。不能安装系统依赖、改配置或授予联网权限。输出清单包含就绪状态、实际观察及阻塞。
+  - role_id: data
+    objective_scope: 读取所授输入、检查元数据与来源支持、建立本地索引和准备数据清单。
+    model_profile: inherit_task
+    allowed_capabilities: [fs.inputs, fs.list, fs.read, document.read, knowledge.index, knowledge.search, artifact.inspect, artifact.read, fs.write_workspace]
+    permission_ceiling: {workspace_write: true, source_write: false, network: none, parent_task_mutation: false}
+    context_budget: 32768
+    return_schema: AssignmentResult
+    assignment_limit: 8
+    max_requests: 12
+    max_actions: 64
+    seconds: 900
+    prompt_template: 返回 dataset_manifest，说明真实资源、读取/缺陷检查、来源引用和局限。只读源文件；不得补造数据或声称未执行的处理。
+  - role_id: code_experiment
+    objective_scope: 编写代码，运行受限小试和有界候选比较，报告实际结果与失败。
+    model_profile: inherit_task
+    allowed_capabilities: [fs.inputs, fs.list, fs.read, document.read, artifact.inspect, artifact.read, fs.write_workspace, environment.inspect, code.execute, job.observe]
+    permission_ceiling: {workspace_write: true, source_write: false, network: none, parent_task_mutation: false}
+    context_budget: 32768
+    return_schema: AssignmentResult
+    assignment_limit: 8
+    max_requests: 16
+    max_actions: 80
+    seconds: 900
+    prompt_template: 返回 experiment_result，引用代码、作业及结果。仅通过受限代码工具执行；执行器不可用时明确报告阻塞，不能在宿主机执行或虚构成功。
+  - role_id: quality
+    objective_scope: 按已声明判据独立检查候选文件、来源支持及主张，保留可处理差异。
+    model_profile: inherit_task
+    allowed_capabilities: [fs.inputs, fs.list, fs.read, document.read, artifact.inspect, artifact.read, fs.write_workspace]
+    permission_ceiling: {workspace_write: true, source_write: false, network: none, parent_task_mutation: false}
+    context_budget: 32768
+    return_schema: AssignmentResult
+    assignment_limit: 8
+    max_requests: 12
+    max_actions: 64
+    seconds: 900
+    prompt_template: 返回 quality_assessment，逐项列判据、观察引用、通过/失败/未知及差异。不能将文件可读性或另一个角色的结论当成科学精度证明，不提交父任务验收或终态。

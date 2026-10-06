@@ -29,6 +29,7 @@ def main():
     source.add_argument("--spec", type=Path)
     run.add_argument("--input", action="append", default=[])
     run.add_argument("--model", choices=["small", "large"])
+    run.add_argument("--harness", choices=["H0", "H1", "H2"])
     run.add_argument("--timeout", type=int, default=300)
     run.add_argument("--config", default="config/app.example.yaml")
     inspect = commands.add_parser("tasks")
@@ -41,11 +42,15 @@ def main():
     args = parser.parse_args()
     if args.command == "schema":
         from . import contracts
+        from .roles import AssignmentRequest, AssignmentResult, RoleCatalog
         target = Path(args.output)
         target.mkdir(parents=True, exist_ok=True)
         for name in ["TaskCreate", "Message", "Amendment", "Control", "RegisterResource", "SettingsChange", "Acceptance", "MemorySave", "MemoryForget"]:
             model = getattr(contracts, name)
             (target / f"{name}.schema.json").write_text(
+                json.dumps(model.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf-8")
+        for model in [RoleCatalog, AssignmentRequest, AssignmentResult]:
+            (target / f"{model.__name__}.schema.json").write_text(
                 json.dumps(model.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf-8")
         return
     config = load_config(args.config)
@@ -62,6 +67,8 @@ def main():
                     "request_id": str(uuid4()), "objective": args.objective, "model_profile": args.model}
                 if args.model:
                     payload["model_profile"] = args.model
+                if args.harness:
+                    payload["harness_mode"] = args.harness
                 result = client.run(payload, args.input, args.timeout)
                 print(json.dumps(result, ensure_ascii=False, indent=2))
                 raise SystemExit(3 if result["wait_timed_out"] else

@@ -1,0 +1,171 @@
+{
+  "$defs": {
+    "PermissionCeiling": {
+      "additionalProperties": false,
+      "properties": {
+        "workspace_write": {
+          "title": "Workspace Write",
+          "type": "boolean"
+        },
+        "source_write": {
+          "const": false,
+          "default": false,
+          "title": "Source Write",
+          "type": "boolean"
+        },
+        "network": {
+          "const": "none",
+          "default": "none",
+          "title": "Network",
+          "type": "string"
+        },
+        "parent_task_mutation": {
+          "const": false,
+          "default": false,
+          "title": "Parent Task Mutation",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "workspace_write"
+      ],
+      "title": "PermissionCeiling",
+      "type": "object"
+    },
+    "RoleConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "role_id": {
+          "enum": [
+            "coordinator",
+            "environment",
+            "data",
+            "code_experiment",
+            "quality"
+          ],
+          "title": "Role Id",
+          "type": "string"
+        },
+        "objective_scope": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Objective Scope",
+          "type": "string"
+        },
+        "model_profile": {
+          "const": "inherit_task",
+          "title": "Model Profile",
+          "type": "string"
+        },
+        "allowed_capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Allowed Capabilities",
+          "type": "array"
+        },
+        "permission_ceiling": {
+          "$ref": "#/$defs/PermissionCeiling"
+        },
+        "context_budget": {
+          "maximum": 131072,
+          "minimum": 8192,
+          "title": "Context Budget",
+          "type": "integer"
+        },
+        "return_schema": {
+          "enum": [
+            "Answer",
+            "AssignmentResult"
+          ],
+          "title": "Return Schema",
+          "type": "string"
+        },
+        "assignment_limit": {
+          "maximum": 32,
+          "minimum": 0,
+          "title": "Assignment Limit",
+          "type": "integer"
+        },
+        "max_requests": {
+          "maximum": 100,
+          "minimum": 1,
+          "title": "Max Requests",
+          "type": "integer"
+        },
+        "max_actions": {
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Max Actions",
+          "type": "integer"
+        },
+        "seconds": {
+          "maximum": 1800,
+          "minimum": 1,
+          "title": "Seconds",
+          "type": "integer"
+        },
+        "prompt_template": {
+          "maxLength": 4000,
+          "minLength": 1,
+          "title": "Prompt Template",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role_id",
+        "objective_scope",
+        "model_profile",
+        "allowed_capabilities",
+        "permission_ceiling",
+        "context_budget",
+        "return_schema",
+        "assignment_limit",
+        "max_requests",
+        "max_actions",
+        "seconds",
+        "prompt_template"
+      ],
+      "title": "RoleConfig",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "roles": {
+      "items": {
+        "$ref": "#/$defs/RoleConfig"
+      },
+      "maxItems": 5,
+      "minItems": 5,
+      "title": "Roles",
+      "type": "array"
+    },
+    "sha256": {
+      "anyOf": [
+        {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sha256"
+    }
+  },
+  "required": [
+    "schema_version",
+    "roles"
+  ],
+  "title": "RoleCatalog",
+  "type": "object"
+}

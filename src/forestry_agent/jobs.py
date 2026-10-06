@@ -57,6 +57,7 @@ class Jobs:
         self.config, self.store, self.resources = config, store, resources
         self.docker = docker or Docker(config)
         self.worker: asyncio.Task | None = None
+        self.cancel_assignments = None
 
     def read(self, job_id: str, task_id: str | None = None):
         with self.store.transaction() as db:
@@ -104,7 +105,9 @@ class Jobs:
             if state["spec_revision"] != revision or state["pause_requested"] or state["cancellation_requested"]:
                 raise Failure("EXECUTION_STOPPED", "任务规范或控制状态不允许新作业", 409)
             job_id = uid()
+            assignment = db.execute("SELECT id FROM assignments WHERE json_extract(payload,'$.run_id')=(SELECT turn_id FROM actions WHERE id=?)", (action_id,)).fetchone()
             job = {"schema_version": 1, "job_id": job_id, "task_id": task_id,
+                "assignment_id": assignment["id"] if assignment else None,
                 "action_id": action_id, "spec_revision": revision, "status": "queued",
                 "container_name": "forestry-job-" + job_id, "container_id": None,
                 "image_id": None, "code": code, "code_sha256": hashlib.sha256(code.encode()).hexdigest(),
@@ -246,8 +249,9 @@ class Jobs:
                         if path.is_symlink():
                             raise Failure("PERMISSION_DENIED", "作业输出不接受符号链接", 403)
                         if path.is_file():
+                            prefix = f"assignments/{job['assignment_id']}/" if job.get("assignment_id") else ""
                             artifact = self.resources.import_file(job["task_id"], job["action_id"], path,
-                                "jobs/" + job["job_id"] + "/" + path.relative_to(Path(job["directory"]) / "output").as_posix())
+                                prefix + "jobs/" + job["job_id"] + "/" + path.relative_to(Path(job["directory"]) / "output").as_posix())
                             if artifact["artifact_id"] not in job["artifact_ids"]:
                                 job["artifact_ids"].append(artifact["artifact_id"])
                     job["status"] = "succeeded"
@@ -262,9 +266,12 @@ class Jobs:
                 task_id = state["task_id"]
                 if not state["cancellation_requested"]:
                     continue
+                if self.cancel_assignments:
+                    self.cancel_assignments(task_id, db)
                 unresolved = db.execute("SELECT 1 FROM jobs WHERE task_id=? AND status NOT IN ('succeeded','failed','cancelled','timed_out')", (task_id,)).fetchone()
                 pending = db.execute("SELECT 1 FROM actions WHERE task_id=? AND status='pending'", (task_id,)).fetchone()
-                if not unresolved and not pending:
+                assignments = db.execute("SELECT 1 FROM assignments WHERE task_id=? AND status NOT IN ('succeeded','partial','failed','cancelled')", (task_id,)).fetchone()
+                if not unresolved and not pending and not assignments:
                     state.update(status="cancelled", blockers=[])
                     self.store.save_task(db, state, state["state_version"])
                     self.store.event(db, task_id, "task.terminal", {"status": "cancelled"})

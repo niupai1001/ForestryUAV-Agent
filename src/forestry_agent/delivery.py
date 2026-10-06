@@ -31,7 +31,8 @@ class Delivery:
         with self.store.transaction() as db:
             pending = db.execute("SELECT 1 FROM actions WHERE task_id=? AND status='pending'", (task_id,)).fetchone()
             active = db.execute("SELECT 1 FROM jobs WHERE task_id=? AND status NOT IN ('succeeded','failed','cancelled','timed_out')", (task_id,)).fetchone()
-        if pending or active:
+            assignments = db.execute("SELECT 1 FROM assignments WHERE task_id=? AND status NOT IN ('succeeded','partial','failed','cancelled')", (task_id,)).fetchone()
+        if pending or active or assignments:
             raise Failure("RECONCILIATION_REQUIRED", "副作用或作业未确认结束，不能验收", 409)
         latest = next((m for m in reversed(state["messages"]) if m["role"] == "assistant"), None)
         if not latest or latest["spec_revision"] != state["spec_revision"]:
