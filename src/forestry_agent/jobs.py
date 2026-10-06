@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import tempfile
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import psutil
 
@@ -26,14 +26,38 @@ class Docker:
     def __init__(self, config: Config):
         self.config = config
 
+    @staticmethod
+    def wsl_path(value):
+        path = PureWindowsPath(value)
+        if not path.is_absolute() or len(path.drive) != 2 or path.drive[1] != ":":
+            raise Failure("PRECONDITION_MISSING", "WSL挂载要求已授权的本地绝对盘符路径", 422)
+        return f"/mnt/{path.drive[0].lower()}/" + "/".join(path.parts[1:])
+
+    def command(self, *args):
+        directory = self.config.workspace_root / ".forestry" / "docker"
+        if not self.config.docker_distribution:
+            return [shutil.which("docker") or "docker", "--config", str(directory), "--host", self.config.docker_host, *args]
+        translated = list(args)
+        for index, argument in enumerate(translated):
+            if index and translated[index - 1] == "--mount":
+                fields = []
+                for field in argument.split(","):
+                    name, separator, value = field.partition("=")
+                    fields.append(name + separator + self.wsl_path(value) if name in {"src", "source"} else field)
+                translated[index] = ",".join(fields)
+        # No shell or exposed TCP daemon. Distribution and endpoint are owner configuration.
+        return [shutil.which("wsl.exe") or "wsl.exe", "--distribution", self.config.docker_distribution,
+            "--user", "root", "--exec", "/usr/bin/env", "-i", "PATH=/usr/sbin:/usr/bin:/sbin:/bin",
+            "HOME=/root", "docker", "--config", self.wsl_path(directory), "--host", self.config.docker_host, *translated]
+
     def call(self, *args: str) -> dict:
         directory = self.config.workspace_root / ".forestry" / "docker"
         directory.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryFile(dir=directory) as out, tempfile.TemporaryFile(dir=directory) as err:
             try:
-                result = subprocess.run(["docker", "--config", str(directory), "--host",
-                    self.config.docker_host, *args], stdout=out, stderr=err, timeout=30,
-                    check=False)
+                clean = {name: os.environ[name] for name in ["PATH", "SystemRoot", "WINDIR", "TEMP", "TMP"] if name in os.environ}
+                result = subprocess.run(self.command(*args), stdout=out, stderr=err, timeout=30,
+                    check=False, env=clean, cwd=self.config.workspace_root)
             except (OSError, subprocess.TimeoutExpired) as error:
                 raise Failure("EXECUTOR_UNAVAILABLE", str(error), 503, True) from error
             out.seek(0)
@@ -291,6 +315,15 @@ class Jobs:
         self.matches(job, container)
         result = self.docker.call("logs", "--tail", "200", job["container_id"])
         return {"text": result["stdout"], "stderr": result["stderr"], "bounded": True}
+
+    def observation(self, job_id, task_id):
+        job = self.read(job_id, task_id)
+        result = {"job": self.public(job)}
+        if job["status"] in TERMINAL and job["container_id"]:
+            # The model needs the actual traceback to repair generated code.
+            # Keep the same job ownership and container identity checks as the UI.
+            result["logs"] = self.logs(job_id, task_id)
+        return result
 
     async def loop(self):
         while True:

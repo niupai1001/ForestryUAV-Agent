@@ -38,6 +38,7 @@ class Config(BaseModel):
     max_unchanged_decisions: int = Field(default=3, ge=1)
     code_image: str = "python:3.12-slim"
     docker_host: str = "npipe:////./pipe/dockerDesktopLinuxEngine"
+    docker_distribution: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
     max_code_seconds: int = Field(default=14400, ge=1)
     max_code_memory_bytes: int = Field(default=6442450944, ge=67108864)
     max_code_cpus: int = Field(default=4, ge=1)
@@ -50,6 +51,8 @@ class Config(BaseModel):
     def validate_local_models(self):
         if self.default_model not in self.models:
             raise ValueError("default_model must name a configured profile")
+        if self.docker_distribution and not self.docker_host.startswith("unix:///"):
+            raise ValueError("WSL Docker must use an explicit guest Unix socket endpoint")
         for address in (self.model_base_url, self.ollama_base_url):
             parsed = urlparse(address)
             if parsed.scheme != "http" or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:

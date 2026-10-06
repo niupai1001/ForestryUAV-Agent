@@ -589,7 +589,7 @@ class Engine:
 
         @agent.tool
         async def wait_job(ctx: RunContext[Deps], job_id: str) -> dict:
-            """等待当前任务作业完成；应用轮询不调用模型。遇到阻塞返回原因，不能宣称完成。"""
+            """等待当前任务作业完成；应用轮询不调用模型。终态含真实有界stdout/stderr，失败时据诊断修复代码。遇到阻塞返回原因，不能宣称完成。"""
             with self.store.transaction() as db:
                 self.roles.authorize(db, ctx.deps, "job.observe", {"job_id": job_id})
             while True:
@@ -598,8 +598,8 @@ class Engine:
                     raise Failure("EXECUTION_STOPPED", "作业等待被用户控制中断", 409)
                 job = self.jobs.read(job_id, ctx.deps.task_id)
                 if job["status"] in TERMINAL or job["blocker"]:
-                    return execute(ctx, "job.observe", {"job_id": job_id},
-                        lambda _, observed=job: {"job": self.jobs.public(observed)})
+                    return await asyncio.to_thread(execute, ctx, "job.observe", {"job_id": job_id},
+                        lambda _: self.jobs.observation(job_id, ctx.deps.task_id))
                 await asyncio.sleep(1)
 
         @agent.tool

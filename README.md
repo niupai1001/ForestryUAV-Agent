@@ -2,6 +2,8 @@
 
 独立重新开发的单人本地 Agent。当前已实现真实模型/文件闭环和开发者工作台，完整通用产品、林业流程及发布评估仍在推进中。实现和验证状态见 [docs/STATUS.md](docs/STATUS.md)，修订需求见 [docs/BASELINE-zh.md](docs/BASELINE-zh.md)。
 
+按用户 2026-10-06 指示，Agent 联网搜索先暂缓开发与验收；当前优先完成本地文件、代码调试、范围依赖、作业恢复及 UI，已有搜索代码和安全回归保留。
+
 ## 安装与启动
 
 使用 Python 3.12 和 uv：
@@ -15,6 +17,8 @@ uv run --locked forestry-agent serve --config config/app.example.yaml
 打开 `http://127.0.0.1:8765`。Ollama 必须在本机 `11434` 端口服务配置中的模型。UI 资源随应用打包，日常启动不需要 Node。
 
 `doctor` 的退出码只表示默认模型是否满足启动前提（`startup_ready`）。`general_prerequisites_ready` 另外要求所有配置模型、搜索和受限执行器可用；这些探测也不等于通用产品验收，因此 `general_ready` 保持 false、`general_validation` 为 `not_assessed_by_doctor`。缺少领域工具不阻止通用启动。
+
+Windows 可使用已实测的[项目独立 WSL 容器后端](docs/EXECUTOR-WSL.md)及 `config/app.wsl.example.yaml`。它采用签名 Ubuntu 镜像、固定系统包和不可变 Python 镜像摘要，复用相同作业管理器，不重置现有 Docker Desktop。默认示例仍为 Docker Desktop；须明确选择对应配置。搜索暂缓不会自动改变 doctor 原有的前提字段定义，暂缓项在实施状态中独立记录。
 
 命令行使用相同本地服务、授权与任务契约：
 
@@ -60,7 +64,7 @@ uv run --locked forestry-agent schema
 - 原生模型工具循环、模型检查点、跨重启累计动作和模型请求预算。
 - 持久工具观察与无进展保护；重复结果、循环重读、失败和空末尾窗口触发真实暂停，恢复不清零。
 - 文件窗口读取、任务工作区写入、不可变产物、SHA-256 检查、隔离 HTML 预览。
-- 无网络容器作业句柄、身份对账、实际停止确认、重启观察、流式封存输出；真实 Docker 烟测仍待环境恢复。
+- 无网络容器作业句柄、身份对账、实际停止确认、重新打开存储后观察、流式封存输出；独立 WSL 真实合成计算/取消/超时通过，实际服务进程中断恢复仍待验证。终态 wait_job 带有界真实日志，可据 traceback 修复代码。
 - UI 历史、模型切换、来源选择、执行记录、产物预览/下载、暂停/取消与恢复入口。
 - 候选结果指纹、显式验收/要求修改、最终清单封存、发布后终态及封存中断恢复。
 - PDF/DOCX/文本的有界读取与来源引用；中文本地知识索引、任务权限和源版本/字节核对。

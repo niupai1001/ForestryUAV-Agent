@@ -27,10 +27,14 @@ async def test_endpoint_probes_never_certify_general_agent(monkeypatch, tmp_path
             return SimpleNamespace(raise_for_status=lambda: None,
                                    json=lambda: {"models": [{"name": key, "digest": key} for key in installed]})
     monkeypatch.setattr(module.httpx, "AsyncClient", lambda **kwargs: Client())
+    monkeypatch.setattr(module.platform, "platform", lambda: "fixture-system")
     def process(command, **kwargs):
-        return SimpleNamespace(returncode=0 if command[0] != "docker" or docker else 1,
-                               stdout="fixture-version" if docker else "", stderr="" if docker else "unavailable")
+        assert command[0] == "nvidia-smi"
+        return SimpleNamespace(returncode=0, stdout="fixture-gpu", stderr="")
     monkeypatch.setattr(module.subprocess, "run", process)
+    monkeypatch.setattr(module.Docker, "call", lambda *args: {
+        "code": 0 if docker else 1, "stdout": "fixture-version" if docker else "",
+        "stderr": "" if docker else "unavailable"})
     monkeypatch.setattr(module.PublicHTTP, "get", lambda *args, **kwargs: {
         "body": b'<div class="result c-container" mu="https://docs.example.org/"><h3>reference</h3></div>' if search else b"<html>Error</html>",
         "headers": {"content-type": "text/html"}})
@@ -46,6 +50,8 @@ async def test_endpoint_probes_never_certify_general_agent(monkeypatch, tmp_path
         assert "search" in report["general_prerequisite_blockers"]
     if not docker:
         assert "restricted_code" in report["general_prerequisite_blockers"]
+    assert report["capabilities"]["restricted_code"]["transport"] == "docker_cli"
+    assert report["capabilities"]["restricted_code"]["version"] == ("fixture-version" if docker else None)
 
 
 @pytest.mark.asyncio
@@ -62,6 +68,7 @@ async def test_unprobed_search_is_not_a_ready_prerequisite(monkeypatch, tmp_path
             return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"models": []})
     monkeypatch.setattr(module.httpx, "AsyncClient", lambda **kwargs: Client())
     monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: SimpleNamespace(returncode=1, stdout="", stderr="fixture"))
+    monkeypatch.setattr(module.Docker, "call", lambda *args: {"code": 1, "stdout": "", "stderr": "fixture"})
     report = await module.doctor(config, probe_search=False)
     assert report["capabilities"]["search"]["status"] == "not_probed"
     assert "search" in report["general_prerequisite_blockers"]

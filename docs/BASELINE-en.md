@@ -1,6 +1,8 @@
-# Revised implementation baseline · 1.4
+# Revised implementation baseline · 1.5
 
 This is an independent implementation, with no reuse or migration of the legacy ForestryUAV-Agent runtime. The supplied Chinese project book is the current requirements source; this companion revision shares its version number.
+
+On 2026-10-06 the user deferred Agent network-search development. Keep existing implementation and safety boundaries, defer new search work and acceptance, and prioritize the local general agent. Search gates are marked user-deferred rather than passed and do not block this local delivery. The remaining stages, domain workflows, evaluation and scale requirements remain in scope.
 
 R01–R16 and U01–U08 remain in scope. Deliver the complete general agent and usable local developer UI before implementing the two real forestry workflows, followed by the six-arm evaluation, lower-resource validation and real input-scale testing of at least 100 GB. Early domain compatibility and public-data feasibility checks are permitted, without implementing domain features early.
 
@@ -18,6 +20,8 @@ TaskConstraints.allowed_capabilities is a unique list of registered capabilities
 
 Amendments retain unchanged output preferences, requested metrics and frozen fields. Control retries only return their original receipt. Pause/amendment/cancellation retries cannot cancel a newer run token; resume retries cannot create a new model turn.
 
-Version 1.4 preserves the entire 1.3 scope and adds task capability scope, UI amendments and control retries. The application database remains at migration 2; existing specification JSON holds the constraint, without a new permission service or legacy project migration.
+Optional project-owned WSL Docker transport fixes the distribution, explicit guest Unix socket and private client configuration, removes host credentials/proxies/WSLENV and uses guest env -i. Convert authorized absolute local drive mounts only; reject UNC/relative paths and do not reset existing Docker/WSL data. Lock the signed rootfs, guest packages and immutable Python image separately. Generated code still uses the same Jobs controls, identities and resource limits. Terminal wait_job results include real bounded diagnostics for debugging.
 
-Batches: P0 baseline/feasibility; P1 real UI/model/file loop; P2 restricted execution/recovery; P3 complete general product; P4 imagery; P5 LiDAR; P6 frozen experiments/scale/release. Track implementation and verification separately. Docker, model tool round trips, search, compatible raw-elevation UAV LiDAR/terrain, ≥100 GB real data, lower-resource hardware and pilot release tolerances still require evidence.
+Version 1.5 preserves the local and domain scope of 1.4, records user-deferred network search, the optional WSL executor and terminal diagnostics. The application database remains at migration 2, with no additional runtime authority store.
+
+Batches: P0 baseline/feasibility; P1 real UI/model/file loop; P2 restricted execution/recovery; P3 general product with network search deferred; P4 imagery; P5 LiDAR; P6 frozen experiments/scale/release. Real WSL synthetic compute, cancellation/timeout and the large-model debugging UI trial pass. The small-model trial omitted report readback and remains failed. Scoped dependencies, actual service-process interruption/recovery, both models' complete general quality, compatible raw-elevation UAV LiDAR/terrain, ≥100 GB real input, lower-resource hardware and pilot release tolerances remain unverified.

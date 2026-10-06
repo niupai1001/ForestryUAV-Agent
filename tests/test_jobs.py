@@ -139,3 +139,26 @@ def test_job_scope_and_pause_before_dispatch(client, app):
     assert manager.read(job_id)["status"] == "queued" and not fake.commands
     with pytest.raises(Failure):
         manager.read(job_id, "another-task")
+
+
+def test_terminal_observation_provides_actual_diagnostics_and_keeps_identity_checks(client, app):
+    fake = ExecutorFixture()
+    state, manager, job_id = submit(client, app, fake)
+    assert "logs" not in manager.observation(job_id, state["task_id"])
+    manager.tick()
+    fake.container["State"].update(Status="exited", Running=False, ExitCode=1)
+    manager.tick()
+    original = fake.call
+    def call(*args):
+        if args[0] == "logs":
+            return {"code": 0, "stdout": "before failure", "stderr": "NameError: heights is not defined"}
+        return original(*args)
+    fake.call = call
+    result = manager.observation(job_id, state["task_id"])
+    assert result["job"]["status"] == "failed" and result["job"]["exit_code"] == 1
+    assert result["logs"] == {"text": "before failure", "stderr": "NameError: heights is not defined", "bounded": True}
+    with pytest.raises(Failure):
+        manager.observation(job_id, "other-task")
+    fake.container["Id"] = "replacement"
+    with pytest.raises(Failure, match="容器 ID"):
+        manager.observation(job_id, state["task_id"])

@@ -2,12 +2,14 @@
 
 本文件区分实现与证据。完整目标未缩减：R01–R16、U01–U08、AC-01–AC-13 与三个阶段均保留。没有源码或通过证据的功能不标记完成。
 
+2026-10-06 用户明确暂缓 Agent 联网搜索开发。新增连接器、搜索稳定化与联网搜索验收停止推进，已有实现和安全回归保留；相关项记为用户暂缓，不计作通过，不阻塞本轮本地通用能力交付。其余本地/领域/评估与规模目标继续推进。
+
 | Batch / 批次 | State / 状态 | Delivered / 已有行为 | Evidence / 证据 | Remaining / 未完成 |
 |---|---|---|---|---|
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
-| P2 | in_progress | 动作/attempt 先登记、请求去重、修订隔离、检查点保护、持久无网络容器作业与原生等待工具 | 18 项边界/故障测试通过；容器真实执行尚未通过 | Docker 环境修复、依赖准备、完整资源准入、真实重启/取消场景 |
-| P3 | in_progress | 候选指纹、显式验收/清单；文档/知识/记忆；原生上下文整理/委派；H0/H1/H2；外发审批、公开读取/搜索、持久输入、完整引用、无进展保护、规范工具范围与 UI 修订 | 完整回归140项；两模型搜索报告、文件范围纠正恢复、范围创建/修订/重传 UI 通过 | 搜索稳定性及严格事实验收、本地 SearXNG、角色异常/冲突交互、两模型完整通用及长任务质量、完整报告/通用评估 |
+| P2 | in_progress | 动作/attempt、请求去重、修订隔离、检查点；持久断网容器、独立 WSL 传输、终态真实日志 | 真实受限计算/重新打开存储/取消/超时通过；大模型代码调试 UI 通过；完整回归151项 | 范围依赖、完整资源准入、真实服务进程中断恢复、小模型完整调试/报告质量 |
+| P3 | in_progress | 候选指纹/验收/清单；文档/知识/记忆；原生上下文/角色；H0/H1/H2；已有网络边界、持久输入/引用、无进展保护、工具范围与 UI 修订 | 完整回归151项；两模型文件范围恢复与修订/重传 UI 通过；历史搜索单项证据保留 | 角色异常/冲突交互、两模型完整本地通用及长任务质量、完整报告/通用评估；联网搜索用户暂缓 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -124,6 +126,24 @@ UI 提供通用能力、文件与报告、仅回答、自定义选择，显示�
 
 English: 140 regressions, both file-scoped corrective trials and both final real-model scope/amendment UI trials pass. Cached control receipts cannot affect newer runs or create another model turn. Default general capabilities remain available; earlier unrestricted model failures and test setup/race failures remain recorded. General-stage acceptance remains incomplete.
 
+## Real restricted executor / 真实受限执行器
+
+本次 Docker Desktop `desktop start --detach` 返回0，但后端实际再次在 dockerInference 套接字访问处退出，服务端 version 超时；`desktop stop --timeout 20` 返回1，未伪称停止完成，也未重置现有数据。改用项目独立发行版 `forestry-uav-agent-runtime`，实际导入路径 `workspace/isolated-executor/wsl`；Ubuntu 24.04.5 WSL 镜像388,975,696字节，SHA-256 `bb415d824822c4b878125729af451a5d18fb13d1cf5cbed9a7393ad64ac6039e`，官方签名及固定指纹验证通过。导入/安装/拉取/记录锁之前均重新验证来源、镜像与现有发行版归属。同名外部发行版和未登记非空目录拒绝覆盖。
+
+guest Docker29.1.3/containerd2.2.1/runc1.3.4 实际服务端可用，24CPU/约124.45GiB guest RAM；这是当前开发环境，不是低资源验收。Docker Hub 与 Google 官方缓存实际pull因连接超时失败并返回1；Docker官方 Amazon ECR Public 路径成功。Python3.12.15 的实际 image ID及RepoDigest均为 `sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f`，WSL示例与测试配置采用该不可变引用。完整包/daemon/rootfs/image清单在 `workspace/isolated-executor/runtime-lock.json`，安装脚本固定此次解析的11个包版本；仓库缺少锁版本时失败，不静默升级。可信运行时下载不等于 Agent 搜索功能，后者按用户指示暂缓。
+
+Docker适配器复用现有Jobs：显式Unix套接字、不新增TCP服务，参数数组与env -i，不使用shell；仅转换本地盘符的授权挂载，拒绝UNC/相对路径；私有客户端配置，不继承宿主DOCKER_AUTH_CONFIG/代理/WSLENV/合成秘密。doctor使用同一传输，探测仍不能证明通用产品验收。模型wait_job终态返回实际有界stdout/stderr，并在独立线程查询，不阻塞UI事件循环；job/角色权限与容器ID仍须匹配。
+
+`scripts/smoke_executor.py` 实际3案例全部核对通过，证据 `executor-real-e9ad573c-133e-483f-8e48-edde14e9aff2.json`。计算task `3808603d-2603-4475-a3ce-a262e08cd16c`：3/37.5/12.5精确，源哈希不变，真实写源及写根目录失败，uid65534，网络连接失败、宿主路径/合成秘密不可见，network=none/root只读/cap_drop=ALL/PIDs128/6GiB内存与swap/4CPU实际配置相符，容器身份/日志/不可变结果核对通过。重建应用对象与存储后观察同一真实容器并回收结果，明确 `real_process_restart=false`，不能记为AC-07进程重启通过。取消task `f330b40a-ffb4-448c-bb40-72e962c883f5` 及超时task `1b0e7c93-8389-4c2f-90fa-e4e3f545d3cf`，同一容器实际Running=false、对应终态正确，无产物。
+
+真实代码调试工作台：1 passed / 1 failed（2.4分钟）。large `99e23ff1-219e-42ed-9ad9-fbabfbff3fc3`（约1.5分钟、9请求/11动作）通过：真实原脚本NameError作业失败、wait_job得到traceback、修复后新作业成功，容器实际生成3/37.5/12.5 JSON，保存修复代码与中文报告并实际读回结果/报告；源文件不变、无网络/委派/环境/记忆动作，刷新后仍待确认，截图已检查。small `411b9243-63fa-45c6-8a01-653c1bb42c55`（50.0秒）实际失败→修复→正确计算/报告均存在，但漏读报告，严格UI验收失败，不改写为通过。每个作业的真实退出码和日志、全部事件及产物保留在 `ui-executor-<model>-<task_id>.json`；小模型另有 `ui-executor-failure-<task_id>.json`。
+
+初次执行器烟测脚本误用未注册job.query导致任务400，修正为job.observe；没有启动该失败请求的容器。初次UI脚本误把内部restricted_code键当作可见标签，两模型在创建任务前失败，截图/报告保留 `ui-executor-test-results-20261006`。修正真实UI标签后第二次运行结果如上，保留 `ui-executor-test-results-20261006-v2` 与 `ui-executor-tests-20261006-v2.json`。当前WSL本身的UTF-16代理提示仍可能混入stderr；作业终态以真实容器退出码为准，不把提示当计算失败。
+
+最终完整回归 `pytest -q --basetemp workspace/test-temp-20261006-109`：151 passed（25.01秒），Ruff/diff通过。新增覆盖WSL无shell参数、中文/空格盘符路径、非法分发名/UNC/相对路径/TCP端点拒绝、宿主凭证/代理隔离、输出边界、doctor前提逻辑以及失败诊断/越任务/替换容器拒绝。早期doctor夹具将绝对Docker可执行路径误判为成功、随后patch subprocess影响platform探测导致失败；已改为分别模拟Docker适配和系统探测，失败不作为运行时证据。前端产品未改动，无需重建静态资源。
+
+English: The independent signed WSL runtime and immutable Python image are available. Real restricted compute, cancellation and timeout pass; store/object reopening is explicitly not process restart. The large-model debugging UI trial passes, while the small-model trial fails for omitted report readback despite real repair and correct computation. All failed setup/trials are preserved. 151 regressions pass. Dependencies, actual service-process recovery and complete local general acceptance remain pending; Agent network-search work is user-deferred.
+
 ## Next / 下一步
 
-推进P2容器验证与依赖准备、受控本地搜索连接器及完整UI交互，闭合阶段1通用验收，并保留两模型通用能力及长任务质量验证。阶段1验收前不开发领域功能。低资源硬件是用户明确推迟的发布决策，不能填入假定设备或测量。
+推进P2范围依赖准备、真实服务进程中断恢复和小模型报告检查，继续完整本地UI/通用评估，闭合当前本地阶段验收。Agent 联网搜索按用户指示暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件仍由用户在 pilot 后决定，不能填入假定设备或测量。

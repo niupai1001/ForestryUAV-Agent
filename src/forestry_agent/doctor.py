@@ -11,6 +11,7 @@ import psutil
 
 from .config import Config
 from .contracts import Failure
+from .jobs import Docker
 from .network import PublicHTTP, decode_text, search_request, search_results
 from .store import now
 
@@ -59,14 +60,13 @@ async def doctor(config: Config, *, probe_search: bool = True) -> dict:
         except (Failure, OSError, ValueError) as error:
             report["capabilities"]["search"].update(status="failed", message=str(error))
     try:
-        command = await asyncio.to_thread(subprocess.run,
-            ["docker", "--config", str(config.workspace_root / ".forestry" / "docker"),
-             "--host", config.docker_host, "version",
-             "--format", "{{.Server.Version}}"], capture_output=True, text=True, timeout=10, check=False)
+        command = await asyncio.to_thread(Docker(config).call, "version", "--format", "{{.Server.Version}}")
         report["capabilities"]["restricted_code"] = {
-            "status": "available" if command.returncode == 0 else "unavailable",
-            "version": command.stdout.strip() or None, "message": command.stderr.strip()[:1500]}
-    except (OSError, subprocess.TimeoutExpired) as error:
+            "status": "available" if command["code"] == 0 else "unavailable",
+            "version": command["stdout"].strip() or None, "message": command["stderr"].strip()[:1500],
+            "transport": "wsl_cli" if config.docker_distribution else "docker_cli",
+            "distribution": config.docker_distribution}
+    except (Failure, OSError, subprocess.TimeoutExpired) as error:
         report["capabilities"]["restricted_code"] = {"status": "unavailable", "message": str(error)}
     report["capabilities"]["file_tools"] = {"status": "available"}
     report["capabilities"]["domain"] = {"status": "not_implemented", "stage": 2}
