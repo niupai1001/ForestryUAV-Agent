@@ -203,7 +203,7 @@ class Roles:
             raise Failure("RESOURCE_EXHAUSTED", "委派总时限已用尽", 422)
         if kind not in value["effective_capabilities"]:
             raise Failure("PERMISSION_DENIED", "能力超出角色权限交集", 403)
-        if kind in {"fs.write_workspace", "code.execute"} and not value["permission_ceiling"]["workspace_write"]:
+        if kind in {"fs.write_workspace", "code.execute", "environment.prepare"} and not value["permission_ceiling"]["workspace_write"]:
             raise Failure("PERMISSION_DENIED", "角色上限禁止工作区写入", 403)
         if args.get("resource_id") and args["resource_id"] not in value["effective_input_refs"]:
             raise Failure("PERMISSION_DENIED", "资源超出委派范围", 403)
@@ -211,6 +211,8 @@ class Roles:
             raise Failure("PERMISSION_DENIED", "代码输入超出委派范围", 403)
         if "artifact_id" in args and args["artifact_id"] not in self.artifacts(value, db):
             raise Failure("PERMISSION_DENIED", "产物超出委派范围", 403)
+        if args.get("environment_artifact_id") and args["environment_artifact_id"] not in self.artifacts(value, db):
+            raise Failure("PERMISSION_DENIED", "依赖环境超出委派产物范围", 403)
         if args.get("job_id"):
             owned = db.execute("SELECT 1 FROM jobs j JOIN actions a ON j.action_id=a.id WHERE j.id=? AND a.turn_id=?", (args["job_id"], value["run_id"])).fetchone()
             if not owned:

@@ -38,4 +38,6 @@ uv run --locked python scripts/smoke_recovery.py --config config/app.wsl.example
 
 两模型该运行中作业的真实进程恢复试次已通过14项检查，见 STATUS；仍未覆盖全部崩溃窗口、恢复 UI、完整依赖、低资源和长任务质量。模型报告存在含混表述，不能替代脚本进程/容器证据。联网搜索按用户 2026-10-06 指示暂缓开发；本部署下载运行时与 Agent 搜索能力分别记录。
 
-English: This optional project-owned WSL distribution uses the existing isolated Docker job manager, an explicit Unix socket, fixed signed Ubuntu image, pinned guest packages and immutable Python image. It does not reset existing Docker/WSL data. Real restricted compute, cancellation and timeout were exercised; object/store reopen is not process restart. Dependency preparation and complete general-stage acceptance remain pending. Agent network-search development is deferred by the user's instruction.
+新增[离线依赖准备与复用](DEPENDENCIES.md)仍复用同一 Jobs。pip 安装使用 Linux tmpfs；环境归档解压在专用 `/environment` tmpfs 中进行，允许原生扩展映射，代码作业普通 `/tmp` 保持 noexec。两者计入原有容器内存预算，不是额外内存。基础真实安装/两次复用试次通过15项检查；完整两模型 UI、Agent 依赖获取和源码构建仍未通过或完成。
+
+English: This optional project-owned WSL distribution uses the existing isolated Docker job manager, an explicit Unix socket, fixed signed Ubuntu image, pinned guest packages and immutable Python image. It does not reset existing Docker/WSL data. Real restricted compute, cancellation and timeout were exercised; object/store reopen is not process restart. The offline dependency core trial passes 15 checks, but complete model UI, acquisition/source builds and general-stage acceptance remain pending. Agent network-search development is deferred by the user's instruction.

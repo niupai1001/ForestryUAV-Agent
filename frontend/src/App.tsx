@@ -32,7 +32,7 @@ const requestId = () => crypto.randomUUID();
 const capabilityLabels:Record<string,string> = {'fs.inputs':'查看任务输入','fs.list':'列出源文件','fs.read':'读取源文件',
   'fs.write_workspace':'写入产物','artifact.inspect':'检查产物','artifact.read':'读回产物','action.inspect':'查看动作证据',
   'document.read':'阅读文档','knowledge.index':'建立知识索引','knowledge.search':'检索知识','memory.read':'读取长期记忆',
-  'environment.inspect':'检查本机环境','code.execute':'执行受限代码','job.observe':'观察作业','role.delegate':'委派角色',
+  'environment.inspect':'检查本机环境','environment.prepare':'准备隔离依赖','code.execute':'执行受限代码','job.observe':'观察作业','role.delegate':'委派角色',
   'web.search':'搜索网页','web.read':'读取网页'};
 const fileCapabilities = ['fs.inputs','fs.list','fs.read','fs.write_workspace','artifact.inspect','artifact.read',
   'action.inspect','document.read','knowledge.index','knowledge.search'];

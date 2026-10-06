@@ -8,8 +8,8 @@
 |---|---|---|---|---|
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
-| P2 | in_progress | 动作/attempt、请求去重、修订隔离、检查点；断网容器、独立 WSL、终态日志、同回合恢复事实 | 真实计算/取消/超时、两模型运行中作业真实进程恢复通过；大模型调试 UI 通过；完整回归154项 | 范围依赖、完整资源准入、全部恢复窗口及 UI、小模型完整调试/报告质量 |
-| P3 | in_progress | 候选指纹/验收/清单；文档/知识/记忆；原生上下文/角色；H0/H1/H2；已有网络边界、持久输入/引用、无进展保护、工具范围与 UI 修订 | 完整回归154项；两模型文件范围恢复与修订/重传 UI 通过；历史搜索单项证据保留 | 角色异常/冲突交互、两模型完整本地通用及长任务质量、完整报告/通用评估；联网搜索用户暂缓 |
+| P2 | in_progress | 动作/attempt、请求去重、修订隔离、检查点；断网容器、独立 WSL、终态日志、同回合恢复事实；离线范围依赖和环境复用 | 真实计算/取消/超时、两模型运行中作业真实进程恢复通过；大模型调试 UI 通过；离线依赖真实15项通过；完整回归165项 | Agent依赖获取/源码构建、两模型完整依赖UI、完整资源准入、全部恢复窗口及 UI、小模型完整调试/报告质量 |
+| P3 | in_progress | 候选指纹/验收/清单；文档/知识/记忆；原生上下文/角色；H0/H1/H2；已有网络边界、持久输入/引用、无进展保护、工具范围与 UI 修订 | 完整回归165项；两模型文件范围恢复与修订/重传 UI 通过；历史搜索单项证据保留 | 角色异常/冲突交互、两模型完整本地通用及长任务质量、完整报告/通用评估；联网搜索用户暂缓 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -162,6 +162,28 @@ English: The independent signed WSL runtime and immutable Python image are avail
 
 English: Both models pass 14 checks following real interruption of an owned service while an already confirmed container job is running. A separate six-check audit verifies actual prepared inputs, same logical turn/fresh native runs, hashes and terminated owned processes. Original failures remain. Scoped application recovery facts are reinjected without leaking parent facts to roles or other turns. Model reports retain ambiguous interruption statements; this is limited recovery evidence, not complete report, AC-07, UI or general-stage acceptance. 154 regressions pass; search remains user-deferred.
 
+## Scoped offline dependencies / 离线范围依赖
+
+基线1.7新增 environment.prepare，复用现有动作/attempt、Jobs、资源授权、角色交集及不可变产物；不另建安装循环或第二套作业数据库。pip 在断网、非特权容器中使用固定wheel、完整传递解析、only-binary/no-index/require-hashes；生成 environment.zip 与 environment-lock.json。复用绑定当前任务/修订、实际准备作业、环境哈希和实际镜像ID；提交/启动/恢复核对身份，子角色须显式获得环境归档授权。准备最多32个wheel/128MiB；环境归档最多128MiB，解压最多30,000文件/512MiB，锁文件64KiB；拒绝越界、重复和符号链接。包安装及解压均不在Windows宿主执行。详见 DEPENDENCIES。
+
+可信开发者夹具下载依据固定版本的官方PyPI JSON；直接下载实际超时失败，原部分文件及元数据保留。TUNA HTTPS镜像下载成功，全部大小/官方SHA一致；锁文件 `fixture-lock-f098f689-e309-4c78-924d-c1bc2a731239.json` 记录NumPy2.2.6的Linux/Windows wheel、python-dateutil2.9.0.post0及six1.17.0。该记录的url字段是官方原始URL，download_source=tuna；实际镜像URL由脚本替换固定前缀形成，不称独立签名。后续脚本分别记录实际下载URL与已有文件核对，缓存核对不能伪称重新下载。此下载不是Agent工具，不代表Agent依赖获取通过，也不属于暂缓的Agent搜索开发。
+
+基础真实试次失败均保留：`faaca376-b229-48a7-9b28-f411fb7578b5` 在NTFS输出挂载内安装出现INSTALLER临时文件/权限错误；改为Linux `/tmp` 准备后，`ee59b343-fb00-4b34-a178-6b31f130390a` 安装和首次复用成功，第二次NTFS解压达到原60秒预算；转为Linux `/environment` tmpfs后，`139bc4a2-f64a-4ee8-a1d6-9a763e6d17ba` 因默认noexec不能映射NumPy原生扩展而失败。最终只为专用环境tmpfs明确exec/nosuid/nodev，代码作业普通 `/tmp` 仍64MiB/noexec；准备tmpfs及环境tmpfs各1GiB，计入原6GiB容器内存预算，不降低其余隔离，也不延长基础60秒计算预算。
+
+`smoke_dependencies.py` 最终试次 `14ce03b2-d599-4175-878b-4d7f4c7af5e1`、task `eb87eea8-faca-4b7a-a0c6-aef7bbcb6aad` 返回0，15检查全部通过：实际缺NumPy、实际缺传递six、Windows wheel平台不兼容、真实成功安装、准确版本锁、两次同一环境/哈希复用、实际镜像一致、两次执行成功、3/37.5/12.5及日期精确、uid65534、实际网络失败、所有容器断网/只读根/cap-drop、CSV与wheel不变、宿主包清单不变。环境可在新应用对象/存储中再次解析；明确不是进程重启试次。证据 `dependencies-real-<trial_id>.json`。软件夹具不证明科学精度。
+
+两模型浏览器检查尚未通过。第一轮在基础试次结束前启动，测试后端缺少exec选项：small `cae30e6f-9c55-4179-bd8f-a3f630509f22`、large `7fa408c9-29d8-4b71-bffd-fb5046593e69` 实际失败并达到30请求保护；这是测试启动过早，记录保留。确认专用8768测试服务无活跃任务、非终态作业及未确认动作，并核对进程命令/配置后重载，不停止8765/8766/8767。第二轮small `4f811977-7b73-411a-b587-f7d74739bdd4` 实际安装成功，但反复把锁文件ID当环境归档而到请求上限；large `ee4fb6b2-fdb5-45aa-9fe8-158155c21a36` 首次计算成功，重复嵌套查动作后耗尽上下文。
+
+诊断发现终态环境结果重复两份完整配方，6014字节刚好触发原生6000字节外置，环境ID位于后部。现在原生等待结果直接保留环境ID、锁文件ID、哈希/镜像与安装版本，省略重复完整配方；持久作业/API/锁文件证据保留，不更换Harness外置机制。提示明确锁文件不能当环境，不按列表顺序猜ID，观察作业使用wait_job。第三轮两模型均真实安装并完成首次计算，但small `e1ca64d7-3fe0-449b-8f58-4f8b5bd84155`（14请求/12动作）误向read_artifact传额外limit，并使用来源资源ID，原生协议保护暂停；large `b72d5d36-b5f8-4845-b17e-7ff925aafcf7`（10请求）嵌套查阅旧动作后触发上下文保护。未提高预算、容许额外字段、删除读回/复用检查或改写为通过。
+
+独立只读后审计，两模型首次JSON的SHA、完整数值/日期/实际三个版本，以及源文件不变各3项通过，补充证据 `ui-dependencies-result-audit-<task_id>.json`；不改变完整UI失败。三轮Playwright报告分别保留 `ui-dependencies-tests-20261006-v1/v2/v3.json`，原失败截图和任务JSON保留。第三轮截图已检查，任务实际显示暂停。最新专用服务8768加载修复API；其他既有服务尚未重载此批API。
+
+完整回归 `pytest -q --basetemp workspace/test-temp-20261006-121`：165 passed（31.97秒），Ruff/diff通过；前端正式构建通过。新增离线权限、未知输入、源码/危险名称、环境伪造/跨任务/旧修订/篡改、镜像变化执行前停止、子角色环境授权、完整hash/传递解析、JSON字面量及有界原生环境身份测试。测试wheel和Docker夹具不冒充实际安装；实际运行由上述独立容器证据支持。脚本在观察过期或阻塞后停止后续提交，对本试次已提交作业通过原有Jobs申请取消并记录终态确认；无法确认时整次仍失败，不盲目重跑。
+
+English: Baseline1.7 adds scoped offline wheel preparation and immutable reuse through existing Jobs and permissions. The real core trial passes all15 checks; earlier NTFS/noexec failures remain preserved. Both final model UI trials perform real installation and one correct computation but remain failed for small-model tool arguments and large-model recursive inspection/context exhaustion. Separate read-only audits confirm exact first results, hashes and unchanged sources. 165 regressions, Ruff/diff and production frontend build pass. Agent acquisition/source builds and full local general acceptance remain incomplete; search stays user-deferred.
+
 ## Next / 下一步
 
-推进P2范围依赖准备、剩余真实恢复窗口/UI及报告质量，继续完整本地UI/通用评估，闭合当前本地阶段验收。Agent 联网搜索按用户指示暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件仍由用户在 pilot 后决定，不能填入假定设备或测量。
+脚本收尾后再次实际运行，试次 `26a3dc4a-0562-44a4-88db-0cb26d1b1eb7`、task `0b6e9e64-944c-44fe-936f-6c7a2904a3a3` 返回0；原15项检查再次全通过，六个作业终态均确认（预期失败3个、成功安装及复用3个），cleanup无未确认项。此成功路径不冒充观察超时或停止拒绝的实测。证据 `dependencies-real-26a3dc4a-0562-44a4-88db-0cb26d1b1eb7.json`。最终Ruff/diff及Python语法检查通过。
+
+继续P2依赖自动获取/条件源码构建、两模型完整依赖UI、剩余真实恢复窗口及报告质量，再闭合本地UI/通用评估；当前离线增量不代表完整依赖功能验收。Agent 联网搜索按用户指示暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件仍由用户在 pilot 后决定，不能填入假定设备或测量。

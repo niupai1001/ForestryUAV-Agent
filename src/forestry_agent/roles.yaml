@@ -3,7 +3,7 @@ roles:
   - role_id: coordinator
     objective_scope: 理解当前目标，按证据规划和整合；有独立工作收益时才委派。
     model_profile: inherit_task
-    allowed_capabilities: [fs.inputs, fs.list, fs.read, fs.write_workspace, artifact.inspect, artifact.read, action.inspect, document.read, knowledge.index, knowledge.search, memory.read, environment.inspect, code.execute, job.observe, role.delegate, web.search, web.read]
+    allowed_capabilities: [fs.inputs, fs.list, fs.read, fs.write_workspace, artifact.inspect, artifact.read, action.inspect, document.read, knowledge.index, knowledge.search, memory.read, environment.inspect, environment.prepare, code.execute, job.observe, role.delegate, web.search, web.read]
     permission_ceiling: {workspace_write: true, source_write: false, network: public_scoped, parent_task_mutation: false}
     context_budget: 32768
     return_schema: Answer
@@ -15,7 +15,7 @@ roles:
   - role_id: environment
     objective_scope: 诊断本地环境与依赖就绪状态，提供可核查清单和阻塞证据。
     model_profile: inherit_task
-    allowed_capabilities: [fs.inputs, fs.list, document.read, artifact.inspect, artifact.read, fs.write_workspace, environment.inspect]
+    allowed_capabilities: [fs.inputs, fs.list, document.read, artifact.inspect, artifact.read, fs.write_workspace, environment.inspect, environment.prepare, job.observe]
     permission_ceiling: {workspace_write: true, source_write: false, network: none, parent_task_mutation: false}
     context_budget: 32768
     return_schema: AssignmentResult
@@ -23,7 +23,7 @@ roles:
     max_requests: 12
     max_actions: 64
     seconds: 900
-    prompt_template: 仅按实际环境检查返回 environment_manifest；未知能力保持未知。不能安装系统依赖、改配置或授予联网权限。输出清单包含就绪状态、实际观察及阻塞。
+    prompt_template: 仅按实际环境检查返回 environment_manifest；未知能力保持未知。可以用prepare_environment在受限容器中离线准备明确授权的wheel，用wait_job观察；不能安装系统依赖、改配置或授予联网权限。输出清单包含就绪状态、实际观察及阻塞。
   - role_id: data
     objective_scope: 读取所授输入、检查元数据与来源支持、建立本地索引和准备数据清单。
     model_profile: inherit_task
@@ -39,7 +39,7 @@ roles:
   - role_id: code_experiment
     objective_scope: 编写代码，运行受限小试和有界候选比较，报告实际结果与失败。
     model_profile: inherit_task
-    allowed_capabilities: [fs.inputs, fs.list, fs.read, document.read, artifact.inspect, artifact.read, fs.write_workspace, environment.inspect, code.execute, job.observe]
+    allowed_capabilities: [fs.inputs, fs.list, fs.read, document.read, artifact.inspect, artifact.read, fs.write_workspace, environment.inspect, environment.prepare, code.execute, job.observe]
     permission_ceiling: {workspace_write: true, source_write: false, network: none, parent_task_mutation: false}
     context_budget: 32768
     return_schema: AssignmentResult

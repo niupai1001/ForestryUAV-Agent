@@ -14,6 +14,7 @@ import psutil
 
 from .config import Config
 from .contracts import Failure
+from .environments import execution_code
 from .resources import Resources, version
 from .store import Store, encode, now, uid
 
@@ -82,6 +83,7 @@ class Jobs:
         self.docker = docker or Docker(config)
         self.worker: asyncio.Task | None = None
         self.cancel_assignments = None
+        self.environment_resolver = None
 
     def read(self, job_id: str, task_id: str | None = None):
         with self.store.transaction() as db:
@@ -105,10 +107,16 @@ class Jobs:
 
     @staticmethod
     def public(job):
-        return {k: v for k, v in job.items() if k not in {"code", "mounts", "directory"}}
+        result = {k: v for k, v in job.items() if k not in {"code", "mounts", "directory"}}
+        if result.get("environment"):
+            result["environment"] = {k: v for k, v in result["environment"].items() if k != "source"}
+        return result
 
     def submit(self, task_id: str, revision: int, action_id: str, code: str,
-               input_refs: list[str], seconds: int = 300):
+               input_refs: list[str], seconds: int = 300, *, environment_artifact_id=None,
+               job_kind="code.execute", environment_recipe=None):
+        if job_kind not in {"code.execute", "environment.prepare"}:
+            raise Failure("SCHEMA_INVALID", "未知受限作业类型")
         if not code or len(code.encode()) > 65536:
             raise Failure("SCHEMA_INVALID", "代码须为 1–65536 字节的 Python 文本")
         if seconds < 1 or seconds > self.config.max_code_seconds:
@@ -121,6 +129,11 @@ class Jobs:
                 raise Failure("PRECONDITION_MISSING", "通用代码作业当前仅支持无链接的单文件输入", 422)
             mounts.append({"resource_id": ref, "source": str(source), "target": f"/inputs/{ref}",
                            "version": version(source)})
+        environment = None
+        if environment_artifact_id:
+            if job_kind != "code.execute" or not self.environment_resolver:
+                raise Failure("PRECONDITION_MISSING", "当前执行器没有环境解析器", 422)
+            environment = self.environment_resolver(task_id, revision, environment_artifact_id)
         with self.store.transaction() as db:
             existing = db.execute("SELECT payload FROM jobs WHERE action_id=?", (action_id,)).fetchone()
             if existing:
@@ -128,10 +141,12 @@ class Jobs:
             state = self.store.read_task(db, task_id)
             if state["spec_revision"] != revision or state["pause_requested"] or state["cancellation_requested"]:
                 raise Failure("EXECUTION_STOPPED", "任务规范或控制状态不允许新作业", 409)
-            self.store.authorize_capability(db, state, "code.execute")
+            self.store.authorize_capability(db, state, job_kind)
             job_id = uid()
             assignment = db.execute("SELECT id FROM assignments WHERE json_extract(payload,'$.run_id')=(SELECT turn_id FROM actions WHERE id=?)", (action_id,)).fetchone()
             job = {"schema_version": 1, "job_id": job_id, "task_id": task_id,
+                "kind": job_kind, "image_reference": self.config.code_image,
+                "tmpfs_bytes": 1024*1024*1024 if job_kind == "environment.prepare" else 67108864,
                 "assignment_id": assignment["id"] if assignment else None,
                 "action_id": action_id, "spec_revision": revision, "status": "queued",
                 "container_name": "forestry-job-" + job_id, "container_id": None,
@@ -140,6 +155,11 @@ class Jobs:
                     "tasks" / task_id / "jobs" / job_id), "created_at": now(), "started_at": None,
                 "updated_at": now(), "cancel_requested": False, "exit_code": None,
                 "artifact_ids": [], "blocker": None}
+            if environment:
+                job["environment"] = environment
+                job["environment_tmpfs_bytes"] = 1024*1024*1024
+            if environment_recipe is not None:
+                job["environment_recipe"] = environment_recipe
             db.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?)",
                 (job_id, task_id, action_id, revision, "queued", encode(job), now()))
             self.store.event(db, task_id, "job.queued", self.public(job))
@@ -162,7 +182,7 @@ class Jobs:
     def may_start(self, job):
         with self.store.transaction() as db:
             state = self.store.read_task(db, job["task_id"])
-            self.store.authorize_capability(db, state, "code.execute")
+            self.store.authorize_capability(db, state, job.get("kind", "code.execute"))
         current = self.read(job["job_id"])
         if current["cancel_requested"] or state["cancellation_requested"] or state["pause_requested"] or state["spec_revision"] != job["spec_revision"]:
             raise Failure("EXECUTION_STOPPED", "控制状态已变化，不启动新容器动作", 409)
@@ -176,7 +196,7 @@ class Jobs:
             try:
                 state = self.store.task(job["task_id"])
                 with self.store.transaction() as db:
-                    permitted = self.store.capability_allowed(db, state, "code.execute")
+                    permitted = self.store.capability_allowed(db, state, job.get("kind", "code.execute"))
                 stopping = job["cancel_requested"] or state["cancellation_requested"] or state["spec_revision"] != job["spec_revision"] or not permitted
                 if job["status"] == "queued":
                     if stopping:
@@ -189,17 +209,22 @@ class Jobs:
                         job["blocker"] = {"code": "RESOURCE_WAIT", "message": "等待内存或磁盘资源"}
                         self.save(job, "job.resource_wait")
                         continue
-                    image = self.docker.call("image", "inspect", self.config.code_image, "--format", "{{.Id}}")
+                    image = self.docker.call("image", "inspect", job.get("image_reference", self.config.code_image), "--format", "{{.Id}}")
                     if image["code"] != 0:
                         raise Failure("DEPENDENCY_MISSING", "隔离运行镜像未准备，不自动联网下载", 422)
                     job["image_id"] = image["stdout"].strip()
+                    if job.get("environment") and job["image_id"] != job["environment"]["image_id"]:
+                        raise Failure("VERSION_CONFLICT", "运行镜像与依赖准备镜像身份不一致", 409)
                     directory = Path(job["directory"])
                     (directory / "output").mkdir(parents=True, exist_ok=True)
-                    (directory / "run.py").write_text(job["code"], encoding="utf-8")
+                    prepared = execution_code(job["code"], job["environment"]) if job.get("environment") else job["code"]
+                    job["prepared_code_sha256"] = hashlib.sha256(prepared.encode()).hexdigest()
+                    (directory / "run.py").write_bytes(prepared.encode("utf-8"))
                     for mount in job["mounts"]:
                         source = self.resources.resolve(mount["resource_id"], task_id=job["task_id"])
                         if str(source) != mount["source"] or version(source) != mount["version"]:
                             raise Failure("VERSION_CONFLICT", "排队期间输入文件已变化", 409)
+                    self.verify_environment(job)
                     job["status"] = "creating"
                     self.save(job, "job.create_intent")
                     active = True
@@ -210,18 +235,25 @@ class Jobs:
                         self.save(job, "job.terminal")
                         continue
                     self.may_start(job)
+                    self.verify_environment(job)
                     directory = Path(job["directory"])
                     args = ["create", "--name", job["container_name"], "--label", "forestry.job=" + job["job_id"],
                         "--label", "forestry.task=" + job["task_id"], "--network", "none", "--read-only",
                         "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "128",
                         "--memory", str(self.config.max_code_memory_bytes), "--memory-swap", str(self.config.max_code_memory_bytes),
                         "--cpus", str(self.config.max_code_cpus), "--user", "65534:65534",
-                        "--tmpfs", "/tmp:rw,noexec,nosuid,size=67108864", "--log-opt", "max-size=1m",
+                        "--tmpfs", f"/tmp:rw,noexec,nosuid,size={job.get('tmpfs_bytes', 67108864)}", "--log-opt", "max-size=1m",
                         "--log-opt", "max-file=2", "--workdir", "/output",
                         "--mount", f"type=bind,src={directory / 'run.py'},dst=/run.py,readonly",
                         "--mount", f"type=bind,src={directory / 'output'},dst=/output"]
                     for mount in job["mounts"]:
                         args.extend(["--mount", f"type=bind,src={mount['source']},dst={mount['target']},readonly"])
+                    if job.get("environment"):
+                        # Native wheels need executable mappings on a Linux FS.
+                        # Keep /tmp noexec; this separate mount is bounded, nosuid,
+                        # nodev and present only for a validated dependency archive.
+                        args.extend(["--tmpfs", f"/environment:rw,exec,nosuid,nodev,mode=1777,size={job['environment_tmpfs_bytes']}"])
+                        args.extend(["--mount", f"type=bind,src={job['environment']['source']},dst=/environment.zip,readonly"])
                     result = self.docker.call(*args, job["image_id"], "python", "-I", "-B", "/run.py")
                     if result["code"] != 0:
                         raise Failure("RECONCILIATION_REQUIRED", result["stderr"], 409)
@@ -237,6 +269,7 @@ class Jobs:
                         self.save(job, "job.terminal")
                         continue
                     self.may_start(job)
+                    self.verify_environment(job)
                     job["started_at"] = now()
                     job["status"] = "running"
                     self.save(job, "job.start_intent")
@@ -316,13 +349,35 @@ class Jobs:
         result = self.docker.call("logs", "--tail", "200", job["container_id"])
         return {"text": result["stdout"], "stderr": result["stderr"], "bounded": True}
 
+    def verify_environment(self, job):
+        if job.get("environment"):
+            if not self.environment_resolver:
+                raise Failure("PRECONDITION_MISSING", "当前执行器没有环境解析器", 422)
+            current = self.environment_resolver(job["task_id"], job["spec_revision"], job["environment"]["artifact_id"])
+            if current != job["environment"]:
+                raise Failure("VERSION_CONFLICT", "排队或恢复期间依赖环境身份变化", 409)
+
     def observation(self, job_id, task_id):
         job = self.read(job_id, task_id)
-        result = {"job": self.public(job)}
+        # Keep the actionable identity in one bounded native tool result. Full
+        # recipes/manifests remain in the job record and immutable lock artifact;
+        # repeating both here spills the archive ID behind a long wheel listing.
+        observed = self.public(job)
+        observed.pop("environment_recipe", None)
+        if observed.get("environment"):
+            observed["environment"] = {k: v for k, v in observed["environment"].items() if k != "manifest"}
+        result = {"job": observed}
         if job["status"] in TERMINAL and job["container_id"]:
             # The model needs the actual traceback to repair generated code.
             # Keep the same job ownership and container identity checks as the UI.
             result["logs"] = self.logs(job_id, task_id)
+        if job["status"] == "succeeded" and job.get("kind") == "environment.prepare" and self.environment_resolver:
+            archive = next((ref for ref in job["artifact_ids"] if self.resources.artifact(ref, task_id)["name"] == "environment.zip"), None)
+            if not archive:
+                raise Failure("VERIFICATION_FAILED", "依赖作业未生成可复用环境归档", 422)
+            environment = self.environment_resolver(task_id, job["spec_revision"], archive)
+            result["prepared_environment"] = {k:v for k,v in environment.items() if k not in {"source", "manifest"}}
+            result["prepared_environment"]["installed"] = environment["manifest"]["installed"]
         return result
 
     async def loop(self):

@@ -43,7 +43,7 @@ def test_scope_persists_and_denies_effect_before_action_registration(client, app
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("caps", [[], ["fs.inputs", "fs.read", "fs.write_workspace"]])
+@pytest.mark.parametrize("caps", [[], ["fs.inputs", "fs.read", "fs.write_workspace"], ["environment.prepare", "job.observe"]])
 async def test_native_model_receives_only_task_allowed_source_tools(client, app, caps):
     state, _ = task(client, harness_mode="H1", constraints={"allowed_capabilities": caps})
     engine = app.state.engine
