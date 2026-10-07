@@ -1,0 +1,66 @@
+{
+  "$defs": {
+    "TaskStatus": {
+      "description": "Lifecycle status of a single plan step.\n\n`blocked` is only reachable when the capability runs with\n`enable_subtasks=True`; otherwise the toolset rejects it.",
+      "enum": [
+        "pending",
+        "in_progress",
+        "completed",
+        "cancelled",
+        "blocked"
+      ],
+      "title": "TaskStatus",
+      "type": "string"
+    }
+  },
+  "description": "One step in the plan.\n\nUsed both as the `write_plan` input and as the stored item. `id` is\nauto-generated when omitted, so the model can create a plan without ids and\nreference existing steps by id when restructuring.\n\nAttributes:\n    id: Stable identifier (auto-generated 8-char hex string).\n    content: Imperative description of the step, e.g. `Add the database migration`.\n    status: Current status of this step.\n    active_form: Optional present-continuous label shown while the step runs,\n        e.g. `Adding the database migration`.\n    parent_id: Parent step id for subtask hierarchies (subtasks mode only).\n    depends_on: Ids of steps that must complete before this one (subtasks mode only).",
+  "properties": {
+    "id": {
+      "description": "Step id. Auto-generated if omitted.",
+      "title": "Id",
+      "type": "string"
+    },
+    "content": {
+      "description": "Imperative description of the step, e.g. \"Add the database migration\".",
+      "title": "Content",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/TaskStatus",
+      "default": "pending",
+      "description": "Current status of this step. \"blocked\" requires subtasks to be enabled."
+    },
+    "active_form": {
+      "default": "",
+      "description": "Present-continuous label shown while the step runs, e.g. \"Adding the database migration\".",
+      "title": "Active Form",
+      "type": "string"
+    },
+    "parent_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Parent step id for a subtask hierarchy. Requires subtasks to be enabled.",
+      "title": "Parent Id"
+    },
+    "depends_on": {
+      "description": "Ids of steps that must complete before this one. Requires subtasks to be enabled.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Depends On",
+      "type": "array"
+    }
+  },
+  "required": [
+    "content"
+  ],
+  "title": "PlanItem",
+  "type": "object"
+}

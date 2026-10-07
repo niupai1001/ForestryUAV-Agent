@@ -8,8 +8,8 @@
 |---|---|---|---|---|
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
-| P2 | in_progress | 动作/attempt、请求去重、修订隔离、检查点；断网容器、独立 WSL、终态日志、同回合恢复事实；离线范围依赖和环境复用 | 真实计算/取消/超时、两模型运行中作业真实进程恢复通过；大模型调试和加强后的依赖UI通过；离线依赖真实15项通过；完整回归169项 | Agent依赖获取/源码构建、小模型完整依赖UI、完整资源准入、全部恢复窗口及 UI、小模型完整调试/报告质量 |
-| P3 | in_progress | 候选指纹/验收/清单；文档/知识/记忆；原生上下文/角色；H0/H1/H2；已有网络边界、持久输入/引用、无进展保护、工具范围与 UI 修订；有界作业/产物事实及Schema实测绑定 | 完整回归169项；两模型文件范围恢复与修订/重传 UI 通过；45份最新依赖输入快照独立审计通过；历史搜索单项证据保留 | 角色异常/冲突交互、两模型完整本地通用及长任务质量、完整报告/通用评估；联网搜索用户暂缓 |
+| P2 | in_progress | 动作/attempt、请求去重、修订隔离、检查点；断网容器、独立 WSL、终态日志、同回合恢复事实；离线范围依赖和环境复用 | 真实计算/取消/超时、两模型运行中作业真实进程恢复通过；历史大模型调试/依赖UI通过，最新v9两模型失败；离线依赖真实15项通过；完整回归177项 | Agent依赖获取/源码构建、两模型稳定完整依赖UI、完整资源准入、全部恢复窗口及 UI、小模型完整调试/报告质量 |
+| P3 | in_progress | 候选指纹/验收/清单；文档/知识/记忆；原生上下文/角色；H0/H1/H2；已有网络边界、持久输入/引用、无进展保护、工具范围与 UI 修订；有界事实及Schema实测绑定、原生计划与UI视图 | 完整回归177项；两模型文件范围恢复与修订/重传 UI 通过；最新43份输入/原生计划审计通过；历史搜索单项证据保留 | 角色异常/冲突交互、两模型完整本地通用及长任务质量、完整报告/通用评估；联网搜索用户暂缓 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -201,6 +201,31 @@ large `979c4090-c284-4f7e-ba14-f7438e251d31` 15请求、16注册动作，保持r
 完整回归 `pytest -q --basetemp workspace/test-temp-20261006-131`：169 passed（34.36秒），最终Ruff/diff通过。新增原生三模式有界元数据/诊断、真实Schema收据隔离及父元数据不进入子角色的检查。此前恢复测试虽参数化H0/H1/H2却遗漏make_agent快照，实际均用H1；现传入冻结快照后三种真实模式通过，旧测试不夸称三模式覆盖。新增测试初期动作外键及夹具参数错误已修复，夹具不是实际执行器证据。产品前端源码未改动，无需重新打包；专用8768加载最终API，其他已有服务未重载。最终只读DB检查无active任务、非终态作业或未确认动作，未停止既有服务。
 
 English: Baseline1.8 adds bounded root-only artifact/job facts, confirmed diagnostic tails and schema accounting bound to the actual measured native response and exact scope/schema. The native compaction target changes from half to three quarters of available input budget; hard limits remain. The strengthened final dependency UI trial is one pass/one failure: large passes actual flow and independent report review; small repeats execution/installation, exhausts30 requests and mislabels a read-action ID as a job. All45 prepared inputs pass separate provenance/usage audits, not task acceptance. Original failures remain, including an audit JSON-escaping mistake corrected in a separate file.169 regressions and Ruff/diff pass. Complete local general quality, dependency acquisition/source builds and recovery/UI gates remain pending; search is user-deferred.
+
+## Native planning and UI / 原生计划与工作台（1.9）
+
+2026-10-07 增加task.plan（19项注册能力中的一项）及原生write_plan/read_plan，只在H1/H2与任务/冻结角色交集允许时开放。复用Planning/PlanItem/SqlitePlanStore；native_plan_items表位于同一SQLite，按任务/修订/逻辑回合/委派隔离。16步/8192字节及字段上限，最多一步执行中。范围和控制检查跨原生整表提交持有单服务应用锁，未证明多进程同库控制。动作与预算沿用现有机制；自报计划不算新增执行证据或重置无进展。API/UI标记model_proposed/not_assessed，不改变验收或权威状态。没有另建Agent循环、历史或计划调度器，详见PLANNING。
+
+初始协议测试2失败：已解析PlanItem对象不能直接写JSON动作参数。修复为记录call.args_as_dict()原始参数，仍由原生类型化handler执行，随后6项通过。再加入原生压缩及子角色计划写入隔离，共8项通过。PlanItem导出原生类型，工具/提交边界另外施加上限。
+
+原始v8两模型UI均记录失败，完整文件`workspace/evidence/ui-dependencies-tests-20261007-v8.json`保留。small `2c91d9fd-a1da-4793-910e-ec3936e466bd`：22请求/22动作、7作业，仅result-1，NO_PROGRESS暂停，未完成第二结果/报告。large `bdfabe01-a90d-47be-8ee7-c23c969bd42b`：15请求/17动作、五真实作业、一个环境、两次计算及三份文件实际读回。其测试正则把“作业复用同一environment_artifact_id”的环境ID误作作业ID；改为显式作业标签，另核对仍能发现历史v7小模型误标读取动作ID。对同一任务的只读报告复核通过（13.5秒），0新模型请求/作业，补充证据`ui-dependencies-same-task-recheck-<task_id>.json`。原失败不覆盖，复核不是新试次或完整验收；其计划仍过期，仅两步完成。
+
+v8的37份输入摘要、正用量覆盖、Schema绑定及有界事实审计通过；单独提醒审计发现小模型14次、大模型10次缺提醒。当前Planning在wrap阶段注入，而后续原生压缩器从ctx.messages重建请求，移除临时部分。仅调整能力列表顺序的首次修复仍失败，新增压缩测试发现此问题。最终兼容适配在压缩后的before-model链调用原生提醒方法，预算/快照随后执行，不积累历史。原失败审计`native-planning-request-audit-<v8 task_id>.json`保留。
+
+UI加入计划页签和自报状态说明；当前任务只显示自身5个授权输入，不再显示全库80项历史登记。SSE重放原先逐事件并发刷新，产生请求堆积，API有7步而界面为空。修复为串行合并刷新、防止切换任务后旧响应覆盖；旧API计划路由404兼容。最终前端打包通过（2分6秒），真实同一任务桌面/390px手机的计划、来源、刷新、无页面错误/横向溢出检查1通过（1.9秒）。证据`ui-plan-recheck-tests-20261007-v8-r4.json`、`ui-planning-<task_id>.json`及两张实际查看的workbench-plan截图。
+
+复核首次连接失败时，专用8768的进程与原会话均不存在，原因未确认，不称为已证明产品崩溃。确认缺失后重启，计划可读且没有重复执行。r2未先建立API会话/UI未加载，完整JSON备份因错误工作目录失败；摘要`ui-plan-recheck-summary-20261007-v8-r2.json`如实记载。r3报告复核通过/计划UI失败，完整JSON与错误上下文保留；r4修复后计划UI通过。加载最终后端前，重新核对专用服务全空闲和PID/配置/创建时间后才停止PID19656，启动PID26108；其他服务未重载。
+
+最终v9依赖UI保留原数值/环境/五作业/报告/只读检查，并增加已核验工作结束后计划更新完成的要求。结果**2失败/1只读复核跳过**，并非仅新门槛导致：
+
+- small `4d61efd4-b9be-4a71-a552-e71119f79edc`：25请求/25动作、8作业，正确环境和result-1存在；误读二进制环境、后续计算失败/计划回退，保守输入估算29112超过可用28672，CONTEXT_EXHAUSTED暂停。没有完整第二结果/报告。
+- large `e17b7b75-69c1-4017-9a15-372bc3640606`：18请求/23动作、五作业，两个结果和中文报告生成且实际读回；之后重复读三份文件，NO_PROGRESS暂停。未final_result，最后两步计划未完成。报告另行查看不能代替UI成功。
+
+最新43份实际已发请求的摘要、正用量覆盖、Schema响应绑定和有界事实审计通过；独立计划审计43次均有恰好一个与先前确认动作匹配的当前提醒，包含压缩后的请求。证据`ui-dependencies-context-audit-corrected-<v9 task_id>.json`和`native-planning-request-audit-<v9 task_id>.json`只证明输入/集成。失败JSON、事件、日志、截图和源只读结果保留，完整试次为`ui-dependencies-tests-20261007-v9.json`。没有提高30请求、无进展3次或上下文上限，没有联网搜索或宿主包执行。
+
+最终完整回归`pytest -q -p no:cacheprovider --basetemp workspace/test-temp-20261007-139`：177 passed（25.13秒），Ruff通过。初始175项（37.05秒）之后新增上述2项检查。一次受限终端测试长时间无输出，单独中断该测试会话；提升后的8项正常完成，没有据此重启产品服务。完整通用阶段、两模型稳定质量、Agent依赖获取/源码构建、完整恢复/UI及领域/规模仍未验收；搜索用户暂缓。
+
+English: Baseline1.9 reuses native planning, storage, actions and budgets. Actual v8 snapshots exposed reminders dropped by compaction; the small before-hook adapter fixes this without accumulating history. All43 sent v9 inputs pass reminder/provenance/usage audits, while both workflows fail: small misuses environments and reaches the context guard; large completes files but repeats reads and triggers NO_PROGRESS. Original failures, a report-reference false positive and a zero-execution same-task supplemental pass remain distinct. Coalesced refresh fixes empty-plan UI; desktop/mobile checks and177 regressions pass. Full local acceptance remains incomplete; search is deferred.
 
 ## Next / 下一步
 

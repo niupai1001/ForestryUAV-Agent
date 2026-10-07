@@ -20,15 +20,17 @@
                   "knowledge.search",
                   "memory.read",
                   "environment.inspect",
+                  "environment.prepare",
                   "code.execute",
                   "job.observe",
                   "role.delegate",
                   "web.search",
-                  "web.read"
+                  "web.read",
+                  "task.plan"
                 ],
                 "type": "string"
               },
-              "maxItems": 17,
+              "maxItems": 19,
               "type": "array"
             },
             {

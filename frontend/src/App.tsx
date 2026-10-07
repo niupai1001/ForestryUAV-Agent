@@ -24,6 +24,9 @@ type Assignment = {assignment_id:string;role_id:string;status:string;model_reque
   effective_input_refs:string[];effective_artifact_refs:string[];request:{objective:string};
   result?:{summary:string;artifact_ids:string[];limitations:string[];checks:{criterion:string;status:string;observation:string}[]} | null;
   blocker?:{message:string}|null};
+type Plan = {task_id:string;spec_revision:number;turn_id:string|null;authority:string;acceptance:string;
+  items:{id:string;content:string;status:string;active_form:string}[]};
+const planLabels:Record<string,string> = {pending:'待处理',in_progress:'进行中',completed:'助手标记完成',cancelled:'已取消'};
 const roleNames:Record<string,string> = {environment:'环境检查',data:'数据准备',code_experiment:'代码实验',quality:'质量复核'};
 const assignmentLabels:Record<string,string> = {queued:'等待开始',running:'运行中',waiting:'等待恢复',succeeded:'已返回',partial:'部分结果',failed:'失败',cancelled:'已取消'};
 const labels: Record<string,string> = {created:'等待运行', active:'运行中', paused:'已暂停',
@@ -33,7 +36,7 @@ const capabilityLabels:Record<string,string> = {'fs.inputs':'查看任务输入'
   'fs.write_workspace':'写入产物','artifact.inspect':'检查产物','artifact.read':'读回产物','action.inspect':'查看动作证据',
   'document.read':'阅读文档','knowledge.index':'建立知识索引','knowledge.search':'检索知识','memory.read':'读取长期记忆',
   'environment.inspect':'检查本机环境','environment.prepare':'准备隔离依赖','code.execute':'执行受限代码','job.observe':'观察作业','role.delegate':'委派角色',
-  'web.search':'搜索网页','web.read':'读取网页'};
+  'web.search':'搜索网页','web.read':'读取网页','task.plan':'跟踪任务计划'};
 const fileCapabilities = ['fs.inputs','fs.list','fs.read','fs.write_workspace','artifact.inspect','artifact.read',
   'action.inspect','document.read','knowledge.index','knowledge.search'];
 type Scope = 'full'|'files'|'answer'|'custom';
@@ -48,11 +51,20 @@ async function api<T>(path: string, payload?: object, method = 'POST'): Promise<
   return data;
 }
 
+async function readPlan(taskId:string):Promise<Plan|null> {
+  const reply=await fetch(`/tasks/${taskId}/plan`);
+  if(reply.status===404)return null;
+  const data=await reply.json();
+  if(!reply.ok)throw new Error(data.error?.message||'计划读取失败');
+  return data;
+}
+
 export default function App() {
   const [tasks,setTasks] = useState<Task[]>([]), [active,setActive] = useState<Task|null>(null);
   const [resources,setResources] = useState<Resource[]>([]), [selected,setSelected] = useState<string[]>([]);
   const [artifacts,setArtifacts] = useState<Artifact[]>([]), [events,setEvents] = useState<Event[]>([]);
   const [assignments,setAssignments] = useState<Assignment[]>([]), [harness,setHarness] = useState('H2');
+  const [plan,setPlan] = useState<Plan|null>(null);
   const [approvals,setApprovals] = useState<Approval[]>([]), [publicTask,setPublicTask] = useState(false);
   const [text,setText] = useState(''), [error,setError] = useState(''), [busy,setBusy] = useState(false);
   const [settings,setSettings] = useState<{version:number; default_model:string; models:Record<string,any>}|null>(null);
@@ -61,7 +73,7 @@ export default function App() {
   const [amending,setAmending] = useState<Task|null>(null), [amendObjective,setAmendObjective] = useState('');
   const [amendInputs,setAmendInputs] = useState<string[]>([]), [amendCaps,setAmendCaps] = useState<string[]|null>(null);
   const [path,setPath] = useState(''), [privateSource,setPrivateSource] = useState(true);
-  const [diagnostics,setDiagnostics] = useState<any>(null), [panel,setPanel] = useState<'artifacts'|'trace'|'roles'>('artifacts');
+  const [diagnostics,setDiagnostics] = useState<any>(null), [panel,setPanel] = useState<'artifacts'|'trace'|'roles'|'plan'>('artifacts');
   const [preview,setPreview] = useState<Artifact|null>(null), [previewText,setPreviewText] = useState('');
   const [candidate,setCandidate] = useState<Candidate|null>(null), [acceptComment,setAcceptComment] = useState('');
   const [notes,setNotes] = useState<Note[]>([]), [noteText,setNoteText] = useState('');
@@ -78,25 +90,36 @@ export default function App() {
     if(saved) try {setActive(await api<Task>(`/tasks/${saved}`));} catch {localStorage.removeItem('forestry.task');}
   });},[]);
   useEffect(()=>{
-    if(!active) {setArtifacts([]); setEvents([]); setAssignments([]); setApprovals([]); return;}
+    if(!active) {setArtifacts([]); setEvents([]); setAssignments([]); setApprovals([]); setPlan(null); return;}
     localStorage.setItem('forestry.task',active.task_id);
     seen.current = new Set(); setEvents([]);
+    setPlan(null);
     const id = active.task_id;
+    let current=true, loading=false, reloadPending=false;
+    const loadDetails=async()=>{
+      if(loading){reloadPending=true;return;}
+      loading=true;
+      try{
+        do{
+          reloadPending=false;
+          const [state,files,roles,pending,currentPlan]=await Promise.all([
+            api<Task>(`/tasks/${id}`),api<Artifact[]>(`/tasks/${id}/artifacts`),
+            api<Assignment[]>(`/tasks/${id}/assignments`),api<Approval[]>(`/tasks/${id}/approvals`),readPlan(id)]);
+          if(!current)return;
+          setActive(state);setArtifacts(files);setAssignments(roles);setApprovals(pending);setPlan(currentPlan);await refresh();
+        }while(current&&reloadPending);
+      }finally{loading=false;}
+    };
     const source = new EventSource(`/tasks/${id}/events`);
     source.onmessage = message => {
+      if(!current)return;
       const event:Event = JSON.parse(message.data);
       if(seen.current.has(event.event_id)) return;
       seen.current.add(event.event_id); setEvents(previous => [...previous,event].slice(-500));
-      if(event.type !== 'model.text') void guarded(async()=>{
-        setActive(await api<Task>(`/tasks/${id}`)); setArtifacts(await api<Artifact[]>(`/tasks/${id}/artifacts`));
-        setAssignments(await api<Assignment[]>(`/tasks/${id}/assignments`)); await refresh();
-        setApprovals(await api<Approval[]>(`/tasks/${id}/approvals`));
-      });
+      if(event.type !== 'model.text') void guarded(loadDetails);
     };
-    void guarded(async()=>{setArtifacts(await api<Artifact[]>(`/tasks/${id}/artifacts`));
-      setAssignments(await api<Assignment[]>(`/tasks/${id}/assignments`));
-      setApprovals(await api<Approval[]>(`/tasks/${id}/approvals`));});
-    return ()=>source.close();
+    void guarded(loadDetails);
+    return ()=>{current=false;source.close();};
   },[active?.task_id]);
   const newTask = () => {setActive(null); setSelected([]); setText(''); setScope('full'); setCustomCaps([]); localStorage.removeItem('forestry.task'); input.current?.focus();};
   const send = async () => {
@@ -237,7 +260,7 @@ export default function App() {
               <option value="full">通用能力</option><option value="files">文件与报告</option><option value="answer">仅回答</option><option value="custom">自定义</option></select></label>
               <p>{scope==='full'?'可使用配置允许的通用工具；私密信息外发仍需逐项审批。':scope==='files'?'可读取已选文件、检索知识、写报告和读回产物。':scope==='answer'?'根据对话回答，不开放源文件、联网、代码或委派工具。':'只允许下方选中的能力，其他配置仍会进一步限制它们。'}</p>
               {scope==='custom'&&<div className="capability-grid">{Object.entries(capabilityLabels).map(([cap,label])=><label key={cap}><input type="checkbox" checked={customCaps.includes(cap)} onChange={e=>setCustomCaps(old=>e.target.checked?[...old,cap]:old.filter(c=>c!==cap))}/>{label}</label>)}</div>}</div>}
-            {resources.length>0&&<div className="source-chips">{resources.map(r=><button key={r.resource_id}
+            {resources.length>0&&<div className="source-chips">{resources.filter(r=>!active||active.input_refs.includes(r.resource_id)).map(r=><button key={r.resource_id}
               className={(active?active.input_refs:selected).includes(r.resource_id)?'checked':''} disabled={!!active||(publicTask&&r.classification!=='public')}
               onClick={()=>setSelected(old=>old.includes(r.resource_id)?old.filter(id=>id!==r.resource_id):[...old,r.resource_id])}>
               <FolderOpen size={13}/>{r.name}{(active?active.input_refs:selected).includes(r.resource_id)&&<Check size={12}/>}</button>)}</div>}
@@ -248,9 +271,10 @@ export default function App() {
           </div>
         </section>
         <aside className="inspector"><section className="inspector-card">
-          <div className="inspector-tabs"><button className={panel==='artifacts'?'active':''} onClick={()=>setPanel('artifacts')}>产物<span>{artifacts.length}</span></button><button className={panel==='trace'?'active':''} onClick={()=>setPanel('trace')}>执行记录</button><button className={panel==='roles'?'active':''} onClick={()=>setPanel('roles')}>委派<span>{assignments.length}</span></button></div>
+          <div className="inspector-tabs"><button className={panel==='artifacts'?'active':''} onClick={()=>setPanel('artifacts')}>产物<span>{artifacts.length}</span></button><button className={panel==='trace'?'active':''} onClick={()=>setPanel('trace')}>执行记录</button><button className={panel==='plan'?'active':''} onClick={()=>setPanel('plan')}>计划</button><button className={panel==='roles'?'active':''} onClick={()=>setPanel('roles')}>委派<span>{assignments.length}</span></button></div>
           {panel==='artifacts'?<div className="artifact-list">{artifacts.length?artifacts.map(a=><div className="artifact-item" key={a.artifact_id}><div className="file-icon"><File size={20}/></div><div><button onClick={()=>void openPreview(a)}>{a.name}</button><span>{(a.size_bytes/1024).toFixed(1)} KB · 校验和已检查</span></div><a title="下载产物" href={a.download_url}><ArrowDownToLine size={15}/></a></div>):<div className="inspector-empty"><div><FolderOpen size={26}/></div><strong>结果会出现在这里</strong><p>真实生成的报告、代码与表格<br/>支持版本检查、预览和下载。</p></div>}</div>:
             panel==='trace'?<div className="trace-list">{tools.length?tools.map(e=><details key={e.event_id}><summary><span className={e.type==='action.observed'?'observed':'started'}/>{e.payload.tool}<small>{e.type==='action.observed'?'已返回':'调用'}</small></summary><pre>{JSON.stringify(e.payload.arguments||e.payload.result,null,2)}</pre></details>):<div className="inspector-empty"><Terminal size={26}/><p>工具调用后显示真实参数和结果</p></div>}</div>:
+            panel==='plan'?<div className="plan-list"><p className="muted">助手的工作安排与自报进度；完成状态仍须实际检查和验收。</p>{plan?.items.length?<ol>{plan.items.map(item=><li key={item.id} data-status={item.status}><strong>{item.content}</strong><span>{planLabels[item.status]||item.status}</span></li>)}</ol>:<p className="empty-small">当前回合尚未保存计划。</p>}</div>:
             <div className="assignment-list">{assignments.length?assignments.map(a=><details key={a.assignment_id} className="assignment-item"><summary><strong>{roleNames[a.role_id]||a.role_id}</strong><span>{assignmentLabels[a.status]||a.status}</span></summary>
               <p>{a.request.objective}</p><small>{a.model_requests} 次模型请求 · {a.actions} 次动作 · {a.effective_input_refs.length} 个授权输入</small>
               {a.blocker&&<p className="limitations">{a.blocker.message}</p>}{a.result&&<><p>{a.result.summary}</p>

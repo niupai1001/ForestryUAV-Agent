@@ -30,6 +30,7 @@ from .contracts import (
 from .delivery import Delivery
 from .doctor import doctor
 from .models import model_identity
+from .planning import visible_plan
 from .resources import Resources
 from .store import Store, encode, now, uid
 
@@ -164,6 +165,10 @@ def create_app(config: Config, *, enable_agent: bool = True):
     @app.get("/tasks")
     def tasks():
         return store.tasks()
+
+    @app.get("/tasks/{task_id}/plan")
+    async def task_plan(task_id: str):
+        return await visible_plan(engine, task_id)
 
     @app.post("/tasks", status_code=202)
     async def create(payload: TaskCreate):

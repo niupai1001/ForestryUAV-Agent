@@ -7,13 +7,13 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serial
 Capability = Literal["fs.inputs", "fs.list", "fs.read", "fs.write_workspace", "artifact.inspect",
     "artifact.read", "action.inspect", "document.read", "knowledge.index", "knowledge.search",
     "memory.read", "environment.inspect", "environment.prepare", "code.execute", "job.observe", "role.delegate",
-    "web.search", "web.read"]
+    "web.search", "web.read", "task.plan"]
 CAPABILITY_NAMES = {"list_inputs": "fs.inputs", "list_files": "fs.list", "read_file": "fs.read",
     "write_file": "fs.write_workspace", "inspect_artifact": "artifact.inspect", "read_artifact": "artifact.read",
     "inspect_action": "action.inspect", "read_document": "document.read", "index_document": "knowledge.index",
     "search_knowledge": "knowledge.search", "read_user_memory": "memory.read", "inspect_environment": "environment.inspect",
     "prepare_environment": "environment.prepare", "code_execute": "code.execute", "wait_job": "job.observe", "delegate_task": "role.delegate",
-    "search_web": "web.search", "read_web_page": "web.read"}
+    "search_web": "web.search", "read_web_page": "web.read", "write_plan": "task.plan", "read_plan": "task.plan"}
 
 
 class Boundary(BaseModel):
@@ -23,7 +23,7 @@ class Boundary(BaseModel):
 class TaskConstraints(Boundary):
     # Omission keeps the existing {} payload and request digest for legacy retries.
     # None inherits configured ceilings; [] denies all registered action capabilities.
-    allowed_capabilities: list[Capability] | None = Field(default=None, max_length=18)
+    allowed_capabilities: list[Capability] | None = Field(default=None, max_length=19)
 
     @model_serializer(mode="wrap")
     def serialize(self, handler):

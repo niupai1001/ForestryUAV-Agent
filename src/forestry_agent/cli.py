@@ -41,6 +41,8 @@ def main():
     schema.add_argument("--output", default="schemas")
     args = parser.parse_args()
     if args.command == "schema":
+        from pydantic_ai_harness.planning import PlanItem
+
         from . import contracts
         from .roles import AssignmentRequest, AssignmentResult, RoleCatalog
         target = Path(args.output)
@@ -49,7 +51,7 @@ def main():
             model = getattr(contracts, name)
             (target / f"{name}.schema.json").write_text(
                 json.dumps(model.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf-8")
-        for model in [RoleCatalog, AssignmentRequest, AssignmentResult]:
+        for model in [RoleCatalog, AssignmentRequest, AssignmentResult, PlanItem]:
             (target / f"{model.__name__}.schema.json").write_text(
                 json.dumps(model.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf-8")
         return

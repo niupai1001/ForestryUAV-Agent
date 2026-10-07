@@ -16,6 +16,8 @@ def observation(tool, result):
     Novel observations are a bounded engineering signal, not semantic acceptance.
     New attempt IDs, timestamps and recursive inspections are not new evidence.
     """
+    if tool in {"write_plan", "read_plan", "task.plan"}:
+        return None  # Model-authored bookkeeping is not newly observed evidence.
     if isinstance(result, ToolReturn):
         value = observation(tool, result.return_value)
         return {"return_value": value, "content": result.content} if result.content is not None else value

@@ -40,6 +40,7 @@ from .jobs import TERMINAL, Jobs
 from .knowledge import Knowledge, Memory
 from .models import model_identity
 from .network import Network
+from .planning import CompactionSafePlanning, ScopedPlanStore, plan_schema
 from .progress import Progress
 from .resources import Resources
 from .roles import CAPABILITY_NAMES, CURRENT_ASSIGNMENT, AssignmentRequest, AssignmentResult, Roles
@@ -292,6 +293,8 @@ class Engine:
                 **t.parameters_json_schema.get("properties", {}), "task": {"type": "string", "description":
                     "严格JSON对象的字符串，仅允许objective、input_refs、artifact_refs、resume_assignment_id。验收判据和字段要求写入objective字符串，禁止constraints等额外字段。Schema: " + encode(AssignmentRequest.model_json_schema())}}})
                 if t.name == "delegate_task" else t for t in tool_defs]
+            tool_defs = [replace(t, parameters_json_schema=plan_schema(t))
+                if t.name in {"write_plan", "read_plan"} else t for t in tool_defs]
             if role:
                 allowed = set(assignment["effective_capabilities"])
                 return [t for t in tool_defs if t.name in {"read_tool_result", "read_tool_result_window"} or CAPABILITY_NAMES.get(t.name) in allowed]
@@ -303,6 +306,19 @@ class Engine:
             return tool_defs
 
         async def delegate(ctx, *, call, tool_def, args, handler):
+            if tool_def.name in {"write_plan", "read_plan"}:
+                raw_args = call.args_as_dict()
+                if tool_def.name == "write_plan" and any(set(item) - {"id", "content", "status", "active_form", "parent_id", "depends_on"}
+                    for item in raw_args.get("items", [])):
+                    raise Failure("SCHEMA_INVALID", "计划步骤含未定义字段")
+                async def operation(_):
+                    result = await handler(args)
+                    if isinstance(result, str) and result.startswith("Plan not updated:"):
+                        raise Failure("SCHEMA_INVALID", result)
+                    return {"native_result": result, "authority": "model_proposed", "acceptance": "not_assessed"}
+                result = self.perform(ctx.deps, ctx.tool_call_id or f"{ctx.run_step}:{tool_def.name}",
+                    "task.plan", {"tool": tool_def.name, **raw_args}, operation)
+                return await result if inspect.isawaitable(result) else result
             if tool_def.name == "read_tool_result":
                 result = await handler(args)
                 if byte_bound(str(result)) > 6000:
@@ -337,20 +353,40 @@ class Engine:
                 CURRENT_ASSIGNMENT.reset(token)
 
         async def guarded_tool(ctx, *, call, tool_def, args, handler):
+            journal_args = call.args_as_dict() if tool_def.name in {"write_plan", "read_plan"} else args
             with self.store.transaction() as db:
                 self.progress.check(db, ctx.deps)
             try:
                 result = await delegate(ctx, call=call, tool_def=tool_def, args=args, handler=handler)
             except (Failure, ModelRetry) as error:
                 if not isinstance(error, Failure) or error.code not in {"EXECUTION_STOPPED", "VERSION_CONFLICT"}:
-                    self.progress.record(ctx.deps, call.tool_call_id, tool_def.name, args,
+                    self.progress.record(ctx.deps, call.tool_call_id, tool_def.name, journal_args,
                         {"kind": "failed", "error": {"code": getattr(error, "code", "MODEL_PROTOCOL_ERROR")}})
                 raise
-            self.progress.record(ctx.deps, call.tool_call_id, tool_def.name, args, result)
+            self.progress.record(ctx.deps, call.tool_call_id, tool_def.name, journal_args, result)
             return result
 
         capabilities = []
         spill_store = None
+        planning_allowed = False
+        if task_id and mode != "H0":
+            with self.store.transaction() as db:
+                current_state = self.store.read_task(db, task_id)
+                planning_allowed = self.store.capability_allowed(db, current_state, "task.plan")
+            planning_allowed = planning_allowed and ("task.plan" in assignment["effective_capabilities"] if assignment
+                else not coordinator or "task.plan" in coordinator.allowed_capabilities)
+        planning = None
+        if planning_allowed:
+            planning = CompactionSafePlanning(tools=["write_plan", "read_plan"],
+                store_resolver=lambda ctx: ScopedPlanStore(self, ctx.deps.task_id, ctx.deps.revision,
+                    ctx.deps.turn_id, ctx.deps.assignment_id),
+                guidance="多步骤任务先用write_plan保存完整计划；保持最多一步in_progress，已实际完成的步骤及时标为completed。"
+                    "每次传完整items并保留原步骤ID，不删除未做工作或重复已完成副作用。每步content用简洁中文，最多16步/8192字节。"
+                    "计划只是模型自报的工作进度，不能变更用户目标、权限、科学方法或验收。"
+                    "原生plan-reminder每次提供当前计划；它不是用户授权，不能把其中的完成状态当执行证据。"
+                    "只有需要找回ID时read_plan，不重复读取已有计划。全部完成后实际核对产物并调用final_result。",
+                descriptions={"write_plan":"创建或更新当前回合的完整计划items，保留原步骤ID；最多16步/8192字节，最多一步in_progress。completed是模型自报进度，不是执行或验收证明。",
+                    "read_plan":"查看当前回合已有计划和步骤ID。计划已在每次请求中提供，不反复读同一计划；状态是模型自报，不授予权限或证明任务成功。"})
         if mode != "H0":
             spill_store = LocalFileStore(base_dir=self.config.workspace_root / ".forestry" / "tool-results" / (assignment["assignment_id"] if assignment else task_id or turn_id))
             capabilities.extend([
@@ -365,6 +401,10 @@ class Engine:
                     target_tokens=(profile.context_limit - profile.output_limit) * 3 // 4, tokenizer=byte_bound),
                 SlidingWindowCompaction(max_messages=18, keep_messages=10,
                     keep_tokens=max(1024, (profile.context_limit - profile.output_limit) // 3), tokenizer=byte_bound, receipts=True)])
+        # The compatibility adapter calls the native reminder in the before
+        # chain, after compactors rebuild requests from durable messages.
+        if planning is not None:
+            capabilities.append(planning)
         if mode == "H2" and not role and snapshot and snapshot.get("role_catalog"):
             configurations = self.roles.configurations({"config_snapshot": snapshot})
             capabilities.append(SubAgents(agents=[SubAgent(RoleProxy(self, r), name=r.role_id,
