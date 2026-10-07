@@ -189,9 +189,9 @@ class Roles:
         self.store.authorize_capability(db, state, kind)
         if not deps.assignment_id:
             role = self.configurations(state).get("coordinator")
-            if role and (kind not in role.allowed_capabilities or (kind in {"fs.write_workspace", "code.execute"} and not role.permission_ceiling.workspace_write)):
+            if role and (kind not in role.allowed_capabilities or (kind in {"fs.write_workspace", "code.execute", "environment.prepare", "environment.acquire"} and not role.permission_ceiling.workspace_write)):
                 raise Failure("PERMISSION_DENIED", "能力超出协调者配置上限", 403)
-            if role and kind in {"web.search", "web.read"} and role.permission_ceiling.network == "none":
+            if role and kind in {"web.search", "web.read", "environment.acquire"} and role.permission_ceiling.network == "none":
                 raise Failure("PERMISSION_DENIED", "协调者配置禁止网络请求", 403)
             if check_budget and role and db.execute("SELECT COUNT(*) FROM actions WHERE turn_id=?", (deps.turn_id,)).fetchone()[0] >= role.max_actions:
                 raise Failure("RESOURCE_EXHAUSTED", "协调者回合动作预算已用尽", 422)
@@ -203,7 +203,7 @@ class Roles:
             raise Failure("RESOURCE_EXHAUSTED", "委派总时限已用尽", 422)
         if kind not in value["effective_capabilities"]:
             raise Failure("PERMISSION_DENIED", "能力超出角色权限交集", 403)
-        if kind in {"fs.write_workspace", "code.execute", "environment.prepare"} and not value["permission_ceiling"]["workspace_write"]:
+        if kind in {"fs.write_workspace", "code.execute", "environment.prepare", "environment.acquire"} and not value["permission_ceiling"]["workspace_write"]:
             raise Failure("PERMISSION_DENIED", "角色上限禁止工作区写入", 403)
         if args.get("resource_id") and args["resource_id"] not in value["effective_input_refs"]:
             raise Failure("PERMISSION_DENIED", "资源超出委派范围", 403)
@@ -213,6 +213,8 @@ class Roles:
             raise Failure("PERMISSION_DENIED", "产物超出委派范围", 403)
         if args.get("environment_artifact_id") and args["environment_artifact_id"] not in self.artifacts(value, db):
             raise Failure("PERMISSION_DENIED", "依赖环境超出委派产物范围", 403)
+        if args.get("wheel_artifact_ids") and not set(args["wheel_artifact_ids"]) <= set(self.artifacts(value, db)):
+            raise Failure("PERMISSION_DENIED", "依赖wheel超出委派产物范围", 403)
         if args.get("job_id"):
             owned = db.execute("SELECT 1 FROM jobs j JOIN actions a ON j.action_id=a.id WHERE j.id=? AND a.turn_id=?", (args["job_id"], value["run_id"])).fetchone()
             if not owned:

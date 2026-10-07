@@ -30,6 +30,7 @@ from pydantic_ai_harness.tool_output_limits import (
     indented_json,
 )
 
+from .acquisition import Acquisition, WheelRequest
 from .config import Config, ModelProfile
 from .context import Contexts, byte_bound, deduplicate_objective, utf8_window
 from .contracts import Failure
@@ -76,6 +77,7 @@ class Engine:
         self.jobs = Jobs(config, store, resources)
         self.environments = Environments(config, store, resources, self.jobs)
         self.jobs.environment_resolver = self.environments.resolve
+        self.jobs.input_artifact_validator = self.environments.acquired_wheel
         self.documents = Documents(resources)
         self.knowledge = Knowledge(store, self.documents)
         self.memory = Memory(store)
@@ -83,6 +85,7 @@ class Engine:
         self.roles = Roles(self)
         self.jobs.cancel_assignments = self.roles.cancel_waiting
         self.network = Network(self)
+        self.acquisition = Acquisition(self)
         self.progress = Progress(store, config)
         self.assignment_slot = asyncio.Semaphore(1)
 
@@ -277,6 +280,9 @@ class Engine:
         def output_error(ctx, *, output_context, output, error):
             details = [{"type": e["type"], "location": list(e["loc"])} for e in error.errors()] if isinstance(error, ValidationError) else str(error)
             self.publish(ctx.deps.task_id, "model.output_rejected", {"turn_id": ctx.deps.turn_id, "details": details})
+            # This hook is a recovery boundary: returning None would accept a
+            # replacement output. Re-raise to preserve native bounded retries.
+            raise error
 
         async def prepare_tools(ctx, tool_defs):
             with self.store.transaction() as db:
@@ -361,7 +367,7 @@ class Engine:
                 CURRENT_ASSIGNMENT.reset(token)
 
         async def guarded_tool(ctx, *, call, tool_def, args, handler):
-            journal_args = call.args_as_dict() if tool_def.name in {"write_plan", "read_plan"} else args
+            journal_args = call.args_as_dict() if tool_def.name in {"write_plan", "read_plan", "acquire_dependencies"} else args
             with self.store.transaction() as db:
                 self.progress.check(db, ctx.deps)
             try:
@@ -545,7 +551,7 @@ class Engine:
                 "output_preferences": spec.get("output_preferences", {}),
                 "context_classification": state["config_snapshot"].get("context_classification", "private"),
                 "network_approvals": [{k: a[k] for k in ["approval_id", "status", "request_sha256", "request"]} for a in self.network.list(ctx.deps.task_id) if a["spec_revision"] == ctx.deps.revision][-12:],
-                "requested_method_id": state["requested_method_id"], "recent_artifact_ids": artifact_refs,
+                "requested_method_id": state["requested_method_id"],
                 "recent_artifacts": [named_artifacts[ref] for ref in artifact_refs if ref in named_artifacts],
                 "recent_jobs": recent_jobs,
                 "recent_artifact_readbacks": readbacks,
@@ -714,13 +720,30 @@ class Engine:
             return await value if inspect.isawaitable(value) else value
 
         @agent.tool
-        async def prepare_environment(ctx: RunContext[Deps], wheel_refs: list[str], seconds: int = 300) -> dict:
+        async def acquire_dependencies(ctx: RunContext[Deps], wheels: list[WheelRequest],
+                source: Literal["pypi", "tuna"] = "pypi", approval_id: str | None = None) -> dict:
+            """按精确name/version/filename从PyPI或TUNA获取公开wheel，核对官方大小/SHA，1–32项/128MiB。
+            私密任务先等审批，再用approval_id执行。返回wheel_artifact_ids用于prepare_environment；包括传递依赖。
+            不执行包或上传文件，下载不证明安装/兼容成功；源码构建待实现。
+            """
+            payload = [w.model_dump() for w in wheels]
+            return await asyncio.to_thread(execute, ctx, "environment.acquire", {"wheels": payload, "source": source, "approval_id": approval_id},
+                lambda action: self.acquisition.acquire(ctx.deps, action, payload, source, approval_id))
+
+        @agent.tool
+        async def prepare_environment(ctx: RunContext[Deps], wheel_refs: list[str] | None = None, seconds: int = 300,
+                wheel_artifact_ids: list[str] | None = None) -> dict:
             """从本任务已授权的单个.whl文件资源准备可复用Python依赖环境。离线pip检查SHA及完整依赖/兼容性，不在宿主安装、不联网。
             返回持久作业，用wait_job等待；成功后的environment.zip artifact_id作为code_execute的environment_artifact_id。
-            缺传递依赖或不兼容时以真实日志有界修复，不忽略依赖、不静默换版本；自动下载/源码构建尚未提供。
+            wheel_refs用于用户授权资源，wheel_artifact_ids用于acquire_dependencies已确认获取的本任务当前修订产物，两者合计最多32项。
+            缺传递依赖或不兼容时以真实日志有界修复，不忽略依赖、不静默换版本；源码构建尚未提供。
             """
-            return await asyncio.to_thread(execute, ctx, "environment.prepare", {"input_refs": wheel_refs, "seconds": seconds},
-                lambda action_id: self.environments.prepare(ctx.deps.task_id, ctx.deps.revision, action_id, wheel_refs, seconds))
+            args = {"input_refs": wheel_refs or [], "seconds": seconds}
+            if wheel_artifact_ids is not None:
+                args["wheel_artifact_ids"] = wheel_artifact_ids
+            return await asyncio.to_thread(execute, ctx, "environment.prepare", args,
+                lambda action_id: self.environments.prepare(ctx.deps.task_id, ctx.deps.revision, action_id, wheel_refs or [], seconds,
+                    wheel_artifact_ids=wheel_artifact_ids))
 
         @agent.tool
         async def code_execute(ctx: RunContext[Deps], code: str, input_refs: list[str], seconds: int = 300,

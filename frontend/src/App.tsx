@@ -18,7 +18,8 @@ type Candidate = {candidate_sha256:string; state_version:number; candidate:{spec
   limitations:string[]; outputs:{artifact_id:string;name:string;sha256:string}[]}};
 type Note = {memory_id:string;text:string;tags:string[]};
 type Approval = {approval_id:string;spec_revision:number;request_sha256:string;status:string;expires_at:string;
-  request:{kind:string;value:string;url:string;destinations:string[];sources:{resource_id:string;version:string}[]}};
+  request:{kind:string;value:string;url:string;metadata_urls?:string[];max_bytes?:number;seconds?:number;
+    destinations:string[];sources:{resource_id:string;version:string}[]}};
 const approvalLabels:Record<string,string> = {pending:'待审批',approved:'已批准，待执行',consumed:'已使用',rejected:'已拒绝',revoked:'已撤销',expired:'已过期'};
 type Assignment = {assignment_id:string;role_id:string;status:string;model_requests:number;actions:number;
   effective_input_refs:string[];effective_artifact_refs:string[];request:{objective:string};
@@ -35,7 +36,7 @@ const requestId = () => crypto.randomUUID();
 const capabilityLabels:Record<string,string> = {'fs.inputs':'查看任务输入','fs.list':'列出源文件','fs.read':'读取源文件',
   'fs.write_workspace':'写入产物','artifact.inspect':'检查产物','artifact.read':'读回产物','action.inspect':'查看动作证据',
   'document.read':'阅读文档','knowledge.index':'建立知识索引','knowledge.search':'检索知识','memory.read':'读取长期记忆',
-  'environment.inspect':'检查本机环境','environment.prepare':'准备隔离依赖','code.execute':'执行受限代码','job.observe':'观察作业','role.delegate':'委派角色',
+  'environment.inspect':'检查本机环境','environment.prepare':'准备隔离依赖','environment.acquire':'获取公开依赖','code.execute':'执行受限代码','job.observe':'观察作业','role.delegate':'委派角色',
   'web.search':'搜索网页','web.read':'读取网页','task.plan':'跟踪任务计划'};
 const fileCapabilities = ['fs.inputs','fs.list','fs.read','fs.write_workspace','artifact.inspect','artifact.read',
   'action.inspect','document.read','knowledge.index','knowledge.search'];
@@ -230,10 +231,12 @@ export default function App() {
                 {live&&liveText&&<pre className="stream-text">{liveText}</pre>}
                 {active.blockers.map((b,i)=><div key={i} className="blocker"><CircleHelp size={16}/><span>{b.message}</span></div>)}
                 {approvals.length>0&&<section className="network-approvals" aria-label="网络请求审批"><h3>网络请求审批</h3>
-                  <p>核对将发送的完整载荷、目的地和来源版本。每次批准仅用于这一项请求；网页内容仍需核验。</p>
+                  <p>核对完整载荷、目的地和来源版本，每次批准仅用于这一项请求。依赖下载成功仍须经过容器安装与结果检查。</p>
                   {approvals.map(record=><details key={record.approval_id} open={record.status==='pending'} className="network-approval">
-                    <summary>{record.request.kind==='web.search'?'搜索请求':'网页读取'} · {approvalLabels[record.status]||record.status}</summary>
+                    <summary>{record.request.kind==='environment.acquire'?'公开依赖获取':record.request.kind==='web.search'?'搜索请求':'网页读取'} · {approvalLabels[record.status]||record.status}</summary>
                     <dl><dt>完整载荷</dt><dd>{record.request.value}</dd><dt>实际 GET 地址</dt><dd>{record.request.url}</dd>
+                      {record.request.metadata_urls&&<><dt>全部官方元数据地址</dt><dd>{record.request.metadata_urls.join('\n')}</dd>
+                        <dt>下载总量 / 总时限</dt><dd>{(record.request.max_bytes??0)/1024**2} MiB / {record.request.seconds} 秒</dd></>}
                       <dt>允许目的地</dt><dd>{record.request.destinations.join('\n')}</dd><dt>规范修订 / 到期</dt><dd>{record.spec_revision} / {new Date(record.expires_at).toLocaleString()}</dd>
                       <dt>请求 SHA256</dt><dd>{record.request_sha256}</dd><dt>来源版本</dt><dd>{record.request.sources.length?JSON.stringify(record.request.sources,null,2):'无本地输入来源'}</dd></dl>
                     <div className="approval-actions">{record.status==='pending'&&record.spec_revision===active.spec_revision&&<>

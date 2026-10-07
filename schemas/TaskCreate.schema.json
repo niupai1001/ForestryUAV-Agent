@@ -26,11 +26,12 @@
                   "role.delegate",
                   "web.search",
                   "web.read",
-                  "task.plan"
+                  "task.plan",
+                  "environment.acquire"
                 ],
                 "type": "string"
               },
-              "maxItems": 19,
+              "maxItems": 20,
               "type": "array"
             },
             {

@@ -1,0 +1,28 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$",
+      "title": "Name",
+      "type": "string"
+    },
+    "version": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9.!+_-]{0,99}$",
+      "title": "Version",
+      "type": "string"
+    },
+    "filename": {
+      "maxLength": 244,
+      "minLength": 1,
+      "title": "Filename",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "version",
+    "filename"
+  ],
+  "title": "WheelRequest",
+  "type": "object"
+}

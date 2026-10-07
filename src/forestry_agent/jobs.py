@@ -15,7 +15,7 @@ import psutil
 from .config import Config
 from .contracts import Failure
 from .environments import execution_code
-from .resources import Resources, version
+from .resources import Resources, native_path, version
 from .store import Store, encode, now, uid
 
 TERMINAL = {"succeeded", "failed", "cancelled", "timed_out"}
@@ -84,6 +84,7 @@ class Jobs:
         self.worker: asyncio.Task | None = None
         self.cancel_assignments = None
         self.environment_resolver = None
+        self.input_artifact_validator = None
 
     def read(self, job_id: str, task_id: str | None = None):
         with self.store.transaction() as db:
@@ -114,7 +115,7 @@ class Jobs:
 
     def submit(self, task_id: str, revision: int, action_id: str, code: str,
                input_refs: list[str], seconds: int = 300, *, environment_artifact_id=None,
-               job_kind="code.execute", environment_recipe=None):
+               job_kind="code.execute", environment_recipe=None, input_artifact_ids=None):
         if job_kind not in {"code.execute", "environment.prepare"}:
             raise Failure("SCHEMA_INVALID", "未知受限作业类型")
         if not code or len(code.encode()) > 65536:
@@ -129,6 +130,14 @@ class Jobs:
                 raise Failure("PRECONDITION_MISSING", "通用代码作业当前仅支持无链接的单文件输入", 422)
             mounts.append({"resource_id": ref, "source": str(source), "target": f"/inputs/{ref}",
                            "version": version(source)})
+        for ref in dict.fromkeys(input_artifact_ids or []):
+            if job_kind != "environment.prepare" or not self.input_artifact_validator:
+                raise Failure("PERMISSION_DENIED", "产物输入仅用于经核验的离线依赖准备", 403)
+            artifact = self.input_artifact_validator(task_id, revision, ref)
+            source = Path(artifact["locator"])
+            if native_path(source).is_symlink() or "," in str(source):
+                raise Failure("PRECONDITION_MISSING", "依赖产物路径不支持链接或逗号", 422)
+            mounts.append({"artifact_id": ref, "source": str(source), "target": f"/inputs/{ref}", "version": version(source)})
         environment = None
         if environment_artifact_id:
             if job_kind != "code.execute" or not self.environment_resolver:
@@ -186,6 +195,19 @@ class Jobs:
         current = self.read(job["job_id"])
         if current["cancel_requested"] or state["cancellation_requested"] or state["pause_requested"] or state["spec_revision"] != job["spec_revision"]:
             raise Failure("EXECUTION_STOPPED", "控制状态已变化，不启动新容器动作", 409)
+        self.verify_inputs(job)
+
+    def verify_inputs(self, job):
+        for mount in job["mounts"]:
+            if mount.get("artifact_id"):
+                if not self.input_artifact_validator:
+                    raise Failure("PRECONDITION_MISSING", "恢复缺少依赖产物核验器", 422)
+                artifact = self.input_artifact_validator(job["task_id"], job["spec_revision"], mount["artifact_id"])
+                source = Path(artifact["locator"])
+            else:
+                source = self.resources.resolve(mount["resource_id"], task_id=job["task_id"])
+            if str(source) != mount["source"] or version(source) != mount["version"]:
+                raise Failure("VERSION_CONFLICT", "排队或启动前输入文件已变化", 409)
 
     def tick(self):
         with self.store.transaction() as db:
@@ -220,10 +242,7 @@ class Jobs:
                     prepared = execution_code(job["code"], job["environment"]) if job.get("environment") else job["code"]
                     job["prepared_code_sha256"] = hashlib.sha256(prepared.encode()).hexdigest()
                     (directory / "run.py").write_bytes(prepared.encode("utf-8"))
-                    for mount in job["mounts"]:
-                        source = self.resources.resolve(mount["resource_id"], task_id=job["task_id"])
-                        if str(source) != mount["source"] or version(source) != mount["version"]:
-                            raise Failure("VERSION_CONFLICT", "排队期间输入文件已变化", 409)
+                    self.verify_inputs(job)
                     self.verify_environment(job)
                     job["status"] = "creating"
                     self.save(job, "job.create_intent")

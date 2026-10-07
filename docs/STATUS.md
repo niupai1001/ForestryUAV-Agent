@@ -8,8 +8,8 @@
 |---|---|---|---|---|
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
-| P2 | in_progress | 动作/attempt、请求去重、修订隔离、检查点；断网容器、独立 WSL、终态日志、同回合恢复事实；离线范围依赖和环境复用 | 真实计算/取消/超时、两模型运行中作业真实进程恢复通过；历史大模型调试/依赖UI通过，最新v11两模型失败；离线依赖真实15项通过；完整回归188项 | Agent依赖获取/源码构建、两模型稳定完整依赖UI、完整资源准入、全部恢复窗口及 UI、小模型完整调试/报告质量 |
-| P3 | in_progress | 候选指纹/验收/清单；文档/知识/记忆；原生上下文/角色；H0/H1/H2；已有网络边界、持久输入/引用、无进展保护、工具范围与 UI 修订；有界来源事实及Schema实测绑定、原生计划/ID回执/视图、出站目标去重 | 完整回归188项；两模型文件范围恢复与修订/重传 UI 通过；最新38份输入/计划/回执/目标审计通过；历史搜索单项证据保留 | 角色异常/冲突交互、两模型完整本地通用及长任务质量、完整报告/通用评估；联网搜索用户暂缓 |
+| P2 | in_progress | 动作/attempt、去重、修订隔离、检查点；断网容器、WSL、恢复事实；公开wheel获取、离线准备与复用 | 实际获取/安装/两次复用11项通过；两模型审批下载组件UI通过；完整回归212项；历史完整复合UI v11仍失败 | 自动候选/依赖解析、条件源码构建、两模型稳定完整依赖UI、完整资源准入及恢复窗口、小模型完整调试/报告质量 |
+| P3 | in_progress | 验收/清单、文档/知识/记忆、原生上下文/角色、H0/H1/H2；范围与修订、来源事实、原生计划/ID回执/视图、目标去重、有界输出纠正 | 完整回归212项；两模型范围恢复/修订UI通过；本轮14份输入与下载来源审计通过；历史38份复合请求审计通过 | 角色异常/冲突交互、两模型完整本地通用及长任务质量、完整报告/通用评估；联网搜索用户暂缓 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -248,8 +248,24 @@ v11结果仍为**2失败/1只读复核跳过**，完整证据`ui-dependencies-te
 
 English: Baseline 1.10 adds sourced read windows/prepared archive IDs, native step-ID receipts and exact outgoing objective deduplication while retaining full facts/history and all limits. All 188 regressions and 38 sent v11 request audits pass. Both workflows still pause through NO_PROGRESS: small repeats preparation/failure observations without results; large computes and rereads both JSONs but produces no report. v10/v11 failures and the fixture clarification remain explicit. Full local acceptance, dependency acquisition/source builds and other original gates remain pending; search is user-deferred.
 
+## Baseline 1.11 / 公开依赖获取与输出纠正
+
+根协调者新增environment.acquire/acquire_dependencies，按精确包名/版本/wheel文件获取1–32项。官方PyPI元数据绑定未撤回文件、大小及SHA-256，可选官方文件源或TUNA字节源；官方同源哈希不冒充独立签名。逐请求复核精确URL、公开固定DNS/TLS、任务修订/控制、输入版本和审批撤销，不发送本地正文/凭证/环境代理。总wheel字节128 MiB、单份元数据2 MiB、整项180秒；下载不导入/解压/执行包。私密任务沿用精确审批，旧冻结角色权限不扩大。应用迁移仍2、公开schema_version仍1，能力上限增至20，导出WheelRequest。
+
+下载wheel及官方元数据/锁文件封存为不可变产物；只有当前修订确认获取动作匹配的wheel_artifact_ids可进入prepare_environment。复用现有Jobs只读输入挂载与断网非root容器，pip实际检查平台/传递依赖。没有新增执行器或宿主机安装路径。长Windows产物路径改用native_path核查；重复相同字节下载不算新进展。模型仍需提供完整精确wheel集合，自动候选/依赖解析和源码构建未完成。根事实移除重复recent_artifact_ids，完整同组名称/ID仍在recent_artifacts；目标和预算未缩减。
+
+真实工具试次fd1cd154-0d62-4a32-ab0a-7c002a44ffc2下载成功，但普通长路径is_file核查导致准备失败，无作业；失败证据保留。修复后513ad2f4-1b9d-44bb-989b-a686fa46fda1（task 1ea3dc8f-8519-4464-8d00-2b77f0b3aa89）11项检查全部通过：真实获取NumPy/dateutil/six、断网安装、同环境两次计算与确认读回、源只读、UID65534、网络阻断、宿主包不变及重放。3个作业成功终态且cleanup确认。脚本直接调用应用工具，model_used=false，不宣称模型自主完成整个流程；证据acquisition-real-<trial_id>.json。
+
+审批下载组件UI v1为1通过/1失败：small 62c9aed6-58d6-4e79-8962-68630a20d4ed在审批前输出无效文本，错误钩子返回None被原生SDK当恢复输出，导致None.artifact_ids；large 570e82dd-7f4e-4122-9c55-1d91b4f6ff44通过。钩子现记录后重抛原错误，保持原生最多三次输出纠正，新增原生恢复/耗尽两项协议测试。v1原始结果保留，不覆盖失败。
+
+修复后组件UI v2两项通过（总1.2分钟）：small f06e88d9-bb1f-4a5e-aeb0-da0e985c831c，27.3秒/9请求；large 58bb5bf3-734e-41c6-989b-1a3c49d15e7c，42.9秒/5请求。实际完成精确审批、真实six下载、大小/SHA核对、确认锁文件读回及waiting_user；页面交互/DOM和手机无横向溢出检查通过，截图不替代执行证据。14份已发输入摘要、正用量预算、完整目标/当前请求及实际下载来源独立只读审计全部通过。组件不包含模型安装/复用/报告，不能覆盖历史v11完整复合UI的两次失败。证据ui-acquisition-tests-20261007-v1/v2.json、ui-acquisition-<profile>-<task_id>.json、acquisition-input-provenance-<task_id>.json。
+
+测试146受限进程首夹具停滞且数据库无任务/动作，核对精确子进程身份后仅停止该测试；147暴露夹具重复原生run ID，148暴露typed WheelRequest进度日志JSON序列化及重复事实超预算，均修复并保存失败。149为208 passed，150为210 passed，151两项输出纠正定向通过；最终152完整回归**212 passed（42.35秒）**，Ruff通过。前端首次受限构建EPERM，提升后沿用同锁构建/类型检查通过（1分30秒），打包index-BdRPCP-K.js。8768只在确认空闲、精确PID/配置/创建时间后重载，其他服务未重载；原30请求/32K上下文/4K输出/无进展3次/容器资源上限不变。完整阶段1及其后领域/规模仍未验收，搜索继续用户暂缓。
+
+English: Baseline 1.11 acquires exact public wheels with existing scoped approval/network guards, immutable provenance and the same offline Jobs path. Automatic resolution and source builds remain pending. Eleven actual tool/install/reuse checks pass; both models pass the approval/download component UI, with all fourteen sent-input/provenance audits passing. The first long-path failure and small-model output failure remain preserved. Rethrowing the native output-error hook restores the existing three correction retries. All 212 regressions pass; full compound dependency/general acceptance and original later gates remain incomplete.
+
 ## Next / 下一步
 
 脚本收尾后再次实际运行，试次 `26a3dc4a-0562-44a4-88db-0cb26d1b1eb7`、task `0b6e9e64-944c-44fe-936f-6c7a2904a3a3` 返回0；原15项检查再次全通过，六个作业终态均确认（预期失败3个、成功安装及复用3个），cleanup无未确认项。此成功路径不冒充观察超时或停止拒绝的实测。证据 `dependencies-real-26a3dc4a-0562-44a4-88db-0cb26d1b1eb7.json`。最终Ruff/diff及Python语法检查通过。
 
-继续P2小模型重复操作/报告质量、依赖自动获取/条件源码构建、剩余真实恢复窗口，再闭合本地UI/通用评估。大模型依赖UI的有限通过不代表两模型或完整依赖验收；不继续通过增加预算或删除检查追求通过。Agent 联网搜索按用户指示暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件仍由用户在 pilot 后决定，不能填入假定设备或测量。
+继续P2自动候选/依赖解析及条件源码构建、小模型重复操作/报告质量、剩余真实恢复窗口，再闭合角色、本地UI和通用评估。两模型审批下载组件通过不代表完整依赖复合任务验收；不通过增加预算或删除检查追求通过。Agent 联网搜索按用户指示暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件仍由用户在pilot后决定，不能填入假定设备或测量。

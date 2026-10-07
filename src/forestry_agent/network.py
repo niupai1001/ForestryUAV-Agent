@@ -192,7 +192,7 @@ class PublicHTTP:
         self.timeout_seconds = timeout_seconds
 
     @staticmethod
-    def _exchange(url, host, port, address, guard, deadline):
+    def _exchange(url, host, port, address, guard, deadline, max_bytes=MAX_BYTES):
         scheme = urlsplit(url).scheme
         class PinnedConnection(http.client.HTTPConnection):
             active_socket = None
@@ -230,11 +230,11 @@ class PublicHTTP:
             headers = {k.lower(): v for k, v in response.getheaders()}
             if headers.get("content-encoding", "identity").lower() not in {"identity", ""}:
                 raise Failure("PRECONDITION_MISSING", "服务器未提供未压缩响应", 422)
-            if int(headers.get("content-length", 0)) > MAX_BYTES:
-                raise Failure("RESOURCE_EXHAUSTED", "网页超过2 MiB上限", 422)
+            if int(headers.get("content-length", 0)) > max_bytes:
+                raise Failure("RESOURCE_EXHAUSTED", f"响应超过{max_bytes / 1048576:g} MiB上限", 422)
             body, start = bytearray(), time.monotonic()
-            while len(body) <= MAX_BYTES:
-                block = response.read1(min(65536, MAX_BYTES + 1 - len(body)))
+            while len(body) <= max_bytes:
+                block = response.read1(min(65536, max_bytes + 1 - len(body)))
                 if not block:
                     break
                 body.extend(block)
@@ -245,7 +245,9 @@ class PublicHTTP:
             watchdog.cancel()
             connection.close()
 
-    def get(self, url, *, guard=lambda _: None, allowed_origins=None):
+    def get(self, url, *, guard=lambda _: None, allowed_origins=None, max_bytes=MAX_BYTES):
+        if type(max_bytes) is not int or not 1 <= max_bytes <= 128 * 1024 * 1024:
+            raise Failure("SCHEMA_INVALID", "公开响应大小上限不合法")
         hops, deadline = [], time.monotonic() + self.timeout_seconds
         for _ in range(4):
             url, host, port, origin = url_parts(url)
@@ -272,11 +274,11 @@ class PublicHTTP:
             if time.monotonic() >= deadline:
                 raise Failure("RESOURCE_EXHAUSTED", "公开读取总时限已用尽", 422)
             try:
-                status, headers, body = self.exchange(url, host, port, addresses[0]) if self.exchange else self._exchange(url, host, port, addresses[0], guard, deadline)
+                status, headers, body = self.exchange(url, host, port, addresses[0]) if self.exchange else self._exchange(url, host, port, addresses[0], guard, deadline, max_bytes)
             except http.client.HTTPException as error:
                 raise Failure("EXECUTION_FAILED", "公开服务器HTTP协议错误", 422) from error
-            if len(body) > MAX_BYTES:
-                raise Failure("RESOURCE_EXHAUSTED", "网页超过2 MiB上限", 422)
+            if len(body) > max_bytes:
+                raise Failure("RESOURCE_EXHAUSTED", f"响应超过{max_bytes / 1048576:g} MiB上限", 422)
             if time.monotonic() >= deadline:
                 raise Failure("RESOURCE_EXHAUSTED", "公开读取总时限已用尽", 422)
             hops.append({"url": url, "address": addresses[0], "status": status})

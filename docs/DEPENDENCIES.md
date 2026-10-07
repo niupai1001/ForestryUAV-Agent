@@ -1,5 +1,15 @@
 # 范围依赖准备与复用
 
+1.11增加根协调者公开依赖获取。调用`acquire_dependencies(wheels=[{name:"six",version:"1.17.0",filename:"six-1.17.0-py2.py3-none-any.whl"}],source="pypi")`；私密任务先在UI核对精确请求并批准，再携带匹配approval_id执行。将返回的真实wheel_artifact_ids传给`prepare_environment(wheel_artifact_ids=[...])`；wait_job成功后仍使用prepared_environment.artifact_id复用环境。下载成功不等于安装成功。
+
+source可选pypi/tuna，每次1–32项/128 MiB，官方元数据单份2 MiB、总时限180秒。只接收精确包名/版本/发行wheel文件名，不接收任意URL或私有索引；官方JSON绑定未撤回文件、大小/SHA，TUNA仅提供字节。沿用固定公开DNS/TLS及精确审批边界，逐请求复核控制、来源版本、修订和撤销，不发送本地正文/凭证/环境代理。工作台显示完整包请求、全部元数据地址、目的地和限额。
+
+结果包括不可变wheel、官方元数据快照和acquisition-lock.json。准备作业只读挂载本任务当前修订已确认获取、哈希仍匹配的产物；子角色须显式获得产物授权。安装/解压仍在原受限断网容器，完整传递依赖由pip验证，不用--no-deps。模型须提供完整wheel集合；版本候选/自动解析、源码构建和完整两模型任务稳定性待完成，官方同源哈希不构成独立签名。
+
+实测命令：`uv run --locked python scripts/smoke_acquisition.py --config config/app.wsl.example.yaml --source tuna`。它通过应用工具与显式审批获取NumPy/dateutil/six，再安装、两次复用计算/读回、核对断网/只读源/宿主包；没有调用模型。设置RUN_ACQUISITION_UI=1与FORESTRY_TEST_BASE_URL运行frontend/e2e/acquisition.spec.ts，可验证真实模型审批下载/锁文件读回；这是组件检查，不代替复合安装/报告验收。212项回归及详细失败/成功证据见STATUS。
+
+以下为此前离线安装与复合任务的历史说明。
+
 当前增量支持用户明确授权的离线 Python wheel，在已有受限作业容器中安装并生成任务专属环境。大模型通过加强后的依赖UI试次及独立报告审查，小模型仍失败；Agent 自动下载依赖、源码包构建和两模型完整依赖验收仍待完成。联网搜索按用户指示暂缓。
 
 在工作台登记每个 `.whl` 为只读来源，并将它们加入任务输入。选择通用能力，或在自定义范围中启用“准备隔离依赖”“执行受限代码”“观察作业”，以及所需的产物读写能力。模型依次调用：

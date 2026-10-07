@@ -1,7 +1,7 @@
 """Task-owned offline wheel environments, prepared by the existing isolated Jobs.
 
 No package code, pip installation or archive extraction runs on the host.
-Online acquisition and source builds remain separate preparation work.
+Public acquisition has a separate authorization boundary; source builds remain pending.
 """
 from __future__ import annotations
 
@@ -121,13 +121,29 @@ class Environments:
     def __init__(self, config, store, resources, jobs):
         self.config, self.store, self.resources, self.jobs = config, store, resources, jobs
 
-    def prepare(self, task_id, revision, action_id, wheel_refs, seconds=300):
-        if not 1 <= len(wheel_refs) <= 32 or len(wheel_refs) != len(set(wheel_refs)):
-            raise Failure("SCHEMA_INVALID", "依赖准备需1–32个唯一的授权wheel文件资源")
+    def acquired_wheel(self, task_id, revision, artifact_id):
+        artifact = self.resources.artifact(artifact_id, task_id)
+        with self.store.transaction() as db:
+            row = db.execute("SELECT result FROM actions WHERE id=? AND task_id=? AND revision=? "
+                "AND kind='environment.acquire' AND status='confirmed'", (artifact["producer_action_id"], task_id, revision)).fetchone()
+        receipt = json.loads(row[0]) if row else {}
+        record = next((w for w in receipt.get("wheels", []) if w.get("artifact_id") == artifact_id), None)
+        if (receipt.get("kind") != "completed" or artifact_id not in receipt.get("wheel_artifact_ids", []) or not record or
+            record.get("sha256") != artifact["sha256"] or record.get("size_bytes") != artifact["size_bytes"] or
+            record.get("filename") != artifact["name"]):
+            raise Failure("PERMISSION_DENIED", "wheel须来自本任务当前修订已确认的依赖获取动作", 403)
+        return artifact
+
+    def prepare(self, task_id, revision, action_id, wheel_refs, seconds=300, *, wheel_artifact_ids=None):
+        wheel_artifact_ids = wheel_artifact_ids or []
+        if (not 1 <= len(wheel_refs) + len(wheel_artifact_ids) <= 32 or len(wheel_refs) != len(set(wheel_refs)) or
+            len(wheel_artifact_ids) != len(set(wheel_artifact_ids))):
+            raise Failure("SCHEMA_INVALID", "依赖准备需1–32个唯一的授权wheel资源/已确认获取产物")
         wheels, total, filenames = [], 0, set()
-        for ref in wheel_refs:
-            source = self.resources.resolve(ref, task_id=task_id)
-            if not source.is_file() or source.is_symlink() or not WHEEL_NAME.fullmatch(source.name):
+        for ref, acquired in [(ref, False) for ref in wheel_refs] + [(ref, True) for ref in wheel_artifact_ids]:
+            artifact = self.acquired_wheel(task_id, revision, ref) if acquired else None
+            source = Path(artifact["locator"]) if acquired else self.resources.resolve(ref, task_id=task_id)
+            if not native_path(source).is_file() or native_path(source).is_symlink() or not WHEEL_NAME.fullmatch(source.name):
                 raise Failure("PRECONDITION_MISSING", "需单独授权名称合法的.whl文件；不执行源码包或宿主安装", 422)
             before = version(source)
             size = native_path(source).stat().st_size
@@ -141,10 +157,10 @@ class Environments:
             if version(source) != before:
                 raise Failure("VERSION_CONFLICT", "记录依赖期间wheel发生变化", 409)
             wheels.append({"resource_id": ref, "filename": source.name, "sha256": sha,
-                "size_bytes": size, "source_version": before})
+                "size_bytes": size, "source_version": before, **({"source_kind": "acquired_artifact"} if acquired else {})})
         return self.jobs.submit(task_id, revision, action_id,
             preparation_code(wheels, self.config.code_image), wheel_refs, seconds,
-            job_kind="environment.prepare", environment_recipe=wheels)
+            job_kind="environment.prepare", environment_recipe=wheels, input_artifact_ids=wheel_artifact_ids)
 
     def resolve(self, task_id, revision, artifact_id):
         artifact = self.resources.artifact(artifact_id, task_id)

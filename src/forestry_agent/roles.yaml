@@ -3,7 +3,7 @@ roles:
   - role_id: coordinator
     objective_scope: 理解当前目标，按证据规划和整合；有独立工作收益时才委派。
     model_profile: inherit_task
-    allowed_capabilities: [fs.inputs, fs.list, fs.read, fs.write_workspace, artifact.inspect, artifact.read, action.inspect, document.read, knowledge.index, knowledge.search, memory.read, environment.inspect, environment.prepare, code.execute, job.observe, role.delegate, web.search, web.read, task.plan]
+    allowed_capabilities: [fs.inputs, fs.list, fs.read, fs.write_workspace, artifact.inspect, artifact.read, action.inspect, document.read, knowledge.index, knowledge.search, memory.read, environment.inspect, environment.prepare, environment.acquire, code.execute, job.observe, role.delegate, web.search, web.read, task.plan]
     permission_ceiling: {workspace_write: true, source_write: false, network: public_scoped, parent_task_mutation: false}
     context_budget: 32768
     return_schema: Answer
