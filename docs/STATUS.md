@@ -8,8 +8,8 @@
 |---|---|---|---|---|
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
-| P2 | in_progress | 动作/attempt、去重、修订隔离、检查点；断网Jobs/WSL/恢复；目标探测、PEP508 wheel解析、获取及离线复用；简化回执与错误ID修正 | 真实工具15项通过；243项回归；v2大模型完整流程零执行复核/来源审计通过；最新v3两模型失败 | 条件源码构建、其他运行时/元数据回退、两模型稳定依赖质量、完整资源准入及恢复窗口、调试/报告质量 |
-| P3 | in_progress | 验收/清单、文档/知识/记忆、原生上下文/角色、H0/H1/H2；范围与修订、来源事实、原生计划、目标去重、有界纠正；解析/下载确认摘要 | 完整回归243项；历史范围恢复/修订UI通过；v2/v3共39份输入审计通过；历史组件/复合证据及全部失败分存 | 审批阶段及失败后恢复/完整工作保持、角色异常/冲突交互、两模型本地通用及长任务质量、报告/通用评估；搜索暂缓 |
+| P2 | in_progress | 动作/attempt、去重、修订隔离、检查点；断网Jobs/WSL/恢复；目标探测、PEP508 wheel解析、获取及离线复用；回执/错误ID及审批阶段说明 | 真实工具15项通过；251项回归；v2大模型完整流程零执行复核/来源审计通过；v4/v5未完成两模型验收 | 条件源码构建、其他运行时/元数据回退、两模型稳定依赖质量、完整资源准入及恢复窗口、调试/报告质量 |
+| P3 | in_progress | 验收/清单、文档/知识/记忆、原生上下文/角色、H0/H1/H2；范围与修订、来源事实、原生计划、目标去重、有界纠正；依赖摘要及继续消息 | 完整回归251项；历史范围恢复/修订UI通过；v4共22份输入审计通过；v5测量缺失单列；历史组件/复合证据及全部失败分存 | 审批/失败恢复及完整工作保持、试次运行隔离、角色异常/冲突交互、两模型本地通用及长任务质量、报告/通用评估；搜索暂缓 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -307,8 +307,34 @@ v3共15份已发输入完整审计通过；v2/v3合计39份，resolution-context
 
 English: All 243 regressions pass. Compact model job and terminal approval receipts retain full API/journal data, actionable identities and sourced current-revision dependency facts; native UUID/null validation and journalled missing-job errors permit bounded correction. The v2 large workflow actually completes and passes a same-task zero-execution recheck plus independent provenance/report audit; its original API-hidden-field test failure remains. v2 small and both latest v3 workflows fail. All 39 v2/v3 sent-input audits pass independently. Stable two-model/general acceptance and remaining source-build/runtime/metadata/recovery/role/evaluation/domain/scale requirements stay pending; search remains user-deferred.
 
+## Baseline 1.14 / 审批阶段与失败后的新范围
+
+依赖待审批回执、H1/H2审批事实与原继续回合消息增加requested_tool，仅从已有请求kind/operation映射resolve_dependencies或acquire_dependencies，不复制第二份精确参数或执行历史。解析/下载回执说明批准后重调原工具，先完成解析才下载、先真实下载才准备/观察环境。完整范围/摘要和原权限/来源/控制/修订校验保留。消费审批不证明请求成功；失败的新尝试须不带旧approval_id重新提出审批，应用不会自动重试、复用终态授权或强制模型进入下一阶段。搜索新增开发/验收仍暂缓，共享机制的阶段表示不构成搜索稳定化。
+
+新增两类阶段/消费失败协议夹具，实测确认批准失败后旧授权拒绝、新同摘要但不同approval_id再次批准成功；未批准时无新HTTP请求，也无伪造成功依赖事实。164受限测试停在首个应用夹具、数据库无任务/动作/作业/审批/回合；核对PID39756/创建时间/精确命令及空数据库后仅停止该测试子进程。165正常权限定向为55通过/2失败：夹具第二审批复用默认request_id触发冲突，改为独立请求并检查响应后，166完整**247 passed（43.56秒）**，Ruff/diff通过。测试缓存改用独立workspace目录，未修改受保护的旧缓存。故障夹具不证明真实外网或科学结果。
+
+专用8769服务在精确PID/创建时间/目录/命令和数据库闲置复核后加载新代码。无应用前端/构建变化，仍用index-Bt8wl78K.js；公开Schema1、迁移2、能力20和模型/容器配置预算不变。v4原UI脚本**2 failed/1 skipped**，ui-resolution-tests-20261007-v4.json及唯一失败/手机截图保存：
+
+- small `73df50bf-b95f-4915-aa67-7fae267dde6c`：51.4秒、9请求/8动作；1个成功探测。批准解析返回RESOURCE_EXHAUSTED读取总时限，模型去掉旧审批提出新解析范围；脚本只等待下载审批，未处理新解析审批。小模型随后重复待批请求，NO_PROGRESS暂停。不能把失败全归为阶段混用或脚本，也不能标为完成。
+- large `a38db375-56eb-411f-aa7c-21bc66076867`：3.9分钟、13请求/10动作；2个成功作业（额外诊断及固定探测），不是完整目标的四个作业。元数据总时限与两次旧审批拒绝后提出新解析审批，waiting_user；原脚本同样漏掉新解析审批并超时。无解析锁/下载/环境/结果/报告。
+
+v4共22份已发输入的SHA、顺序消息/工具配对、完整目标/当前回合、授权/修订/只读、工具SchemaSHA、正用量/预算及依赖事实来源审计全通过，resolution-context-audit-<task_id>.json。原失败不删除/改写。UI操作脚本改为每类一次初始审批/最多两次重试；仅在前次consumed_action_id对应确认失败、相同request_sha256范围时批准。两类各自最后动作仍须完成，之前只能失败；4成功作业/一次安装/同归档复用两次、真实JSON与报告读回、源不变/无搜索和全部结果检查保持。额外审批交互不等于增加配置预算，但可能改变逻辑回合数，独立记录，不能直接比较不同脚本试次成功率。
+
+v5修正审批脚本后新建两模型任务，原Playwright **2 failed/1 skipped**，ui-resolution-tests-20261007-v5.json及失败JSON/唯一截图保留；脚本观察超时不等于任务终态，未重启/取消后台任务：
+
+- small `a51ad546-c974-4b59-80d7-481402ac1983`：浏览器观察3.8分钟超时。1个成功探测，首解析元数据总时限失败，经第二个同范围新审批完成解析及锁文件读回；之后第9次模型请求没有完整响应。服务在原300秒墙钟期限确认MODEL_REQUEST_TIMED_OUT暂停，仍无下载/安装/计算/报告。9份输入身份/目标/范围检查均正确，8份有正实测用量且覆盖预算；第9份无响应测量，不能宣称全部用量审计通过或记为零。原输入审计all_passed=false及后续终态ui-resolution-v5-terminal-<task_id>.json保存。
+- large `24a961bc-b4a8-4740-917b-b3fc87a81f79`：新建时小模型仍占共享模型槽，浏览器3分钟观察超时；小模型实际超时后该任务继续到4请求、1个成功固定探测及待解析审批，waiting_user。原失败是试次运行隔离/观察窗口不足的证据，不代表已经执行完整流程或模型本身失败。4份已发输入审计通过，终态另存。
+
+新建试次入口已增加只读运行库闲置门槛，未因观察超时强行停止任务；该新建门槛尚未通过新的两模型独立试次核验。另增显式同任务继续模式，只能从未暂停/未取消的waiting_user进入原精确审批，不发送改写目标的消息、不改修订/配置；它不是零执行复核，模型请求/作业和墙钟全部另记。v5大模型继续r1因未选择历史任务，5.4秒UI检查失败且无审批/额外请求/作业；ui-resolution-continue-tests-20261007-v5-r1.json、原失败副本和截图保留。修正页面选中来源ID对应任务后，r2为**1 failed/3 skipped（3.4分钟）**，ui-resolution-continue-tests-20261007-v5-r2.json及唯一截图保存。
+
+r2同一大模型任务累计13请求/10动作、2成功作业（固定探测及额外诊断），相对继续前新增9请求/1作业。两次解析审批消费后均元数据RESOURCE_EXHAUSTED；第三解析审批已approved但未执行，编译保守估算29035超过预留输出后28672而CONTEXT_EXHAUSTED暂停。没有成功解析锁/下载/安装/结果/报告，不把审批数量推断为完成阶段。13份已发输入独立SHA/目标/当前请求/权限/修订/Schema与正实测用量及保守预算审计通过，resolution-context-audit-<task_id>-continued-r2.json；超限未发请求没有测量。原4份输入审计和原v5终态保留，跟进终态ui-resolution-v5-continued-terminal-<task_id>.json另存。确认动作/产物复核纠正了跟进中“解析完成、下载待批”的错误阶段推断，正确状态是第三解析待执行。247项回归后只有测试控制/文档改变；最终Ruff/diff通过。两模型稳定质量和完整通用阶段仍未通过。
+
+继续审计修正过期恢复：省略旧approval_id时，同摘要查询不能继续选择已过期pending/approved记录。现在在原事务内将其标为expired、记录approval.expired并提出新pending记录；旧显式pending ID过期也硬拒绝，不返回无法批准的旧待批回执。已过期/消费审批均不授权I/O，拒绝/撤销、来源/修订/控制边界保持，新请求仍需新用户批准。新增resolve/download×pending/approved四个日期故障夹具，旧ID无HTTP、新审批前无HTTP、独立新批准后成功及终态模型摘要均通过。167最终完整**251 passed（54.85秒）**，Ruff通过；此前247为过期修正前的历史计数。最终专用服务在精确身份/闲置复核后加载全部修复，/health返回application/database ready、domain not_implemented；健康响应不是阶段验收。此共享边界修正不添加搜索能力或真实搜索验收。
+
+English: All 251 regressions pass. Dependency approval receipts/facts/continuations identify the original tool; failures and expired pending/approved scopes require fresh approval, and consumed grants do not prove success. Expired matching records are atomically retired on a new unapproved proposal; old IDs cannot authorize I/O. No automatic retry or budget increase is introduced. Original v4 failures include both model errors and a driver that ignored valid retry approvals. The bounded same-scope retry driver preserves delivery checks. In v5 small actually resolves successfully after reapproval, then hits the frozen 300-second model deadline; one sent request has unavailable usage. Large's initial observer fails while queued behind small. Its same-task continuation then times out twice in metadata and exhausts context before a third resolution attempt, without any successful lock/download/install/report. Original evidence and terminal follow-ups remain distinct. The idle precondition is not yet validated by a new two-model trial. Stable general acceptance stays incomplete; search is deferred and the full original scope remains pending.
+
 ## Next / 下一步
 
 脚本收尾后再次实际运行，试次 `26a3dc4a-0562-44a4-88db-0cb26d1b1eb7`、task `0b6e9e64-944c-44fe-936f-6c7a2904a3a3` 返回0；原15项检查再次全通过，六个作业终态均确认（预期失败3个、成功安装及复用3个），cleanup无未确认项。此成功路径不冒充观察超时或停止拒绝的实测。证据 `dependencies-real-26a3dc4a-0562-44a4-88db-0cb26d1b1eb7.json`。最终Ruff/diff及Python语法检查通过。
 
-继续P2条件源码构建、其他运行时/元数据回退、审批阶段辨识与失败后重新提出范围、压缩后完整工作保持、小模型重复操作/报告质量及剩余真实恢复窗口，再闭合角色、本地UI和通用评估。单次大模型流程、工具脚本15项及历史审批下载组件通过不代表两模型稳定质量或阶段1；不通过增加预算或删除检查追求通过。Agent联网搜索暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件由用户在pilot后决定，不填入假定设备或测量。
+继续P2条件源码构建、其他运行时/元数据回退与剩余真实恢复窗口；对齐原生压缩和应用编译预算，保持完整目标/权限/当前请求及原模型预算，处理小模型无响应/重复操作与报告质量，并验证新试次隔离，再闭合角色、本地UI和通用评估。单次大模型流程、工具脚本15项及历史审批下载组件通过不代表两模型稳定质量或阶段1；不通过增加预算或删除检查追求通过。Agent联网搜索暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件由用户在pilot后决定，不填入假定设备或测量。

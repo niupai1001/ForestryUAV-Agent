@@ -47,6 +47,14 @@ resolve_dependencies的target_artifact_id接受UUID或null，不接受字符串"
 
 完整回归243项。v2大模型完整流程经同任务零执行复核及独立来源审计通过，原API字段误报保存；v2小模型、最新v3两模型失败。此单次成功及39份已发输入审计不等于两模型稳定质量或阶段1验收。完整证据见STATUS。
 
+## 审批阶段与失败后新尝试（1.14）
+
+依赖审批回执、H1/H2审批事实和既有继续消息含requested_tool，来自原请求kind/operation。元数据批准后重调resolve_dependencies，下载批准后重调acquire_dependencies，使用原精确参数；两类审批不可混用。审批消费不证明请求成功：失败后的新尝试须去掉旧approval_id，提出新范围再等待用户决定。应用不会自动重试或用摘要重新授权。
+
+过期的pending/approved审批不会继续阻塞同摘要的新请求：不带旧ID提出时，原记录在同一事务标为expired，返回新pending；旧显式ID仍拒绝。用户拒绝/撤销、来源变化、修订、控制和实际外发的有效期校验保持，新记录不能在批准前发送。
+
+251项回归包括两类失败或过期后重新审批的协议夹具。真实UI脚本仅对前次消费动作确认失败、相同request_sha256的精确软件夹具批准重试，每类最多一次初始审批/两次重试；所有配置预算和成功阶段/产物/报告检查保持。脚本的额外审批交互与产品结果分开记录，原v4失败保留，最新结果见STATUS。
+
 ## 真实验证
 
 以下下载脚本仅供可信开发者准备固定的公开软件夹具，不是模型工具，不接触任务私密输入。默认从 PyPI 下载；显式选择 TUNA 镜像时仍依据官方 PyPI JSON 的大小和 SHA-256 核对，不能把同源哈希说成独立签名。[PyPI JSON API](https://docs.pypi.org/api/json/)、[TUNA 镜像说明](https://mirrors.tuna.tsinghua.edu.cn/help/pypi/)

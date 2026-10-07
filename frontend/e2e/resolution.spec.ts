@@ -6,7 +6,7 @@ import {createHash} from 'node:crypto';
 
 const root=fileURLToPath(new URL('../../',import.meta.url));
 const evidence=(name:string)=>resolve(root,'workspace/evidence',name);
-const trials=new Map<string,{taskId:string;source:string;hash:string}>();
+const trials=new Map<string,{taskId:string;source:string;hash:string;suffix?:string}>();
 const sha=(bytes:Buffer)=>createHash('sha256').update(bytes).digest('hex');
 async function snapshot(page:any,taskId:string){
   const state=await(await page.request.get(`/tasks/${taskId}`)).json();
@@ -25,16 +25,20 @@ async function snapshot(page:any,taskId:string){
 }
 test.afterEach(async({page},info)=>{
   const trial=trials.get(info.title);if(!trial||info.status==='passed'||info.status==='skipped')return;
-  writeFileSync(evidence(`ui-resolution-failure-${trial.taskId}.json`),JSON.stringify({task_id:trial.taskId,...await snapshot(page,trial.taskId),
+  writeFileSync(evidence(`ui-resolution-failure-${trial.taskId}${trial.suffix||''}.json`),JSON.stringify({task_id:trial.taskId,...await snapshot(page,trial.taskId),
     errors:info.errors,source_unchanged:sha(readFileSync(trial.source))===trial.hash,all_passed:false,general_stage_acceptance:'incomplete'},null,2));
 });
 for(const model of ['small','large'])test(`${model} resolves downloads installs and reuses dependencies through UI`,async({page})=>{
-  test.skip(process.env.RUN_RESOLUTION_UI!=='1'||!!process.env.FORESTRY_RECHECK_RESOLUTION_TASK,'Explicit new real task; rechecks use the existing task only.');
+  test.skip(process.env.RUN_RESOLUTION_UI!=='1'||!!process.env.FORESTRY_RECHECK_RESOLUTION_TASK||!!process.env.FORESTRY_CONTINUE_RESOLUTION_TASK,'Explicit new real task; existing-task checks use their own mode.');
   test.setTimeout(480000);
   const directory=resolve(root,'workspace/resolution-ui-fixtures',crypto.randomUUID());mkdirSync(directory,{recursive:true});
   const source=resolve(directory,`resolution-heights-${model}.csv`);writeFileSync(source,'height_m\n8.25\n12.50\n16.75\n');
   const hash=sha(readFileSync(source)),errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto('/');expect((await page.request.get('/session')).ok()).toBe(true);
+  await expect.poll(async()=>{
+    const tasks=await(await page.request.get('/tasks')).json();
+    return tasks.every((t:any)=>!['created','active','waiting_job','cancelling','publishing'].includes(t.status));
+  },{timeout:320000,intervals:[1000,2000]}).toBe(true);
   const grant=await page.request.post('/resources/register',{headers:{origin:new URL(page.url()).origin},
     data:{request_id:crypto.randomUUID(),path:source,classification:'private',read_only:true}});
   expect(grant.ok(),await grant.text()).toBe(true);const ref=(await grant.json()).resource_id;await page.reload();
@@ -52,15 +56,36 @@ for(const model of ['small','large'])test(`${model} resolves downloads installs 
   await page.locator('.send-button').click();const response=await created;expect(response.status()).toBe(202);
   const taskId=(await response.json()).task_id;trials.set(test.info().title,{taskId,source,hash});
   test.info().annotations.push({type:'resolution_task_id',description:taskId});
-  for(const operation of ['resolve','download']){
-    let pending:any;
+  await driveApprovals(page,taskId,model);
+  await validateOutcome(page,await snapshot(page,taskId),taskId,model,ref,source,hash,errors);
+});
+
+async function driveApprovals(page:any,taskId:string,model:string){
+  // One initial approval plus at most two retries per phase, only after the
+  // previous consumed action actually failed. Never approve repeated success.
+  for(let decisions=0;decisions<6;decisions++){
+    let pending:any,grants:any[]=[];
     await expect.poll(async()=>{
-      const grants=await(await page.request.get(`/tasks/${taskId}/approvals`)).json();
-      pending=grants.find((g:any)=>g.status==='pending'&&(operation==='resolve'?g.request.operation==='resolve':!g.request.operation));
+      grants=await(await page.request.get(`/tasks/${taskId}/approvals`)).json();
+      pending=grants.find((g:any)=>g.status==='pending');
       const state=await(await page.request.get(`/tasks/${taskId}`)).json();
-      return pending?'pending':['paused','failed'].includes(state.status)?state.status:'working';
-    },{timeout:180000,intervals:[1000,2000]}).toMatch(/^(pending|paused|failed)$/);
-    expect(pending,'A terminal failed/paused task cannot supply the required approval.').toBeTruthy();
+      return pending?'pending':['paused','failed'].includes(state.status)?state.status:
+        state.status==='waiting_user'&&!grants.some(g=>g.status==='approved')?'waiting_user':'working';
+    },{timeout:180000,intervals:[1000,2000]}).toMatch(/^(pending|waiting_user|paused|failed)$/);
+    if(!pending)break;
+    expect(pending.request.kind).toBe('environment.acquire');
+    expect([undefined,'resolve']).toContain(pending.request.operation);
+    const operation=pending.request.operation==='resolve'?'resolve':'download';
+    const previous=grants.filter(g=>g.approval_id!==pending.approval_id&&
+      (g.request.operation==='resolve'?'resolve':'download')===operation);
+    expect(previous.length,'Approval retries are bounded to two per phase.').toBeLessThan(3);
+    if(previous.length){
+      const prior=previous.at(-1);expect(prior.status).toBe('consumed');
+      expect(pending.request_sha256).toBe(prior.request_sha256);
+      const observed=await snapshot(page,taskId);
+      const outcome=observed.events.find(e=>e.type==='action.observed'&&e.payload.result.action_id===prior.consumed_action_id)?.payload.result;
+      expect(outcome?.kind,'Only a confirmed failed operation permits another fixture approval.').toBe('failed');
+    }
     expect(pending.request.package_execution).toBe(false);
     const value=JSON.parse(pending.request.value);
     if(operation==='resolve')expect(value.requirements).toEqual(['numpy==2.2.6','python-dateutil==2.9.0.post0']);
@@ -68,21 +93,34 @@ for(const model of ['small','large'])test(`${model} resolves downloads installs 
     const panel=page.getByLabel('网络请求审批');
     if(operation==='resolve'){await expect(panel).toContainText('公开依赖元数据解析');await expect(panel).toContainText('包含传递依赖');}
     await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
-    await page.screenshot({path:evidence(`workbench-resolution-${model}-${operation}-${taskId}-mobile.png`),fullPage:true});
+    await page.screenshot({path:evidence(`workbench-resolution-${model}-${operation}-${taskId}-approval-${decisions+1}-mobile.png`),fullPage:true});
     await panel.locator('.network-approval').filter({hasText:pending.request_sha256}).getByRole('button',{name:'批准这项请求',exact:true}).click();
     await expect.poll(async()=>(await(await page.request.get(`/tasks/${taskId}/approvals`)).json()).find((g:any)=>g.approval_id===pending.approval_id).status,
       {timeout:60000,intervals:[1000,2000]}).toBe('consumed');
   }
   await expect.poll(async()=>(await(await page.request.get(`/tasks/${taskId}`)).json()).status,
     {timeout:200000,intervals:[1000,2000]}).toMatch(/^(waiting_user|paused|failed)$/);
-  await validateOutcome(page,await snapshot(page,taskId),taskId,model,ref,source,hash,errors);
-});
+}
 
 async function validateOutcome(page:any,observed:any,taskId:string,model:string,ref:string,source:string,hash:string,errors:string[],suffix=''){
   const path=evidence(`ui-resolution-${model}-${taskId}${suffix}.json`);
   const record={model,task_id:taskId,...observed,all_passed:false,general_stage_acceptance:'incomplete',scientific_accuracy:'not_assessed'};
   writeFileSync(path,JSON.stringify(record,null,2));expect(observed.state.status).toBe('waiting_user');
-  expect(observed.approvals).toHaveLength(2);expect(observed.approvals.every((g:any)=>g.status==='consumed')).toBe(true);
+  expect(observed.approvals.length).toBeGreaterThanOrEqual(2);expect(observed.approvals.length).toBeLessThanOrEqual(6);
+  expect(observed.approvals.every((g:any)=>g.status==='consumed'&&g.request.kind==='environment.acquire')).toBe(true);
+  for(const operation of ['resolve','download']){
+    const approvals=observed.approvals.filter((g:any)=>(g.request.operation==='resolve'?'resolve':'download')===operation);
+    expect(approvals.length).toBeGreaterThan(0);expect(approvals.length).toBeLessThanOrEqual(3);
+    for(const grant of approvals.slice(0,-1)){
+      expect(grant.request_sha256).toBe(approvals.at(-1).request_sha256);
+      const outcome=observed.events.find(e=>e.type==='action.observed'&&e.payload.result.action_id===grant.consumed_action_id)?.payload.result;
+      expect(outcome?.kind,'An earlier approval in the same phase must correspond to a failed action.').toBe('failed');
+    }
+    const final=observed.events.find(e=>e.type==='action.observed'&&e.payload.result.action_id===approvals.at(-1).consumed_action_id)?.payload.result;
+    expect(final?.kind).toBe('completed');
+    if(operation==='resolve')expect(final.resolution_lock_artifact_id).toBeTruthy();
+    else expect(final.wheel_artifact_ids).toHaveLength(3);
+  }
   expect(observed.jobs).toHaveLength(4);expect(observed.jobs.every(j=>j.status==='succeeded')).toBe(true);
   const installation=observed.jobs.filter(j=>j.kind==='environment.prepare');expect(installation).toHaveLength(1);
   const target=observed.artifacts.find((a:any)=>a.name==='execution-target.json');expect(target).toBeTruthy();
@@ -118,4 +156,26 @@ test('recheck an existing resolution workflow without a new model or job',async(
   const after=await snapshot(page,taskId!);
   expect(after.state.model_requests).toBe(observed.state.model_requests);
   expect(after.jobs.map(j=>j.job_id)).toEqual(observed.jobs.map(j=>j.job_id));
+});
+
+test('continue an existing unpaused resolution trial through its original approvals',async({page})=>{
+  const taskId=process.env.FORESTRY_CONTINUE_RESOLUTION_TASK;
+  test.skip(process.env.RUN_RESOLUTION_UI!=='1'||!taskId,'Explicit continuation of an existing software fixture.');
+  test.setTimeout(480000);
+  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+  await page.goto('/');expect((await page.request.get('/session')).ok()).toBe(true);
+  const before=await snapshot(page,taskId!);
+  expect(before.state.status).toBe('waiting_user');expect(before.state.pause_requested).toBe(false);
+  expect(before.state.cancellation_requested).toBe(false);expect(before.state.input_refs).toHaveLength(1);
+  const resources=await(await page.request.get('/resources')).json();const ref=before.state.input_refs[0];
+  const source=resources.find((r:any)=>r.resource_id===ref).locator;
+  const hash=sha(Buffer.from('height_m\n8.25\n12.50\n16.75\n'));expect(sha(readFileSync(source))).toBe(hash);
+  trials.set(test.info().title,{taskId:taskId!,source,hash,suffix:'-continued'});
+  await page.locator('.history-item').filter({hasText:ref}).click();
+  await driveApprovals(page,taskId!,before.state.model_profile);
+  const after=await snapshot(page,taskId!);
+  expect(after.state.spec_revision).toBe(before.state.spec_revision);
+  expect(after.state.objective).toBe(before.state.objective);
+  expect(after.state.config_snapshot).toEqual(before.state.config_snapshot);
+  await validateOutcome(page,after,taskId!,before.state.model_profile,ref,source,hash,errors,'-continued');
 });

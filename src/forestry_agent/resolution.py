@@ -245,7 +245,7 @@ class DependencyResolution:
             'metadata_only': True, 'package_execution': False}
         admitted = self.engine.network.admit(deps, action_id, request, hashlib.sha256(encode(request).encode()).hexdigest(), approval_id)
         if isinstance(admitted, dict):
-            return admitted
+            return {**admitted, 'continuation': '这是元数据解析审批，尚无wheel解析结果；批准后用相同requirements/target_artifact_id及此approval_id重调resolve_dependencies。解析成功才用返回wheels/解析锁调用acquire_dependencies并提出独立下载审批。'}
         deadline, snapshots, total = time.monotonic()+180, [], 0
         def guard(url, expected):
             if url_parts(url)[0] != expected:

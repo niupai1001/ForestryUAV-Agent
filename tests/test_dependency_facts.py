@@ -12,8 +12,116 @@ from test_resolution import IndexFixture, prepared_target, run_resolution
 from test_roles import FixtureFunctionModel, stream_adapter
 
 from forestry_agent.agent import Deps
+from forestry_agent.contracts import Failure
 from forestry_agent.jobs import Jobs
 from forestry_agent.store import encode, uid
+
+
+@pytest.mark.parametrize('phase', ['resolve', 'download'])
+def test_dependency_approval_identifies_exact_tool_through_decision_and_receipt(client, app, phase):
+    from test_core import task
+    engine = app.state.engine
+    state = task(client)[0]
+    if phase == 'resolve':
+        deps, target = prepared_target(engine, state)
+        fake = IndexFixture(); fake.add('six', '1.17.0')
+        engine.acquisition.http = fake
+        operation = lambda call, approval=None: run_resolution(engine, deps, call, target, approval=approval)
+        tool = 'resolve_dependencies'
+    else:
+        fake = ReleaseFixture(); engine.acquisition.http = fake
+        operation = lambda call, approval=None: acquire(engine, state, call, approval=approval)
+        tool = 'acquire_dependencies'
+    proposed = operation('phase-proposal')
+    assert proposed['kind'] == 'approval_required' and proposed['requested_tool'] == tool and not fake.calls
+    record = engine.network.list(state['task_id'])[0]
+    assert engine.network.model_facts(state['task_id'], 1)[0]['requested_tool'] == tool
+    decision = approve(client, state, record).json()
+    with engine.store.transaction() as db:
+        prompt = db.execute('SELECT prompt FROM turns WHERE id=?', (decision['continuation_turn_id'],)).fetchone()[0]
+    resumed = json.loads(prompt.split('\n')[-1])
+    assert resumed['requested_tool'] == tool and resumed['approval_id'] == record['approval_id']
+    assert resumed['request_sha256'] == record['request_sha256']
+    assert engine.network.model_facts(state['task_id'], 1)[0]['request'] == record['request']
+    result = operation('phase-approved', record['approval_id'])
+    assert result['kind'] == 'completed' and fake.calls
+    fact = engine.network.model_facts(state['task_id'], 1)[0]
+    assert fact['requested_tool'] == tool and fact['scope_is_summary'] and fact['consumed_action_id'] == result['action_id']
+
+
+@pytest.mark.parametrize('phase', ['resolve', 'download'])
+def test_failed_approved_dependency_request_requires_distinct_approval_before_retry(client, app, phase):
+    from test_core import task
+    engine = app.state.engine; state = task(client)[0]
+    if phase == 'resolve':
+        deps, target = prepared_target(engine, state)
+        fake = IndexFixture(); fake.add('six', '1.17.0')
+        operation = lambda call, approval=None: run_resolution(engine, deps, call, target, approval=approval)
+        hook = 'after'
+    else:
+        fake = ReleaseFixture()
+        operation = lambda call, approval=None: acquire(engine, state, call, approval=approval)
+        hook = 'after_response'
+    engine.acquisition.http = fake
+    proposed = operation('first-proposal')
+    original = engine.network.list(state['task_id'])[0]
+    assert proposed['kind'] == 'approval_required' and not fake.calls
+    assert approve(client, state, original, request_id='approve-first').status_code == 200
+    def fail():
+        raise Failure('RESOURCE_EXHAUSTED', 'metadata request deadline fixture', 422)
+    setattr(fake, hook, fail)
+    failed = operation('failed-approved', original['approval_id'])
+    assert failed['error']['code'] == 'RESOURCE_EXHAUSTED' and len(fake.calls) == 1
+    consumed = engine.network.model_facts(state['task_id'], 1)[0]
+    assert consumed['status'] == 'consumed' and consumed['consumed_action_id'] == failed['action_id']
+    assert engine.acquisition.confirmed_receipts(state['task_id'], 1) == []
+    denied = operation('old-approval-retry', original['approval_id'])
+    assert denied['error']['code'] == 'PERMISSION_DENIED' and '不带approval_id' in denied['error']['message']
+    assert len(fake.calls) == 1
+    retry = operation('new-attempt-without-old-approval')
+    new = engine.network.list(state['task_id'])[-1]
+    assert retry['kind'] == 'approval_required' and new['approval_id'] != original['approval_id']
+    assert new['request_sha256'] == original['request_sha256'] and len(fake.calls) == 1
+    assert approve(client, state, new, request_id='approve-new-attempt').status_code == 200
+    setattr(fake, hook, lambda: None)
+    completed = operation('new-approved-attempt', new['approval_id'])
+    assert completed['kind'] == 'completed' and len(fake.calls) == 3
+    assert engine.acquisition.confirmed_receipts(state['task_id'], 1)[0]['source_action_id'] == completed['action_id']
+
+
+@pytest.mark.parametrize('phase', ['resolve', 'download'])
+@pytest.mark.parametrize('approved', [False, True])
+def test_expired_pending_or_approved_dependency_scope_can_request_fresh_approval(client, app, phase, approved):
+    from test_core import task
+    engine = app.state.engine; state = task(client)[0]
+    if phase == 'resolve':
+        deps, target = prepared_target(engine, state)
+        fake = IndexFixture(); fake.add('six', '1.17.0')
+        operation = lambda call, approval=None: run_resolution(engine, deps, call, target, approval=approval)
+    else:
+        fake = ReleaseFixture()
+        operation = lambda call, approval=None: acquire(engine, state, call, approval=approval)
+    engine.acquisition.http = fake
+    operation('original-scope')
+    record = engine.network.list(state['task_id'])[0]
+    if approved:
+        assert approve(client, state, record, request_id='original-decision').status_code == 200
+        record = engine.network.list(state['task_id'])[0]
+    record['expires_at'] = '2000-01-01T00:00:00+00:00'
+    with engine.store.transaction() as db:
+        db.execute('UPDATE approvals SET payload=? WHERE id=?', (encode(record), record['approval_id']))
+    denied = operation('expired-id', record['approval_id'])
+    assert denied['error']['code'] == 'PERMISSION_DENIED' and not fake.calls
+    fresh = operation('fresh-scope-without-expired-id')
+    old, new = engine.network.list(state['task_id'])
+    assert fresh['kind'] == 'approval_required' and fresh['approval_id'] == new['approval_id'] != old['approval_id']
+    assert old['status'] == 'expired' and old['consumed_action_id'] is None
+    assert new['status'] == 'pending' and new['request_sha256'] == old['request_sha256'] and not fake.calls
+    facts = engine.network.model_facts(state['task_id'], 1)
+    assert facts[0]['scope_is_summary'] and 'scope_is_summary' not in facts[1]
+    assert approve(client, state, new, request_id='fresh-decision').status_code == 200
+    result = operation('fresh-approved-attempt', new['approval_id'])
+    assert result['kind'] == 'completed' and len(fake.calls) == 2
 
 
 def test_model_job_receipt_keeps_identities_without_mutating_complete_record():

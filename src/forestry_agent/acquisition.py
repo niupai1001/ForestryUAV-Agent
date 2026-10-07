@@ -117,7 +117,7 @@ class Acquisition:
             request['resolution_lock_sha256'] = lock_artifact['sha256']
         admission = self.engine.network.admit(deps, action_id, request, hashlib.sha256(encode(request).encode()).hexdigest(), approval_id)
         if isinstance(admission, dict):
-            return admission
+            return {**admission, 'continuation': '这是精确wheel下载审批，尚未下载；批准后用相同wheels/source/解析锁（若有）及此approval_id重调acquire_dependencies。下载成功后才用wheel_artifact_ids准备环境，安装仍须观察真实作业。'}
         deadline, total, records = time.monotonic() + 180, 0, []
         directory = self.engine.resources.task_root(deps.task_id) / "dependencies" / action_id
         def guard(url, expected):

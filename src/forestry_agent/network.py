@@ -330,6 +330,16 @@ class Network:
         with self.store.transaction() as db:
             return [json.loads(r["payload"]) for r in db.execute("SELECT payload FROM approvals WHERE task_id=? ORDER BY rowid", (task_id,))]
 
+    @staticmethod
+    def dependency_tool(request):
+        """Describe the existing scope, without granting or executing a call."""
+        if request.get('kind') == 'environment.acquire':
+            if request.get('operation') == 'resolve':
+                return 'resolve_dependencies'
+            if 'operation' not in request:
+                return 'acquire_dependencies'
+        return None
+
     def model_facts(self, task_id, revision):
         """Active grants retain exact scope; terminal grants cannot authorize I/O.
 
@@ -339,6 +349,9 @@ class Network:
         facts = []
         for record in [a for a in self.list(task_id) if a['spec_revision'] == revision][-12:]:
             value = {k: record[k] for k in ['approval_id', 'status', 'request_sha256', 'request']}
+            requested_tool = self.dependency_tool(record['request'])
+            if requested_tool:
+                value['requested_tool'] = requested_tool
             if record['status'] not in {'pending', 'approved'}:
                 value['request'] = {k: v for k, v in record['request'].items() if k in {'kind', 'operation', 'value', 'destinations'}}
                 value['scope_is_summary'] = True
@@ -356,17 +369,26 @@ class Network:
             if state["config_snapshot"].get("context_classification", "private") == "public":
                 return None
             row = db.execute("SELECT payload FROM approvals WHERE id=? AND task_id=?", (approval_id, deps.task_id)).fetchone() if approval_id else db.execute("SELECT payload FROM approvals WHERE task_id=? AND json_extract(payload,'$.request_sha256')=? AND status IN ('pending','approved','rejected') ORDER BY rowid DESC LIMIT 1", (deps.task_id, digest)).fetchone()
+            if row and not approval_id:
+                previous = json.loads(row['payload'])
+                if previous['status'] in {'pending', 'approved'} and datetime.fromisoformat(previous['expires_at']) <= datetime.now(UTC):
+                    previous.update(status='expired', expired_at=now())
+                    db.execute("UPDATE approvals SET status='expired',payload=? WHERE id=?", (encode(previous), previous['approval_id']))
+                    self.store.event(db, deps.task_id, 'approval.expired', {'approval_id': previous['approval_id'], 'request_sha256': previous['request_sha256']})
+                    row = None
             if row:
                 record = json.loads(row["payload"])
                 if record["request_sha256"] != digest or record["spec_revision"] != deps.revision:
                     raise Failure("VERSION_CONFLICT", "授权请求摘要或来源版本不匹配；不同请求不能复用此approval_id。先检查已完成回执；新请求不带approval_id提出范围，等待匹配的新审批。", 409)
+                if record['status'] == 'pending' and datetime.fromisoformat(record['expires_at']) <= datetime.now(UTC):
+                    raise Failure('PERMISSION_DENIED', '审批已过期；新尝试不带approval_id提出精确范围并等待新审批。', 403)
                 if record["status"] == "approved" and datetime.fromisoformat(record["expires_at"]) > datetime.now(UTC):
                     record.update(status="consumed", consumed_at=now(), consumed_action_id=action_id)
                     db.execute("UPDATE approvals SET status='consumed',payload=? WHERE id=?", (encode(record), record["approval_id"]))
                     self.store.event(db, deps.task_id, "approval.consumed", {"approval_id": record["approval_id"], "action_id": action_id})
                     return record["approval_id"]
                 if record["status"] != "pending":
-                    raise Failure("PERMISSION_DENIED", "授权已拒绝、过期、撤销或消费；不能作为新请求授权。已完成工作复用原确认回执，不重复发送。", 403)
+                    raise Failure("PERMISSION_DENIED", "授权已拒绝、过期、撤销或消费；不能作为新请求授权。审批终态不代表请求成功，先检查动作结果；成功复用原确认回执，失败的新尝试不带approval_id重新提出精确范围，等待新的审批。", 403)
             else:
                 if approval_id:
                     raise Failure("PERMISSION_DENIED", "审批ID不属于当前任务", 403)
@@ -376,7 +398,9 @@ class Network:
                     "authorizing_user_event_id": None, "consumed_action_id": None}
                 db.execute("INSERT INTO approvals VALUES(?,?,?,?,?,NULL)", (record["approval_id"], deps.task_id, deps.revision, "pending", encode(record)))
                 self.store.event(db, deps.task_id, "approval.required", record)
+            requested_tool = self.dependency_tool(request)
             return {"kind": "approval_required", "approval_id": record["approval_id"], "request_sha256": digest,
+                **({'requested_tool': requested_tool} if requested_tool else {}),
                 "message": "当前上下文可能含私密信息；请求尚未发送，请等待用户核对精确载荷和目的地。"}
 
     def resolve(self, task_id, approval_id, payload):
@@ -402,7 +426,11 @@ class Network:
             event = self.store.user_event(db, "approval_resolution", {"task_id": task_id, "approval_id": approval_id, **payload})
             record.update(status={"approve": "approved", "reject": "rejected", "revoke": "revoked"}[payload["verdict"]], authorizing_user_event_id=event, resolved_at=now())
             if state["status"] not in {"completed", "failed", "cancelled", "publishing"} and not state["cancellation_requested"]:
-                prompt = "用户已通过审批接口处理网络请求。请读取当前审批状态；仅approved且范围、版本、有效期匹配的请求可以使用approval_id执行，已消费的请求不得重发。拒绝或撤销后请说明影响并继续可完成的工作。\n" + encode({"approval_id": approval_id, "request_sha256": record["request_sha256"], "verdict": payload["verdict"]})
+                requested_tool = self.dependency_tool(record['request'])
+                continuation = {"approval_id": approval_id, "request_sha256": record["request_sha256"], "verdict": payload["verdict"],
+                    **({'requested_tool': requested_tool} if requested_tool else {})}
+                prompt = "用户已通过审批接口处理网络请求。请读取当前审批状态；仅approved且范围、版本、有效期匹配的请求可以使用approval_id执行，已消费的请求不得重发。拒绝或撤销后请说明影响并继续可完成的工作。" + (
+                    "本次依赖审批对应requested_tool；批准后使用原精确参数重调该工具，解析审批不授权下载，下载审批不授权解析。完成回执才证明该操作成功，继续完整目标。" if requested_tool else "") + "\n" + encode(continuation)
                 record["continuation_turn_id"] = self.store.enqueue_turn(db, state, prompt, payload["request_id"], event)
                 if not state["pause_requested"] and state["status"] != "paused" and state["status"] != "active":
                     state.update(status="created", blockers=[])
