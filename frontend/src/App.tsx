@@ -18,7 +18,7 @@ type Candidate = {candidate_sha256:string; state_version:number; candidate:{spec
   limitations:string[]; outputs:{artifact_id:string;name:string;sha256:string}[]}};
 type Note = {memory_id:string;text:string;tags:string[]};
 type Approval = {approval_id:string;spec_revision:number;request_sha256:string;status:string;expires_at:string;
-  request:{kind:string;value:string;url:string;metadata_urls?:string[];max_bytes?:number;seconds?:number;
+  request:{kind:string;value:string;url:string;metadata_urls?:string[];max_bytes?:number;seconds?:number;operation?:string;max_projects?:number;max_requests?:number;
     destinations:string[];sources:{resource_id:string;version:string}[]}};
 const approvalLabels:Record<string,string> = {pending:'待审批',approved:'已批准，待执行',consumed:'已使用',rejected:'已拒绝',revoked:'已撤销',expired:'已过期'};
 type Assignment = {assignment_id:string;role_id:string;status:string;model_requests:number;actions:number;
@@ -233,10 +233,11 @@ export default function App() {
                 {approvals.length>0&&<section className="network-approvals" aria-label="网络请求审批"><h3>网络请求审批</h3>
                   <p>核对完整载荷、目的地和来源版本，每次批准仅用于这一项请求。依赖下载成功仍须经过容器安装与结果检查。</p>
                   {approvals.map(record=><details key={record.approval_id} open={record.status==='pending'} className="network-approval">
-                    <summary>{record.request.kind==='environment.acquire'?'公开依赖获取':record.request.kind==='web.search'?'搜索请求':'网页读取'} · {approvalLabels[record.status]||record.status}</summary>
+                    <summary>{record.request.kind==='environment.acquire'?(record.request.operation==='resolve'?'公开依赖元数据解析':'公开依赖获取'):record.request.kind==='web.search'?'搜索请求':'网页读取'} · {approvalLabels[record.status]||record.status}</summary>
                     <dl><dt>完整载荷</dt><dd>{record.request.value}</dd><dt>实际 GET 地址</dt><dd>{record.request.url}</dd>
                       {record.request.metadata_urls&&<><dt>全部官方元数据地址</dt><dd>{record.request.metadata_urls.join('\n')}</dd>
                         <dt>下载总量 / 总时限</dt><dd>{(record.request.max_bytes??0)/1024**2} MiB / {record.request.seconds} 秒</dd></>}
+                      {record.request.operation==='resolve'&&<><dt>解析范围</dt><dd>包含传递依赖，仅获取元数据；最多 {record.request.max_projects} 个项目 / {record.request.max_requests} 次请求 / {(record.request.max_bytes??0)/1024**2} MiB / {record.request.seconds} 秒。精确 wheel 下载另行审批。</dd></>}
                       <dt>允许目的地</dt><dd>{record.request.destinations.join('\n')}</dd><dt>规范修订 / 到期</dt><dd>{record.spec_revision} / {new Date(record.expires_at).toLocaleString()}</dd>
                       <dt>请求 SHA256</dt><dd>{record.request_sha256}</dd><dt>来源版本</dt><dd>{record.request.sources.length?JSON.stringify(record.request.sources,null,2):'无本地输入来源'}</dd></dl>
                     <div className="approval-actions">{record.status==='pending'&&record.spec_revision===active.spec_revision&&<>

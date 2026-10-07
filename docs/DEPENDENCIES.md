@@ -1,5 +1,16 @@
 # 范围依赖准备与复用
 
+1.12可从根需求自动解析wheel闭包，版本约束、extras和Linux目标marker使用成熟packaging/resolvelib处理，不另写回退算法。启用“获取公开依赖”“执行受限代码”“观察作业”，安装另需“准备隔离依赖”。流程：
+
+1. `resolve_dependencies(requirements=["numpy==2.2.6","python-dateutil==2.9.0.post0"])`先返回无私密输入挂载的断网目标探测作业；`wait_job`成功后找到execution-target.json的真实artifact_id。同任务/修订/镜像已有成功目标时直接返回可复用target_artifact_id。
+2. 用同requirements及target_artifact_id再次解析；私密上下文先等待元数据审批，再用匹配approval_id执行。审批明确包含传递依赖、最多32项目/64请求/32 MiB/180秒，只有官方PyPI索引和文件级元数据，尚不下载wheel。目标是实际容器CPython3.12/Linux/glibc，不使用Windows宿主标签。
+3. 将返回的完整wheels和resolution_lock_artifact_id传给`acquire_dependencies(source="tuna")`。不带此前元数据审批ID；精确下载提出新审批，批准后使用新ID。解析锁要求集合及官方wheel SHA一致，变化须重新解析/批准。
+4. 将获取的wheel_artifact_ids交给prepare_environment；成功wait_job之后复用prepared_environment.artifact_id。下载/解析成功不等于实际pip安装成功。
+
+索引单份8 MiB、Core Metadata单份2 MiB，最多100解析轮；撤回文件、无SHA文件级元数据、不兼容文件不作为候选。默认不选预发布，显式版本约束可以选择；所需URL/路径依赖不开放，目标marker不适用的声明不会发送请求。冲突或预算耗尽明确失败，不返回部分集合。解析锁/不可变快照保留候选SHA、目标作业及实际镜像；同源哈希不是独立签名。[Simple/PEP658规范](https://packaging.python.org/en/latest/specifications/simple-repository-api/)、[resolvelib官方provider示例](https://github.com/sarugaku/resolvelib/blob/main/examples/pypi_wheel_provider.py)
+
+`scripts/smoke_acquisition.py --config config/app.wsl.example.yaml --source tuna --resolve`真实验证解析/获取/安装/两次复用；15项通过，不调用模型。设置RUN_RESOLUTION_UI=1和FORESTRY_TEST_BASE_URL运行frontend/e2e/resolution.spec.ts验证完整模型流程；当前两试次失败，详情见STATUS。源码构建、其他运行时/元数据回退及两模型稳定完整质量仍未完成。以下1.11及更早为历史说明。
+
 1.11增加根协调者公开依赖获取。调用`acquire_dependencies(wheels=[{name:"six",version:"1.17.0",filename:"six-1.17.0-py2.py3-none-any.whl"}],source="pypi")`；私密任务先在UI核对精确请求并批准，再携带匹配approval_id执行。将返回的真实wheel_artifact_ids传给`prepare_environment(wheel_artifact_ids=[...])`；wait_job成功后仍使用prepared_environment.artifact_id复用环境。下载成功不等于安装成功。
 
 source可选pypi/tuna，每次1–32项/128 MiB，官方元数据单份2 MiB、总时限180秒。只接收精确包名/版本/发行wheel文件名，不接收任意URL或私有索引；官方JSON绑定未撤回文件、大小/SHA，TUNA仅提供字节。沿用固定公开DNS/TLS及精确审批边界，逐请求复核控制、来源版本、修订和撤销，不发送本地正文/凭证/环境代理。工作台显示完整包请求、全部元数据地址、目的地和限额。

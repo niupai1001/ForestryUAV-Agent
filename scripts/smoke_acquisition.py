@@ -42,6 +42,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config/app.wsl.example.yaml")
     parser.add_argument("--source", choices=["pypi", "tuna"], default="pypi")
+    parser.add_argument("--resolve", action="store_true", help="从两个根需求解析传递依赖并绑定解析锁")
     args = parser.parse_args()
     trial = str(uuid4())
     directory = ROOT / "workspace" / "acquisition-trials" / trial
@@ -50,6 +51,7 @@ def main():
     initial_packages = host_packages()
     evidence = {"trial_id": trial, "model_used": False, "agent_tool_acquisition": True,
         "autonomous_model_acquisition": False, "source": args.source, "all_passed": False,
+        "automatic_resolution": args.resolve,
         "general_stage_acceptance": "incomplete", "scientific_accuracy": "not_assessed", "cases": []}
     output = ROOT / "workspace" / "evidence" / ("acquisition-real-" + trial + ".json")
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -70,10 +72,14 @@ def main():
         task_id = response.json()["task_id"]
         evidence["task_id"] = task_id
         deps = Deps(engine, task_id, "acquisition-smoke-" + trial, 1)
+        wheels, resolution_lock = WHEELS, None
         print(json.dumps({"trial_id": trial, "task_id": task_id}), flush=True)
         def get_wheels(call, approval=None):
-            return engine.perform(deps, call, "environment.acquire", {"wheels": WHEELS, "source": args.source, "approval_id": approval},
-                lambda action: engine.acquisition.acquire(deps, action, WHEELS, args.source, approval))
+            payload = {"wheels": wheels, "source": args.source, "approval_id": approval}
+            if resolution_lock:
+                payload['resolution_lock_artifact_id'] = resolution_lock
+            return engine.perform(deps, call, "environment.acquire", payload,
+                lambda action: engine.acquisition.acquire(deps, action, wheels, args.source, approval, resolution_lock))
         def observe(reply, scenario):
             assert reply["kind"] == "completed", reply
             job_id = reply["job"]["job_id"]
@@ -91,12 +97,35 @@ def main():
             assert job["status"] == "succeeded", case["logs"]
             return case
         try:
+            if args.resolve:
+                roots = ['numpy==2.2.6', 'python-dateutil==2.9.0.post0']
+                probe = engine.perform(deps, 'probe-target', 'environment.acquire', {'requirements': roots},
+                    lambda action: engine.resolution.resolve(deps, action, roots))
+                target_case = observe(probe, 'probe_target_without_inputs')
+                target = next(r for r in target_case['job']['artifact_ids'] if engine.resources.artifact(r, task_id)['name'] == 'execution-target.json')
+                def resolution(call, approval=None):
+                    return engine.perform(deps, call, 'environment.acquire', {'requirements': roots, 'target_artifact_id': target, 'approval_id': approval},
+                        lambda action: engine.resolution.resolve(deps, action, roots, target, approval))
+                metadata_proposal = resolution('resolution-proposal')
+                assert metadata_proposal['kind'] == 'approval_required', metadata_proposal
+                metadata_approval = engine.network.list(task_id)[0]
+                client.post(f"/tasks/{task_id}/approvals/{metadata_approval['approval_id']}", json={
+                    'request_id': str(uuid4()), 'expected_spec_revision': 1,
+                    'request_sha256': metadata_approval['request_sha256'], 'verdict': 'approve'}).raise_for_status()
+                resolved = resolution('approved-resolution', metadata_approval['approval_id'])
+                evidence['resolution'] = resolved
+                print(json.dumps({'resolution_kind': resolved['kind'], 'selected': resolved.get('wheels'), 'error': resolved.get('error')}), flush=True)
+                assert resolved['kind'] == 'completed', resolved
+                wheels, resolution_lock = resolved['wheels'], resolved['resolution_lock_artifact_id']
+                assert resolution('approved-resolution', metadata_approval['approval_id']) == resolved
+                evidence['resolution_lock'] = engine.resolution.lock(deps, resolution_lock)[0]
+            before_proposal = list(engine.store.task(task_id)['artifact_ids'])
             proposal = get_wheels("proposal")
             evidence["proposal"] = proposal
             assert proposal["kind"] == "approval_required"
             records = engine.network.list(task_id)
-            approval = records[0]
-            assert not engine.store.task(task_id)["artifact_ids"]
+            approval = records[-1]
+            assert engine.store.task(task_id)["artifact_ids"] == before_proposal
             reply = client.post(f"/tasks/{task_id}/approvals/{approval['approval_id']}", json={"request_id": str(uuid4()),
                 "expected_spec_revision": 1, "request_sha256": approval["request_sha256"], "verdict": "approve"})
             reply.raise_for_status()
@@ -142,7 +171,7 @@ Path('/output/acquisition-result-{n}.json').write_text(json.dumps(result),encodi
                 computations.append(case)
             expected = {"tree_count": 3, "total_height_m": 37.5, "mean_height_m": 12.5, "parsed_date": "2026-10-06",
                 "numpy_version": "2.2.6", "six_version": "1.17.0", "dateutil_version": "2.9.0.post0", "uid": 65534, "network_blocked": True}
-            checks = {"exact_approved_request": engine.network.list(task_id)[0]["status"] == "consumed",
+            checks = {"exact_approved_request": all(g['status'] == 'consumed' for g in engine.network.list(task_id)),
                 "three_actual_downloads": len(acquired["wheels"]) == 3,
                 "hashes_match_official_and_frozen": all(file_hash(Path(engine.environments.acquired_wheel(task_id, 1, r["artifact_id"])["locator"])) == r["sha256"] for r in acquired["wheels"]),
                 "one_successful_installation": ready["job"]["status"] == "succeeded",
@@ -152,6 +181,11 @@ Path('/output/acquisition-result-{n}.json').write_text(json.dumps(result),encodi
                 "containers_remain_restricted": all(c["container"]["HostConfig"]["NetworkMode"] == "none" and c["container"]["HostConfig"]["ReadonlyRootfs"] and "ALL" in c["container"]["HostConfig"]["CapDrop"] for c in evidence["cases"]),
                 "readonly_input_unchanged": file_hash(source) == initial_source, "host_packages_unchanged": host_packages() == initial_packages,
                 "replay_preserves_original_ids": replay == acquired}
+            if args.resolve:
+                checks.update({'automatic_transitive_six': 'six' not in roots and {w['name'] for w in wheels} == {'numpy', 'python-dateutil', 'six'},
+                    'target_has_no_private_input_mounts': target_case['job']['mounts'] == [],
+                    'probed_image_matches_installation': target_case['container']['Image'] == environment['image_id'],
+                    'download_hashes_match_resolution': {w['name']: w['sha256'] for w in acquired['wheels']} == resolved['wheel_sha256']})
             evidence.update(checks=checks, all_passed=all(checks.values()))
         except Exception as error:
             logger.exception("Real acquisition/install trial failed; original evidence retained")

@@ -1,4 +1,10 @@
-# 修订后的实施基线 · 1.11
+# 修订后的实施基线 · 1.12
+
+1.12增加resolve_dependencies，复用environment.acquire权限和原Jobs：先在无输入、断网、非root容器探测实际Python/Linux/libc/ABI，再按PEP508需求解析兼容wheel完整闭包。packaging处理版本/标签/marker，resolvelib负责回退与冲突；宿主只解析有界文本元数据，不导入/解压/执行包。PyPI Simple/PEP658文件级元数据及SHA封存，索引单份8 MiB、Core Metadata单份2 MiB、总32 MiB/64请求/32项目/180秒/100解析轮。私密元数据范围与精确wheel下载分别审批，不复用审批。当前适配CPython3.12 Linux glibc，其他运行时、缺少文件级哈希元数据、源码构建和完整自动修复仍待支持。
+
+解析锁关联确认的当前任务/修订目标作业、实际镜像和不可变元数据。acquire_dependencies可携带resolution_lock_artifact_id，强制完整集合及SHA匹配；实际安装继续由断网pip验证。探测需code.execute，结果由wait_job观察；同镜像/修订目标可复用，子角色不开放解析/探测。新库进入uv.lock，没有新执行器/调度器。合并重复说明以保留原32K/4K预算、全部事实字段及证据局限；能力仍20、公开schema_version仍1、迁移仍2。
+
+真实工具解析→获取→安装→两次复用15项检查通过，目标实测Python3.12.15/glibc2.41/x86_64，从两个根需求自动补出six，4作业成功终态。新的完整模型UI两试次失败：small混用审批/重复解析而NO_PROGRESS暂停；large完成两次计算但CONTEXT_EXHAUSTED，未读回/报告。46份已发输入审计通过不证明产品通过。最新完整回归及细节见STATUS；阶段1完整质量、源码构建、恢复/角色/评估和后续领域/规模仍未完成。联网搜索继续暂缓；下文1.11及更早为历史证据。
 
 1.11增加根协调者environment.acquire/acquire_dependencies：按精确name/version/filename获取1–32个wheel，总量128 MiB、官方元数据单份2 MiB、整项180秒。官方PyPI绑定未撤回文件、大小/SHA；可选官方文件源或TUNA字节。精确URL、公开固定DNS、TLS、修订/控制、来源版本及审批撤销逐请求复核；不发送本地正文、凭证或环境代理。私密任务沿用精确审批。不可变wheel、官方元数据快照和acquisition-lock保留来源；官方同源哈希不是独立签名。下载不导入、解压或执行包。
 

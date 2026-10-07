@@ -37,11 +37,14 @@ def observation(tool, result):
     for key in ("action_id", "attempt_id", "producer_action_id", "created_at", "observed_at",
                 "updated_at", "preview_url", "download_url", "locator", "continuation"):
         value.pop(key, None)
-    if tool in {"acquire_dependencies", "environment.acquire"} and "wheels" in value:
+    if tool in {"acquire_dependencies", "resolve_dependencies", "environment.acquire"} and "wheels" in value:
         # Re-downloading the same public bytes into fresh artifact IDs is not
         # new task evidence. Keep release/hash/source facts, not receipt handles.
         value.pop("wheel_artifact_ids", None)
         value.pop("lock_artifact_id", None)
+        value.pop("resolution_lock_artifact_id", None)
+        value.pop("target_artifact_id", None)
+        value.pop("metadata_requests", None)
         value["wheels"] = [{k: v for k, v in wheel.items() if k not in
             {"artifact_id", "metadata_artifact_id", "hops", "observed_at"}} for wheel in value["wheels"]]
     if tool in {"write_file", "inspect_artifact", "fs.write_workspace", "artifact.inspect"}:

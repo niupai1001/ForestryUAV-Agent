@@ -192,7 +192,8 @@ class PublicHTTP:
         self.timeout_seconds = timeout_seconds
 
     @staticmethod
-    def _exchange(url, host, port, address, guard, deadline, max_bytes=MAX_BYTES):
+    def _exchange(url, host, port, address, guard, deadline, max_bytes=MAX_BYTES,
+                  accept="text/html,application/json,application/rss+xml,text/plain;q=0.9"):
         scheme = urlsplit(url).scheme
         class PinnedConnection(http.client.HTTPConnection):
             active_socket = None
@@ -225,7 +226,7 @@ class PublicHTTP:
             parts = urlsplit(url)
             target = urlunsplit(("", "", parts.path or "/", parts.query, ""))
             connection.request("GET", target, headers={"User-Agent": "ForestryUAV-Agent/0.1 public-reader",
-                "Accept": "text/html,application/json,application/rss+xml,text/plain;q=0.9", "Accept-Encoding": "identity"})
+                "Accept": accept, "Accept-Encoding": "identity"})
             response = connection.getresponse()
             headers = {k.lower(): v for k, v in response.getheaders()}
             if headers.get("content-encoding", "identity").lower() not in {"identity", ""}:
@@ -245,10 +246,13 @@ class PublicHTTP:
             watchdog.cancel()
             connection.close()
 
-    def get(self, url, *, guard=lambda _: None, allowed_origins=None, max_bytes=MAX_BYTES):
+    def get(self, url, *, guard=lambda _: None, allowed_origins=None, max_bytes=MAX_BYTES,
+            simple_json=False, deadline=None):
         if type(max_bytes) is not int or not 1 <= max_bytes <= 128 * 1024 * 1024:
             raise Failure("SCHEMA_INVALID", "公开响应大小上限不合法")
-        hops, deadline = [], time.monotonic() + self.timeout_seconds
+        hops = []
+        deadline = min(deadline, time.monotonic() + self.timeout_seconds) if deadline is not None else time.monotonic() + self.timeout_seconds
+        accept = "application/vnd.pypi.simple.v1+json" if simple_json else "text/html,application/json,application/rss+xml,text/plain;q=0.9"
         for _ in range(4):
             url, host, port, origin = url_parts(url)
             if allowed_origins is not None and origin not in allowed_origins:
@@ -274,7 +278,7 @@ class PublicHTTP:
             if time.monotonic() >= deadline:
                 raise Failure("RESOURCE_EXHAUSTED", "公开读取总时限已用尽", 422)
             try:
-                status, headers, body = self.exchange(url, host, port, addresses[0]) if self.exchange else self._exchange(url, host, port, addresses[0], guard, deadline, max_bytes)
+                status, headers, body = self.exchange(url, host, port, addresses[0]) if self.exchange else self._exchange(url, host, port, addresses[0], guard, deadline, max_bytes, accept)
             except http.client.HTTPException as error:
                 raise Failure("EXECUTION_FAILED", "公开服务器HTTP协议错误", 422) from error
             if len(body) > max_bytes:

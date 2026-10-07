@@ -17,3 +17,5 @@
 依赖E2E夹具明确计划只列实际工具工作，不将终止原生回合的final_result或后续用户验收列为待更新步骤，避免要求它们完成后再调用write_plan的循环矛盾。该夹具仍要求独立核验作业、数值、文件、报告与最终响应；并非应用要求所有模型计划completed才可验收，也没有覆盖历史失败。
 
 English: Native scoped planning reuses the existing framework, database, action journal and budgets. Its UI shows model-proposed progress only. The compatibility adapter retains the native ephemeral reminder after compaction without accumulating history. Protocol, regression and request audits pass; latest real dependency workflow quality fails for both models and remains pending.
+
+1.12完整回归234项通过。此前1.10/1.11计数及试次是历史；新增真实容器目标/成熟解析器及元数据/下载分项审批后，两模型完整UI仍失败，不能用46份输入审计或15项直接工具检查替代模型完成工作。下一步需保持已确认阶段及区分两类审批，原生历史/计划/预算职责不变，详见STATUS。

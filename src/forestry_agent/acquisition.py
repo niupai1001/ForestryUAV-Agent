@@ -41,12 +41,22 @@ class Acquisition:
         self.engine, self.store = engine, engine.store
         self.http = http or PublicHTTP()
 
-    def acquire(self, deps, action_id, wheels, source: Literal["pypi", "tuna"] = "pypi", approval_id=None):
+    def acquire(self, deps, action_id, wheels, source: Literal["pypi", "tuna"] = "pypi", approval_id=None,
+                resolution_lock_artifact_id=None):
         wheels = [WheelRequest.model_validate(w).model_dump() for w in wheels]
         if source not in {"pypi", "tuna"} or not 1 <= len(wheels) <= 32:
             raise Failure("SCHEMA_INVALID", "获取需1–32个精确wheel请求及支持的来源")
         if len({w["name"] for w in wheels}) != len(wheels) or len({w["filename"] for w in wheels}) != len(wheels):
             raise Failure("SCHEMA_INVALID", "同次获取不可重复包名或文件名")
+        resolved = {}
+        resolution = None
+        if resolution_lock_artifact_id is not None:
+            resolution, lock_artifact = self.engine.resolution.lock(deps, resolution_lock_artifact_id)
+            requested = {encode(w) for w in wheels}
+            selected = {encode({k: w[k] for k in ['name', 'version', 'filename']}) for w in resolution['selected']}
+            if requested != selected:
+                raise Failure('VERSION_CONFLICT', '获取集合须与已确认解析锁的完整wheel集合相同', 409)
+            resolved = {w['filename']: w['sha256'] for w in resolution['selected']}
         state = self.store.task(deps.task_id)
         sources = [{"resource_id": ref, "version": version(self.engine.resources.resolve(ref, task_id=deps.task_id))}
             for ref in state["input_refs"]]
@@ -57,6 +67,9 @@ class Acquisition:
             "spec_revision": deps.revision, "sources": sources, "method": "GET",
             "max_bytes": MAX_WHEEL_BYTES, "max_metadata_bytes": MAX_BYTES, "seconds": 180,
             "package_execution": False}
+        if resolution:
+            request['resolution_lock_artifact_id'] = resolution_lock_artifact_id
+            request['resolution_lock_sha256'] = lock_artifact['sha256']
         admission = self.engine.network.admit(deps, action_id, request, hashlib.sha256(encode(request).encode()).hexdigest(), approval_id)
         if isinstance(admission, dict):
             return admission
@@ -79,9 +92,12 @@ class Acquisition:
             for item in sources:
                 if version(self.engine.resources.resolve(item["resource_id"], task_id=deps.task_id)) != item["version"]:
                     raise Failure("VERSION_CONFLICT", "获取前输入版本变化", 409)
+            if resolution:
+                self.engine.resources.artifact(resolution_lock_artifact_id, deps.task_id)
+                self.engine.resources.artifact(resolution['target_artifact_id'], deps.task_id)
         for wheel, url in zip(wheels, urls, strict=True):
             metadata = self.http.get(url, guard=lambda value, url=url: guard(value, url),
-                allowed_origins=["https://pypi.org"])
+                allowed_origins=["https://pypi.org"], deadline=deadline)
             guard(url, url)
             raw = metadata["body"]
             if len(raw) > MAX_BYTES:
@@ -100,6 +116,8 @@ class Acquisition:
                     raise ValueError("unsafe release")
             except (ValueError, KeyError, TypeError, StopIteration) as error:
                 raise Failure("PRECONDITION_MISSING", "官方元数据缺少匹配的未撤回wheel、大小或SHA-256", 422) from error
+            if resolved and resolved[wheel['filename']] != expected:
+                raise Failure('VERSION_CONFLICT', '官方wheel哈希已偏离解析锁，须重新解析/审批', 409)
             total += size
             if total > MAX_WHEEL_BYTES or shutil.disk_usage(self.engine.config.workspace_root).free < total + 2**30:
                 raise Failure("RESOURCE_EXHAUSTED", "依赖总量超128 MiB或磁盘预留不足", 422)
@@ -109,7 +127,7 @@ class Acquisition:
             metadata_artifact = self.engine.resources.import_file(deps.task_id, action_id, snapshot, f"dependencies/{action_id}/{snapshot.name}")
             selected = official.replace("https://files.pythonhosted.org", origin, 1)
             downloaded = self.http.get(selected, guard=lambda value, selected=selected: guard(value, selected),
-                allowed_origins=[origin], max_bytes=size)
+                allowed_origins=[origin], max_bytes=size, deadline=deadline)
             guard(selected, selected)
             data = downloaded["body"]
             if len(data) != size or hashlib.sha256(data).hexdigest() != expected:

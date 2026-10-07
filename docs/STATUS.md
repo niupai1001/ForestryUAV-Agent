@@ -8,8 +8,8 @@
 |---|---|---|---|---|
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
-| P2 | in_progress | 动作/attempt、去重、修订隔离、检查点；断网容器、WSL、恢复事实；公开wheel获取、离线准备与复用 | 实际获取/安装/两次复用11项通过；两模型审批下载组件UI通过；完整回归212项；历史完整复合UI v11仍失败 | 自动候选/依赖解析、条件源码构建、两模型稳定完整依赖UI、完整资源准入及恢复窗口、小模型完整调试/报告质量 |
-| P3 | in_progress | 验收/清单、文档/知识/记忆、原生上下文/角色、H0/H1/H2；范围与修订、来源事实、原生计划/ID回执/视图、目标去重、有界输出纠正 | 完整回归212项；两模型范围恢复/修订UI通过；本轮14份输入与下载来源审计通过；历史38份复合请求审计通过 | 角色异常/冲突交互、两模型完整本地通用及长任务质量、完整报告/通用评估；联网搜索用户暂缓 |
+| P2 | in_progress | 动作/attempt、去重、修订隔离、检查点；断网Jobs/WSL/恢复；目标探测、PEP508 wheel解析、获取及离线复用 | 真实解析/获取/安装/两次复用15项通过；历史审批下载组件两模型通过；234项回归；最新完整解析UI两模型失败 | 条件源码构建、其他运行时/元数据回退、两模型完整依赖质量、完整资源准入及恢复窗口、调试/报告质量 |
+| P3 | in_progress | 验收/清单、文档/知识/记忆、原生上下文/角色、H0/H1/H2；范围与修订、来源事实、原生计划、目标去重、有界纠正 | 完整回归234项；历史范围恢复/修订UI通过；本轮46份实际输入审计通过；历史组件及复合审计分别保存 | 审批阶段辨识/压缩后完整工作保持、角色异常/冲突交互、两模型本地通用及长任务质量、报告/通用评估；搜索暂缓 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -264,8 +264,27 @@ English: Baseline 1.10 adds sourced read windows/prepared archive IDs, native st
 
 English: Baseline 1.11 acquires exact public wheels with existing scoped approval/network guards, immutable provenance and the same offline Jobs path. Automatic resolution and source builds remain pending. Eleven actual tool/install/reuse checks pass; both models pass the approval/download component UI, with all fourteen sent-input/provenance audits passing. The first long-path failure and small-model output failure remain preserved. Rethrowing the native output-error hook restores the existing three correction retries. All 212 regressions pass; full compound dependency/general acceptance and original later gates remain incomplete.
 
+## Baseline 1.12 / 实际目标与成熟依赖解析
+
+resolve_dependencies仍映射environment.acquire（能力20项不变），复用Jobs无输入断网探测、Network精确范围审批、Acquisition下载和离线pip安装。先探测实际Python/Linux/libc/ABI/镜像，目标产物须来自当前任务/修订确认的固定代码成功作业、没有私密挂载、实际镜像仍匹配；同目标可复用，子角色不开放探测/解析。新增可信packaging/resolvelib进入uv.lock，前者解释PEP508/版本/平台/markers，后者实现回退与冲突，不开发第二套算法/执行器。
+
+只读取官方Simple/PEP658文件级元数据及SHA；不导入/解压/执行包。Linux兼容标签来自实际CPython3.12、架构及glibc，非Windows宿主。extras合并、条件依赖、显式预发布、版本冲突/回退有协议证据；默认排除预发布及撤回文件（包括空撤回原因）。所需直接URL/路径不开放；不适用的marker声明不会发请求。单索引8 MiB、单Core Metadata2 MiB、总32 MiB/64请求/32项目/180秒/100轮，失败不返回部分锁。缺少SHA文件级元数据、其他运行时及源码构建明确未适配。元数据闭包范围与精确wheel获取分别审批，不能混用ID。解析锁/快照/目标作业及镜像可追溯；可选resolution_lock_artifact_id绑定下载完整集合和SHA，变化拒绝。原精确wheel入口保持兼容。
+
+真实工具试次d352153e-4f89-4fa5-920d-70698f3ec83d（task 35fcb963-ed62-495c-883d-d7b946ad26ab）**15项检查全部通过**。实际目标Python3.12.15/glibc2.41/x86_64，从numpy==2.2.6、python-dateutil==2.9.0.post0两个根需求自动补出six==1.17.0；6次元数据读取、两类审批、三个实际wheel下载、锁SHA匹配、断网安装、同环境两次计算/读回、源只读及宿主包不变。探测/安装/两次复用共4作业成功终态，cleanup全确认。证据acquisition-real-d352153e-4f89-4fa5-920d-70698f3ec83d.json；仍model_used=false，不代替模型自主验收。
+
+独立8769服务/数据库运行新的真实模型UI完整解析任务，未重启旧服务。两类审批均实际点击并消费，范围DOM和手机无横向溢出检查通过；截图不能证明所有审批字段同时可见。v1 **2失败**，原ui-resolution-tests-20261007-v1.json、ui-resolution-<profile>-<task_id>.json及失败事件/截图保存：
+
+- small 5bf42423-122c-4bd1-a4c0-96e00c48b533：1.7分钟、34请求/29动作（跨三个逻辑回合，单回合30请求上限未提高）；3作业成功。完成解析/获取/安装及首个计算JSON，混用两类审批、多次重读元数据/探测并再次解析，NO_PROGRESS暂停，无第二结果/报告。
+- large 2f9443c4-5b00-4bbe-92f8-3ed0fc65efb6：2.0分钟、12请求/12动作；4作业成功。解析/获取/安装和同环境两次计算成功，未实际读回JSON/写报告，CONTEXT_EXHAUSTED暂停。不能把两次计算记作完整UI通过。
+
+46份已发请求独立只读审计全部通过，resolution-context-audit-<task_id>.json核对私有输入SHA、完整目标/当前回合、输入授权范围、实际工具Schema摘要及正用量在保守估算/预算内。只有已发送的请求计入，超限未发请求不伪造测量。UI终态后当前数据库无非终态作业/未确认动作，失败没有被新试次覆盖。该审计不证明完整交付或科学精度。
+
+153定向测试36通过/4失败，暴露默认预发布策略、两个文件名夹具不一致及撤销夹具嵌套事务；修正后154定向40通过。155完整229通过/1最大H2预算失败；合并重复说明，保留全部目标/事实字段/警示及预算。156/157说明字符串/预算失败分别保留；158完整230通过。159新边界233通过/1夹具URL后缺少PEP508必需空格；修正夹具后160最终完整**234 passed（39.46秒）**，Ruff通过。前端构建/类型检查通过（1分43秒），index-Bt8wl78K.js；UI服务加载后追加条件URL/撤回/子角色边界修正，原两试次根需求行为未改变，新增边界由最终回归验证。迁移2、公开Schema1、能力20及原模型/容器预算保持。阶段1及后续目标未完成，搜索暂缓。
+
+English: Baseline 1.12 uses locked packaging/resolvelib for metadata-only resolution against a real no-input offline target probe, with separate metadata/download approvals and an acquisition-bound resolution lock. Fifteen actual tool/install/reuse checks and all 234 regressions pass. Both new full UI tasks fail: small mixes scopes and repeats completed work; large computes twice but exhausts context before readback/report. All 46 sent-input audits pass independently. Original failures remain intact. Source builds, broader runtime/metadata support, full general quality/recovery/roles/evaluation and later gates remain pending; search stays deferred.
+
 ## Next / 下一步
 
 脚本收尾后再次实际运行，试次 `26a3dc4a-0562-44a4-88db-0cb26d1b1eb7`、task `0b6e9e64-944c-44fe-936f-6c7a2904a3a3` 返回0；原15项检查再次全通过，六个作业终态均确认（预期失败3个、成功安装及复用3个），cleanup无未确认项。此成功路径不冒充观察超时或停止拒绝的实测。证据 `dependencies-real-26a3dc4a-0562-44a4-88db-0cb26d1b1eb7.json`。最终Ruff/diff及Python语法检查通过。
 
-继续P2自动候选/依赖解析及条件源码构建、小模型重复操作/报告质量、剩余真实恢复窗口，再闭合角色、本地UI和通用评估。两模型审批下载组件通过不代表完整依赖复合任务验收；不通过增加预算或删除检查追求通过。Agent 联网搜索按用户指示暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件仍由用户在pilot后决定，不能填入假定设备或测量。
+继续P2条件源码构建、其他运行时/元数据回退、审批阶段辨识及压缩后完整工作保持、小模型重复操作/报告质量和剩余真实恢复窗口，再闭合角色、本地UI和通用评估。工具脚本15项及历史审批下载组件通过不代表最新完整复合任务验收；不通过增加预算或删除检查追求通过。Agent联网搜索暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件由用户在pilot后决定，不填入假定设备或测量。
