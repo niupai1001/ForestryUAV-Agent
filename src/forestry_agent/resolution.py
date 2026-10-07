@@ -246,7 +246,7 @@ class DependencyResolution:
         admitted = self.engine.network.admit(deps, action_id, request, hashlib.sha256(encode(request).encode()).hexdigest(), approval_id)
         if isinstance(admitted, dict):
             return {**admitted, 'continuation': '这是元数据解析审批，尚无wheel解析结果；批准后用相同requirements/target_artifact_id及此approval_id重调resolve_dependencies。解析成功才用返回wheels/解析锁调用acquire_dependencies并提出独立下载审批。'}
-        deadline, snapshots, total = time.monotonic()+180, [], 0
+        deadline, snapshots, total, wire_total, requests_used = time.monotonic()+180, [], 0, 0, 0
         def guard(url, expected):
             if url_parts(url)[0] != expected:
                 raise Failure('PERMISSION_DENIED', '解析只访问核验的精确索引/元数据URL', 403)
@@ -265,24 +265,32 @@ class DependencyResolution:
             if any(version(self.engine.resources.resolve(s['resource_id'], task_id=deps.task_id)) != s['version'] for s in sources):
                 raise Failure('VERSION_CONFLICT', '依赖解析期间输入版本变化', 409)
         def fetch(url, simple=False):
-            nonlocal total
-            if len(snapshots) >= MAX_REQUESTS:
+            nonlocal total, wire_total, requests_used
+            if requests_used >= MAX_REQUESTS:
                 raise Failure('RESOURCE_EXHAUSTED', '解析元数据请求超过64次', 422)
+            remaining = min(MAX_TOTAL_BYTES-total, MAX_TOTAL_BYTES-wire_total)
+            if remaining <= 0:
+                raise Failure('RESOURCE_EXHAUSTED', '解析元数据传输或解压总量达到32 MiB上限', 422)
             response = self.engine.acquisition.http.get(url, guard=lambda u: guard(u, url),
                 allowed_origins=['https://pypi.org' if simple else 'https://files.pythonhosted.org'],
-                max_bytes=min(MAX_INDEX_BYTES if simple else MAX_BYTES, MAX_TOTAL_BYTES-total),
-                simple_json=simple, deadline=deadline)
+                max_bytes=min(MAX_INDEX_BYTES if simple else MAX_BYTES, remaining),
+                simple_json=simple, deadline=deadline, max_hops=min(4, MAX_REQUESTS-requests_used))
             guard(url, url)
             data = response['body']
-            total += len(data)
-            if total > MAX_TOTAL_BYTES:
-                raise Failure('RESOURCE_EXHAUSTED', '解析元数据总量超过32 MiB', 422)
+            requests_used += len(response.get('hops', [])) or 1
+            total += response.get('decoded_bytes', len(data))
+            wire_total += response.get('wire_bytes', len(data))
+            if max(total, wire_total) > MAX_TOTAL_BYTES:
+                raise Failure('RESOURCE_EXHAUSTED', '解析元数据传输或解压总量超过32 MiB', 422)
             directory = self.engine.resources.task_root(deps.task_id)/'dependencies'/action_id
             native_path(directory).mkdir(parents=True, exist_ok=True)
             path = directory/f'metadata-{len(snapshots):03d}.txt'
             native_path(path).write_bytes(data)
             saved = self.engine.resources.import_file(deps.task_id, action_id, path, f'dependencies/{action_id}/{path.name}')
-            snapshots.append({'url': url, 'artifact_id': saved['artifact_id'], 'sha256': saved['sha256'], 'size_bytes': len(data)})
+            snapshots.append({'url': url, 'artifact_id': saved['artifact_id'], 'sha256': saved['sha256'], 'size_bytes': len(data),
+                'http_content_encoding': response.get('headers', {}).get('content-encoding', 'identity'),
+                'snapshot_representation': 'decoded_http_body', 'wire_size_bytes': response.get('wire_bytes', len(data)),
+                'response_decoded_bytes': response.get('decoded_bytes', len(data)), 'http_requests': len(response.get('hops', [])) or 1})
             return data
         provider = WheelProvider(target, fetch)
         roots = [r for r in roots if r.marker is None or r.marker.evaluate(provider.environment)]
@@ -306,5 +314,5 @@ class DependencyResolution:
         return {'wheels': [{k: c[k] for k in ['name', 'version', 'filename']} for c in selected],
             'resolution_lock_artifact_id': lock['artifact_id'], 'target_artifact_id': target_artifact_id,
             'wheel_sha256': {c['name']: c['sha256'] for c in selected},
-            'metadata_requests': len(snapshots), 'package_execution': False,
+            'metadata_requests': requests_used, 'package_execution': False,
             'continuation': '将wheels及resolution_lock_artifact_id交给acquire_dependencies；精确下载仍需自己的审批，随后prepare_environment并观察真实pip验证。'}

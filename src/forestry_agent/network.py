@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import codecs
+import gzip
 import hashlib
 import http.client
 import ipaddress
@@ -10,6 +11,7 @@ import socket
 import ssl
 import threading
 import time
+import zlib
 from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
 from urllib.parse import urlencode, urljoin, urlsplit, urlunsplit
@@ -193,7 +195,7 @@ class PublicHTTP:
 
     @staticmethod
     def _exchange(url, host, port, address, guard, deadline, max_bytes=MAX_BYTES,
-                  accept="text/html,application/json,application/rss+xml,text/plain;q=0.9"):
+                  accept="text/html,application/json,application/rss+xml,text/plain;q=0.9", *, metadata_gzip=False, wire_stats=None):
         scheme = urlsplit(url).scheme
         class PinnedConnection(http.client.HTTPConnection):
             active_socket = None
@@ -222,38 +224,72 @@ class PublicHTTP:
         watchdog = threading.Timer(max(0.01, deadline - time.monotonic()), abort)
         watchdog.daemon = True
         watchdog.start()
+        decoded = None
         try:
             parts = urlsplit(url)
             target = urlunsplit(("", "", parts.path or "/", parts.query, ""))
             connection.request("GET", target, headers={"User-Agent": "ForestryUAV-Agent/0.1 public-reader",
-                "Accept": accept, "Accept-Encoding": "identity"})
+                "Accept": accept, "Accept-Encoding": "gzip, identity" if metadata_gzip else "identity"})
             response = connection.getresponse()
             headers = {k.lower(): v for k, v in response.getheaders()}
-            if headers.get("content-encoding", "identity").lower() not in {"identity", ""}:
+            encoding = headers.get("content-encoding", "identity").strip().lower()
+            if encoding not in {"identity", ""} and not (metadata_gzip and encoding == "gzip"):
                 raise Failure("PRECONDITION_MISSING", "服务器未提供未压缩响应", 422)
             if int(headers.get("content-length", 0)) > max_bytes:
                 raise Failure("RESOURCE_EXHAUSTED", f"响应超过{max_bytes / 1048576:g} MiB上限", 422)
+            if encoding == "gzip":
+                # Only dependency Simple JSON opts in. The standard gzip reader
+                # checks CRC/truncation and supports members; both wire input and
+                # decoded output have independent bounds, under the same deadline.
+                class BoundedWire:
+                    size = 0
+                    def read(self, size=-1):
+                        # gzip's header reader expects read(n) semantics, including
+                        # fragmented TCP headers; the absolute watchdog still aborts
+                        # a blocked read. read1 could return a short magic header.
+                        block = response.read(min(size if size >= 0 else 65536, max_bytes + 1 - self.size))
+                        self.size += len(block)
+                        if self.size > max_bytes:
+                            raise Failure("RESOURCE_EXHAUSTED", "压缩元数据传输超过大小上限", 422)
+                        return block
+                wire = BoundedWire()
+                decoded = gzip.GzipFile(fileobj=wire, mode="rb")
             body, start = bytearray(), time.monotonic()
             while len(body) <= max_bytes:
-                block = response.read1(min(65536, max_bytes + 1 - len(body)))
+                try:
+                    block = (decoded or response).read1(min(65536, max_bytes + 1 - len(body)))
+                except (gzip.BadGzipFile, EOFError, zlib.error) as error:
+                    if time.monotonic() >= deadline:
+                        raise Failure("RESOURCE_EXHAUSTED", "依赖索引读取总时限已用尽", 422) from error
+                    raise Failure("VERIFICATION_FAILED", "依赖索引gzip响应损坏或不完整", 422) from error
                 if not block:
                     break
                 body.extend(block)
                 if time.monotonic() - start > 20 or time.monotonic() >= deadline:
                     raise Failure("RESOURCE_EXHAUSTED", "网页读取总时限已用尽", 422)
+            if wire_stats is not None:
+                wire_stats['bytes'] = wire.size if decoded else len(body)
             return response.status, headers, bytes(body)
         finally:
+            if decoded:
+                decoded.close()
             watchdog.cancel()
             connection.close()
 
     def get(self, url, *, guard=lambda _: None, allowed_origins=None, max_bytes=MAX_BYTES,
-            simple_json=False, deadline=None):
+            simple_json=False, deadline=None, max_hops=4):
         if type(max_bytes) is not int or not 1 <= max_bytes <= 128 * 1024 * 1024:
             raise Failure("SCHEMA_INVALID", "公开响应大小上限不合法")
+        if type(max_hops) is not int or not 1 <= max_hops <= 4:
+            raise Failure("SCHEMA_INVALID", "公开请求跳数上限不合法")
         hops = []
+        wire_bytes = decoded_bytes = 0
         deadline = min(deadline, time.monotonic() + self.timeout_seconds) if deadline is not None else time.monotonic() + self.timeout_seconds
         accept = "application/vnd.pypi.simple.v1+json" if simple_json else "text/html,application/json,application/rss+xml,text/plain;q=0.9"
-        for _ in range(4):
+        for _ in range(max_hops):
+            hop_limit = min(max_bytes-wire_bytes, max_bytes-decoded_bytes)
+            if hop_limit <= 0:
+                raise Failure("RESOURCE_EXHAUSTED", "公开读取传输或解压总量已达到上限", 422)
             url, host, port, origin = url_parts(url)
             if allowed_origins is not None and origin not in allowed_origins:
                 raise Failure("PERMISSION_DENIED", "重定向目的地超出授权范围", 403)
@@ -278,10 +314,13 @@ class PublicHTTP:
             if time.monotonic() >= deadline:
                 raise Failure("RESOURCE_EXHAUSTED", "公开读取总时限已用尽", 422)
             try:
-                status, headers, body = self.exchange(url, host, port, addresses[0]) if self.exchange else self._exchange(url, host, port, addresses[0], guard, deadline, max_bytes, accept)
+                stats = {}
+                status, headers, body = self.exchange(url, host, port, addresses[0]) if self.exchange else self._exchange(url, host, port, addresses[0], guard, deadline, hop_limit, accept, metadata_gzip=simple_json, wire_stats=stats)
+                wire_bytes += stats.get('bytes', len(body))
+                decoded_bytes += len(body)
             except http.client.HTTPException as error:
                 raise Failure("EXECUTION_FAILED", "公开服务器HTTP协议错误", 422) from error
-            if len(body) > max_bytes:
+            if max(wire_bytes, decoded_bytes) > max_bytes:
                 raise Failure("RESOURCE_EXHAUSTED", f"响应超过{max_bytes / 1048576:g} MiB上限", 422)
             if time.monotonic() >= deadline:
                 raise Failure("RESOURCE_EXHAUSTED", "公开读取总时限已用尽", 422)
@@ -296,7 +335,8 @@ class PublicHTTP:
                 continue
             if status != 200:
                 raise Failure("EXECUTION_FAILED", f"公开服务器返回HTTP {status}", 422)
-            return {"url": url, "headers": headers, "body": body, "hops": hops, "observed_at": now()}
+            return {"url": url, "headers": headers, "body": body, "hops": hops, "observed_at": now(),
+                "wire_bytes": wire_bytes, "decoded_bytes": decoded_bytes}
         raise Failure("RESOURCE_EXHAUSTED", "重定向次数超出上限", 422)
 
 

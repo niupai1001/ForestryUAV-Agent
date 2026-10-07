@@ -215,6 +215,47 @@ def test_download_is_bound_to_resolution_lock_and_target_reused(client, app):
         'action_id': 'new', 'resolution_lock_artifact_id': 'new', 'metadata_requests': 20})
 
 
+def test_compressed_index_wire_bytes_share_the_whole_resolution_budget(client, app, monkeypatch):
+    import forestry_agent.resolution as module
+    monkeypatch.setattr(module, 'MAX_TOTAL_BYTES', 2048)
+    class WireFixture(IndexFixture):
+        def get(self, url, **kwargs):
+            result = super().get(url, **kwargs)
+            result['wire_bytes'] = 1024 if kwargs.get('simple_json') else len(result['body'])
+            if result['wire_bytes'] > kwargs['max_bytes']:
+                raise Failure('RESOURCE_EXHAUSTED', 'compressed index wire budget fixture', 422)
+            return result
+    fake = WireFixture()
+    fake.add('six', '1.17.0', ['other'], tag='py2.py3-none-any'); fake.add('other')
+    engine, state = app.state.engine, public_task(client)
+    engine.acquisition.http = fake
+    deps, target = prepared_target(engine, state)
+    result = run_resolution(engine,deps,'wire-limited-resolution',target)
+    assert result['kind'] == 'failed' and result['error']['code'] == 'RESOURCE_EXHAUSTED'
+    assert len(fake.calls) == 3
+    with engine.store.transaction() as db:
+        artifacts = [json.loads(r[0]) for r in db.execute('SELECT payload FROM artifacts WHERE task_id=?',(state['task_id'],))]
+    assert not any(a['name']=='resolution-lock.json' for a in artifacts)
+
+
+def test_resolution_counts_redirect_hops_against_the_request_limit(client, app, monkeypatch):
+    import forestry_agent.resolution as module
+    monkeypatch.setattr(module,'MAX_REQUESTS',2)
+    class HopFixture(IndexFixture):
+        def get(self,url,**kwargs):
+            assert kwargs['max_hops']==2
+            result = super().get(url,**kwargs)
+            result['hops'] = [{"url":url},{"url":url}]
+            return result
+    fake = HopFixture();fake.add('six','1.17.0',tag='py2.py3-none-any')
+    engine,state = app.state.engine,public_task(client)
+    engine.acquisition.http = fake
+    deps,target = prepared_target(engine,state)
+    result = run_resolution(engine,deps,'hop-limited-resolution',target)
+    assert result['kind']=='failed' and result['error']['code']=='RESOURCE_EXHAUSTED'
+    assert len(fake.calls)==1
+
+
 def test_probe_requires_code_capability_and_forged_target_is_rejected(client, app):
     engine = app.state.engine
     state = public_task(client, constraints={'allowed_capabilities': ['environment.acquire']})
