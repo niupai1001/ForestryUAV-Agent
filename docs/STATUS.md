@@ -8,8 +8,8 @@
 |---|---|---|---|---|
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
-| P2 | in_progress | 动作/attempt、去重、修订隔离、检查点；断网Jobs/WSL/恢复；目标探测、PEP508 wheel解析、获取及离线复用；回执/错误ID及审批阶段说明 | 真实工具15项通过；251项回归；v2大模型完整流程零执行复核/来源审计通过；v4/v5未完成两模型验收 | 条件源码构建、其他运行时/元数据回退、两模型稳定依赖质量、完整资源准入及恢复窗口、调试/报告质量 |
-| P3 | in_progress | 验收/清单、文档/知识/记忆、原生上下文/角色、H0/H1/H2；范围与修订、来源事实、原生计划、目标去重、有界纠正；依赖摘要及继续消息 | 完整回归251项；历史范围恢复/修订UI通过；v4共22份输入审计通过；v5测量缺失单列；历史组件/复合证据及全部失败分存 | 审批/失败恢复及完整工作保持、试次运行隔离、角色异常/冲突交互、两模型本地通用及长任务质量、报告/通用评估；搜索暂缓 |
+| P2 | in_progress | 动作/attempt、去重、修订隔离、检查点；断网Jobs/WSL/恢复；目标探测、PEP508 wheel解析、获取及离线复用；回执/错误ID及审批阶段说明 | 真实工具15项通过；254项回归；v2大模型完整流程零执行复核/来源审计通过；v6未完成两模型验收 | 条件源码构建、其他运行时/元数据回退、依赖网络诊断、两模型稳定依赖质量、完整资源准入及恢复窗口、调试/报告质量 |
+| P3 | in_progress | 验收/清单、文档/知识/记忆、原生上下文/角色、H0/H1/H2；范围与修订、来源事实、原生计划、目标去重、有界纠正；依赖摘要及继续消息 | 完整回归254项；历史范围恢复/修订UI通过；v6共32份输入及3次跨轮次用量来源审计通过；v5测量缺失单列；历史组件/复合证据及全部失败分存 | 审批/失败恢复及完整工作保持、试次运行隔离、角色异常/冲突交互、两模型本地通用及长任务质量、报告/通用评估；搜索暂缓 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -333,8 +333,27 @@ r2同一大模型任务累计13请求/10动作、2成功作业（固定探测及
 
 English: All 251 regressions pass. Dependency approval receipts/facts/continuations identify the original tool; failures and expired pending/approved scopes require fresh approval, and consumed grants do not prove success. Expired matching records are atomically retired on a new unapproved proposal; old IDs cannot authorize I/O. No automatic retry or budget increase is introduced. Original v4 failures include both model errors and a driver that ignored valid retry approvals. The bounded same-scope retry driver preserves delivery checks. In v5 small actually resolves successfully after reapproval, then hits the frozen 300-second model deadline; one sent request has unavailable usage. Large's initial observer fails while queued behind small. Its same-task continuation then times out twice in metadata and exhausts context before a third resolution attempt, without any successful lock/download/install/report. Original evidence and terminal follow-ups remain distinct. The idle precondition is not yet validated by a new two-model trial. Stable general acceptance stays incomplete; search is deferred and the full original scope remains pending.
 
+## Baseline 1.15 / 原生跨轮次用量绑定
+
+只读检查v5大模型失败轮次eae04a60-5c25-487c-8cb3-943f915e430a的原生检查点：最后有效响应与前轮次874d2bd5-b1b6-446b-94ce-15c285cf90df的清单4861aeee-e153-41ac-a6f2-d4d8f071f52f摘要完全一致，实测10018输入/908输出，估算覆盖。应用限定turn_id而遗漏已支付的6176字节工具Schema；原生压缩估算不含这份额外未知成本，下一请求被应用守卫拒绝。context-cross-turn-diagnosis-20261007-v6.json是只读诊断，未伪称重放或未发请求测量。
+
+现在仅同task/spec_revision/assignment、精确response_sha256/tool_schema_sha256、正实测输入输出及覆盖通过时跨逻辑轮次复用用量。新清单记录schema_receipt_context_ref/schema_receipt_turn_id；未知/变化Schema、其他任务/修订/角色、变化响应、旧无摘要记录和未覆盖测量继续完整计费。动态目标/权限/当前请求、框架边距仍计算，冻结模型校验及原32K/4K预算不变，没有新增压缩器或历史管理器。
+
+168上下文18项通过（6.40秒）；169完整252项通过（45.30秒）。随后增加H0/H1原生Agent历史跨轮次集成，170上下文20项通过（7.13秒）；171最终完整**254 passed（55.10秒）**，Ruff通过。预算夹具验证相同上限下未绑定超限/严格绑定后允许续接；隔离及覆盖失败仍拒绝。SDK夹具不替代真实模型质量。
+
+受限环境最初看不到已知PID54120或8769，误判断服务已退出；正常权限启动因端口占用失败，当时库无在途任务/作业。随后正常权限只读核实仍是原PID/创建时间/目录/完整命令及ready健康，重新核验闲置后才停止该精确专用进程，再启动PID44668加载修复。未停止其他服务或因观察超时重启任务。应用前端未变，仍用index-Bt8wl78K.js；公开Schema1、迁移2、能力20不变，domain仍not_implemented。
+
+v6串行新建任务并实际核验库闲置，Playwright **2 failed/2 skipped**，ui-resolution-tests-20261007-v6.json及唯一失败截图/上下文、审批手机截图保存：
+
+- small `767f11c6-e859-43b9-8a9a-8e5abce58803`：2.3分钟、12请求/11动作（8confirmed/3failed）、1成功固定探测。两次解析消费审批均元数据RESOURCE_EXHAUSTED。第三解析已approved未执行；原回合反复wait_job观察同一成功探测，达到原无进展上限暂停，审批继续回合仍queued，UI等待消费60秒失败。仅有execution-target.json，没有锁/下载/安装/结果/报告。
+- large `bfdbc187-cf1c-4034-a966-58e9513f88df`：3.4分钟、20请求/13动作、1成功固定探测，四个逻辑回合均completed，任务waiting_user。三次解析审批均消费且元数据RESOURCE_EXHAUSTED，提出第四pending；脚本保持每类最多两次重试要求而失败，未批准第四次。只有探测产物，没有完整依赖/报告交付。没有提高期限、重试次数或静默改变来源。
+
+32份已发输入（small12/large20）独立审计全部通过SHA、消息顺序/工具配对、完整目标/当前回合、输入权限/只读/修订、Schema、正用量/原预算及依赖事实来源。大模型3次实际跨轮次schema_receipt逐项核验来源task/revision/assignment、响应/Schema SHA、输入输出及覆盖；保守输入16823/22800/20832，实测6856/11257/8584，未发生CONTEXT_EXHAUSTED。这是有限预算证据，不证明稳定工作质量。resolution-context-audit-<task_id>-v6.json与ui-resolution-v6-terminal-<task_id>.json分别保存，历史不覆盖，缺少必需产品时不宣称完整来源验收。新闲置门槛实际执行，未重现v5大模型排队导致初始观察超时。阶段1仍未验收。
+
+English: All 254 regressions pass. Exact measured schema receipts can follow native history across turns within the same task/revision/assignment, with source context/turn provenance and full costs on missing or changed accounting. Frozen budgets and permissions remain. All 32 v6 input audits pass, including three real large-model cross-turn bindings; both workflows still fail on metadata deadlines/repeated observation or the bounded approval retry limit. Neither has a resolution lock or final products. Original failures remain. Full general acceptance and remaining scope are pending; network search stays deferred.
+
 ## Next / 下一步
 
 脚本收尾后再次实际运行，试次 `26a3dc4a-0562-44a4-88db-0cb26d1b1eb7`、task `0b6e9e64-944c-44fe-936f-6c7a2904a3a3` 返回0；原15项检查再次全通过，六个作业终态均确认（预期失败3个、成功安装及复用3个），cleanup无未确认项。此成功路径不冒充观察超时或停止拒绝的实测。证据 `dependencies-real-26a3dc4a-0562-44a4-88db-0cb26d1b1eb7.json`。最终Ruff/diff及Python语法检查通过。
 
-继续P2条件源码构建、其他运行时/元数据回退与剩余真实恢复窗口；对齐原生压缩和应用编译预算，保持完整目标/权限/当前请求及原模型预算，处理小模型无响应/重复操作与报告质量，并验证新试次隔离，再闭合角色、本地UI和通用评估。单次大模型流程、工具脚本15项及历史审批下载组件通过不代表两模型稳定质量或阶段1；不通过增加预算或删除检查追求通过。Agent联网搜索暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件由用户在pilot后决定，不填入假定设备或测量。
+继续P2条件源码构建、其他运行时/元数据回退与剩余真实恢复窗口；继续核验原生压缩和跨轮次用量绑定，保持完整目标/权限/当前请求及原模型预算；定位依赖元数据网络超时，处理小模型无响应/重复操作与报告质量，并验证新试次隔离，再闭合角色、本地UI和通用评估。单次大模型流程、工具脚本15项及历史审批下载组件通过不代表两模型稳定质量或阶段1；不通过增加预算或删除检查追求通过。Agent联网搜索暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件由用户在pilot后决定，不填入假定设备或测量。

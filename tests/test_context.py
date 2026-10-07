@@ -174,7 +174,7 @@ def test_prepared_budget_anchors_measured_tokens_and_counts_new_instructions_and
     assert no_usage == unbound
 
 
-def test_schema_discount_requires_this_response_measured_in_this_task_turn_and_revision(client, app):
+def test_schema_discount_requires_exact_response_schema_task_revision_and_role(client, app):
     state, _ = task(client)
     foreign, _ = task(client, request_id="foreign-schema")
     engine = app.state.engine
@@ -199,8 +199,14 @@ def test_schema_discount_requires_this_response_measured_in_this_task_turn_and_r
             return json.loads(db.execute("SELECT payload FROM contexts WHERE id=?", (ref,)).fetchone()[0])
     paid = compile_for()
     assert paid["schema_cost_accounting"] == "bound_measured_schema"
+    assert paid["schema_receipt_context_ref"] == manifest_id
+    assert paid["schema_receipt_turn_id"] == deps.turn_id
     assert compile_for(Deps(engine, foreign["task_id"], deps.turn_id, 1))["schema_cost_accounting"] == "full_current_schema"
-    assert compile_for(Deps(engine, state["task_id"], "other-turn", 1))["schema_cost_accounting"] == "full_current_schema"
+    continued = compile_for(Deps(engine, state["task_id"], "other-turn", 1))
+    assert continued["schema_cost_accounting"] == "bound_measured_schema"
+    assert continued["schema_receipt_context_ref"] == manifest_id
+    assert continued["schema_receipt_turn_id"] == deps.turn_id
+    assert continued["estimated_tokens_upper_bound"] == paid["estimated_tokens_upper_bound"]
     params.function_tools = [SimpleNamespace(name="changed", description=tool.description, parameters_json_schema=tool.parameters_json_schema)]
     changed = compile_for()
     assert changed["schema_cost_accounting"] == "full_current_schema" and changed["estimated_tokens_upper_bound"] > paid["estimated_tokens_upper_bound"]
@@ -213,9 +219,80 @@ def test_schema_discount_requires_this_response_measured_in_this_task_turn_and_r
     engine.store.change(state["task_id"], "fixture.restore-revision", lambda s, _: s.update(spec_revision=1))
     with engine.store.transaction() as db:
         old = json.loads(db.execute("SELECT payload FROM contexts WHERE id=?", (manifest_id,)).fetchone()[0])
+        old["assignment_id"] = "isolated-role"
+        db.execute("UPDATE contexts SET payload=? WHERE id=?", (encode(old),manifest_id))
+    assert compile_for()["schema_cost_accounting"] == "full_current_schema"
+    with engine.store.transaction() as db:
+        old["assignment_id"] = None
         old.pop("response_sha256")  # Legacy or unbound accounting must retain the full margin.
         db.execute("UPDATE contexts SET payload=? WHERE id=?", (encode(old),manifest_id))
     assert compile_for()["schema_cost_accounting"] == "full_current_schema"
+
+
+def test_approval_continuation_keeps_budget_without_charging_paid_schema_twice(client, app):
+    state, _ = task(client)
+    engine = app.state.engine
+    profile = engine.config.models["small"].model_copy(update={"context_limit":8500, "output_limit":1000})
+    tool = SimpleNamespace(name="fixture", description="Approval continuation fixture",
+        parameters_json_schema={"type":"object", "description":"诊断记录"*450})
+    params = SimpleNamespace(instruction_parts=[SimpleNamespace(content="完整目标与权限保留", dynamic=False)],
+        function_tools=[tool], output_tools=[], tool_defs={})
+    first = ModelRequest(parts=[UserPromptPart("目标：读取源文件并报告，不修改输入")], instructions="完整目标与权限保留")
+    request = SimpleNamespace(messages=[first], model_request_parameters=params, model_settings={})
+    original = Deps(engine, state["task_id"], "awaiting-approval", 1)
+    ref = engine.contexts.compile(original, request, profile)
+    response = ModelResponse(parts=[ToolCallPart("fixture", {}, "approved-operation")],
+        usage=RequestUsage(input_tokens=5000, output_tokens=20))
+    engine.contexts.measured(ref, response.usage, response=response)
+    request.messages = [first, response, ModelRequest(parts=[ToolReturnPart("fixture", "审批已批准", "approved-operation")],
+        instructions=first.instructions)]
+    tools = [{"name":tool.name,"description":tool.description,"schema":tool.parameters_json_schema}]
+    unbound, _ = input_bound(request.messages, params, tools)
+    assert unbound > profile.context_limit-profile.output_limit
+    continued = Deps(engine, state["task_id"], "resume-approved-operation", 1)
+    compiled = engine.contexts.compile(continued, request, profile)
+    with engine.store.transaction() as db:
+        value = json.loads(db.execute("SELECT payload FROM contexts WHERE id=?", (compiled,)).fetchone()[0])
+    assert value["estimated_tokens_upper_bound"] <= profile.context_limit-profile.output_limit
+    assert value["context_limit"] == 8500 and value["output_reserve"] == 1000
+    assert value["schema_receipt_context_ref"] == ref and value["schema_receipt_turn_id"] == original.turn_id
+    assert request.messages[0] is first and request.messages[1] is response
+    # Without a bound, covered measurement the same input must still stop.
+    with engine.store.transaction() as db:
+        old = json.loads(db.execute("SELECT payload FROM contexts WHERE id=?", (ref,)).fetchone()[0])
+        old["estimate_covers_observed_usage"] = False
+        db.execute("UPDATE contexts SET payload=? WHERE id=?", (encode(old),ref))
+    with pytest.raises(Failure, match="超过预留输出"):
+        engine.contexts.compile(continued, request, profile)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["H0", "H1"])
+async def test_native_history_continuation_binds_prior_turn_schema_receipt(client, app, mode):
+    objective = "输入只读，保留全部目标与真实证据。"
+    state, _ = task(client, objective=objective, harness_mode=mode)
+    engine = app.state.engine
+    with engine.store.transaction() as db:
+        db.execute("INSERT INTO turns VALUES(?,?,?,?,?,?)", ("prior-native-turn",state["task_id"],1,objective,"completed",now()))
+        db.execute("INSERT INTO turns VALUES(?,?,?,?,?,?)", ("continued-native-turn",state["task_id"],1,"继续原任务","running",now()))
+    history = None
+    for turn, prompt in [("prior-native-turn",objective), ("continued-native-turn","继续原任务")]:
+        agent, connection = engine.make_agent("small",turn,state["config_snapshot"],state["task_id"])
+        try:
+            with agent.override(model=TestModel(call_tools=[], custom_output_args={"summary":"原生历史续接夹具", "artifact_ids":[]})):
+                result = await agent.run(prompt, deps=Deps(engine,state["task_id"],turn,1), message_history=history)
+            history = result.all_messages()
+        finally:
+            await connection.aclose()
+    with engine.store.transaction() as db:
+        first = json.loads(db.execute("SELECT payload FROM contexts WHERE turn_id='prior-native-turn'").fetchone()[0])
+        continued = json.loads(db.execute("SELECT payload FROM contexts WHERE turn_id='continued-native-turn'").fetchone()[0])
+    assert first["actual_input_tokens"] > 0 and first["estimate_covers_observed_usage"] is True
+    assert continued["schema_cost_accounting"] == "bound_measured_schema"
+    assert continued["schema_receipt_context_ref"] == first["context_manifest_id"]
+    assert continued["schema_receipt_turn_id"] == "prior-native-turn"
+    assert continued["tool_schema_sha256"] == first["tool_schema_sha256"]
+    assert any(isinstance(p,UserPromptPart) and p.content==objective for m in history if isinstance(m,ModelRequest) for p in m.parts)
 
 
 @pytest.mark.asyncio

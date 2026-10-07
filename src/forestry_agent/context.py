@@ -19,7 +19,7 @@ from .contracts import Failure
 from .resources import native_path
 from .store import Store, encode, now, uid
 
-ESTIMATOR = "native-usage-anchor-with-utf8-deltas-v4-bound-schema-receipt"
+ESTIMATOR = "native-usage-anchor-with-utf8-deltas-v5-task-bound-schema-receipt"
 
 
 def byte_bound(text: str):
@@ -127,16 +127,23 @@ class Contexts:
         anchor = next((message for message in reversed(request_context.messages)
             if isinstance(message, ModelResponse) and message.usage.input_tokens > 0), None)
         measured_tools_sha256 = None
+        schema_receipt = None
         if anchor:
+            # Approval continuations import native history from a prior logical
+            # turn. Its exact response still paid these schemas. A turn boundary
+            # is not a tokenizer or authority boundary; task/revision/assignment
+            # and the exact response/schema remain mandatory.
             with self.store.transaction() as db:
-                receipt = db.execute("SELECT payload FROM contexts WHERE task_id=? AND turn_id=? "
+                receipt = db.execute("SELECT id,turn_id,payload FROM contexts WHERE task_id=? "
                     "AND json_extract(payload,'$.spec_revision')=? AND json_extract(payload,'$.assignment_id') IS ? "
-                    "AND json_extract(payload,'$.response_sha256')=? ORDER BY rowid DESC LIMIT 1",
-                    (deps.task_id, deps.turn_id, deps.revision, deps.assignment_id, response_anchor_hash(anchor))).fetchone()
+                    "AND json_extract(payload,'$.response_sha256')=? AND json_extract(payload,'$.tool_schema_sha256')=? "
+                    "ORDER BY rowid DESC LIMIT 1",
+                    (deps.task_id, deps.revision, deps.assignment_id, response_anchor_hash(anchor), tool_schema_sha256)).fetchone()
             value = json.loads(receipt["payload"]) if receipt else {}
             if (value.get("usage_measurement_status") == "measured" and value.get("estimate_covers_observed_usage") is True and
                 value.get("actual_input_tokens") == anchor.usage.input_tokens and value.get("actual_output_tokens") == anchor.usage.output_tokens):
                 measured_tools_sha256 = value.get("tool_schema_sha256")
+                schema_receipt = receipt
         bound, anchored = input_bound(request_context.messages, params, tools, measured_tools_sha256=measured_tools_sha256)
         available = profile.context_limit - profile.output_limit
         if bound > available:
@@ -170,6 +177,8 @@ class Contexts:
             "prepared_snapshot_bytes": len(data),
             "tool_schema_sha256": tool_schema_sha256,
             "schema_cost_accounting": "bound_measured_schema" if anchored and measured_tools_sha256 == tool_schema_sha256 else "full_current_schema",
+            "schema_receipt_context_ref": schema_receipt["id"] if schema_receipt else None,
+            "schema_receipt_turn_id": schema_receipt["turn_id"] if schema_receipt else None,
             "uses_provider_usage_anchor": anchored,
             "native_usage_estimate": estimate_context_tokens(request_context.messages, byte_bound,
                 model_request_parameters=params), "estimator_id": ESTIMATOR,
