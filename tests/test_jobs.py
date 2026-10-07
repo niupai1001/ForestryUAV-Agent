@@ -8,6 +8,7 @@ from test_core import task
 from forestry_agent.agent import Deps
 from forestry_agent.contracts import Failure
 from forestry_agent.jobs import Jobs
+from forestry_agent.resources import native_path
 
 
 class ExecutorFixture:
@@ -129,6 +130,22 @@ def test_output_recollection_is_idempotent_and_immutable(client, app):
     assert manager.read(job_id)["artifact_ids"] == job["artifact_ids"]
     output.write_bytes(b"changed working output")
     assert manager.resources.artifact(artifact["artifact_id"])["sha256"] == artifact["sha256"]
+
+
+def test_long_output_filename_is_collected_and_sealed(client, app):
+    fake = ExecutorFixture()
+    _, manager, job_id = submit(client, app, fake)
+    manager.tick()
+    output = Path(manager.read(job_id)["directory"])/"output"/("x"*180+".whl")
+    assert len(str(output)) > 260
+    native_path(output).write_bytes(b"long-path-output-fixture")
+    fake.container["State"].update(Status="exited", Running=False, ExitCode=0)
+    manager.tick()
+    job = manager.read(job_id)
+    assert job["status"] == "succeeded" and len(job["artifact_ids"]) == 1
+    artifact = manager.resources.artifact(job["artifact_ids"][0])
+    assert artifact["name"] == output.name and artifact["size_bytes"] == 24
+    assert artifact["sha256"] == hashlib.sha256(b"long-path-output-fixture").hexdigest()
 
 
 def test_job_scope_and_pause_before_dispatch(client, app):

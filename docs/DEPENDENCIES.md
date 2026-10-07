@@ -1,5 +1,19 @@
 # 范围依赖准备与复用
 
+## 1.17：授权本地源码构建
+
+prepare_environment保留wheel_refs（授权文件）和wheel_artifact_ids（当前修订确认获取的wheel产物），新增可选source_refs（单独授权的.tar.gz/.zip文件）。所有输入合计1–32个/128 MiB。源码执行额外需code.execute；同一动作及作业沿用原角色交集、只读输入、控制/恢复/撤销保护，不增加能力或执行循环。
+
+容器核对源码/输入wheel的大小与SHA，再有界解包；累计最多30,000项/512 MiB文件内容，tar解压流连同元数据/填充累计640 MiB。拒绝越界/绝对/反斜杠/NUL路径、规范化重复项、链接/特殊/加密文件及多项目歧义，gzip CRC/截断由标准库核验。不会在Windows宿主解包或执行包代码。仅此类作业使用有界1 GiB /build执行tmpfs；/tmp仍noexec，根只读、网络none、非root、CPU/内存/时限不变。
+
+pip wheel使用原生PEP517隔离、--no-index/--find-links，从所给已核验wheel取得静态及动态构建依赖。缺后端/动态依赖/编译器时实际失败，保留日志供有界修复。--no-deps仅用于把一个源码转换为wheel，最终安装保持--only-binary :all: --require-hashes及完整依赖解析，不用它绕过依赖。所有提供的构建/运行wheel也安装到最终环境，并如实记录；未另建依赖解析器。[pip构建系统](https://pip.pypa.io/en/stable/reference/build-system/)、[pip wheel](https://pip.pypa.io/en/stable/cli/pip_wheel/)
+
+生成wheel作为实际产物封存；environment-lock.json/环境内相同锁记录sources、原wheels、built_wheels（来源源码ID/SHA、文件名/SHA/大小）、pip版本/原生隔离和安装版本。环境解析须匹配真实准备作业/当前任务修订/实际镜像及生成wheel产物；wait_job成功的prepared_environment.artifact_id用于原code_execute两次或后续复用。模型回执省略重复配方，完整API/日志/锁保持。
+
+`scripts/smoke_source_build.py --config config/app.wsl.example.yaml --source tuna`验证真实作业：14项通过，含12类归档故障、缺静态/动态依赖后补齐、tar/zip纯Python构建及同归档两次执行/读回；独立10项来源核验通过。固定镜像Python3.12.15/pip25.0.1缺gcc，原生扩展实际失败仍未解决。设置RUN_SOURCE_BUILD_UI=1及FORESTRY_SOURCE_FIXTURE_LOCK运行frontend/e2e/source-build.spec.ts，模型工作/报告单独验收，结果见STATUS。此增量没有公共sdist获取/自动源码回退、编译器/系统库镜像配方、其他运行时或完整阶段验收；这些原要求继续保留。联网搜索暂缓。
+
+下文1.16及更早的阶段计数、wheel限定说明均为历史，不能当作当前源码或自动解析能力限制。
+
 1.12可从根需求自动解析wheel闭包，版本约束、extras和Linux目标marker使用成熟packaging/resolvelib处理，不另写回退算法。启用“获取公开依赖”“执行受限代码”“观察作业”，安装另需“准备隔离依赖”。流程：
 
 1. `resolve_dependencies(requirements=["numpy==2.2.6","python-dateutil==2.9.0.post0"])`先返回无私密输入挂载的断网目标探测作业；`wait_job`成功后找到execution-target.json的真实artifact_id。同任务/修订/镜像已有成功目标时直接返回可复用target_artifact_id。
@@ -77,4 +91,7 @@ uv run --locked python scripts/smoke_dependencies.py --fixture-lock workspace/de
 
 1.15（历史）：修正同任务/修订/角色及精确响应/工具Schema匹配的跨轮次重复计费，清单记录用量来源context/turn；不提高原32K/4K预算或增加历史管理器。254项完整回归通过，v6大模型3次跨轮次来源核验通过。但最新两模型完整流程仍失败：小模型重复观察后无进展暂停，大模型三次元数据超时后提出超过两次重试门槛的第四审批，均无锁/下载/安装/结果/报告。32份已发输入审计通过不代替验收，阶段1及原源码构建/恢复/角色/评估等缺口保持，搜索暂缓。详见STATUS；前述1.14及更早为历史。
 
-当前1.16：仅依赖Simple JSON索引采用有界gzip，压缩传输及解压累计均受原32 MiB预算限制，原时间/审批/来源/权限保护不变；wheel及非索引读取仍identity，不开发联网搜索。271项最终完整回归和真实解析/下载/断网安装/两次复用15项通过。v7大模型完整UI与独立来源审计通过；小模型解析/下载成功后重复已完成阶段而暂停。37份输入补充审计通过，原审计误报和模型失败保留。完整通用阶段及源码构建/元数据回退/恢复/角色/评估等缺口仍未完成，详见STATUS。
+1.16（历史）：仅依赖Simple JSON索引采用有界gzip，压缩传输及解压累计均受原32 MiB预算限制，原时间/审批/来源/权限保护不变；wheel及非索引读取仍identity，不开发联网搜索。271项最终完整回归和真实解析/下载/断网安装/两次复用15项通过。v7大模型完整UI与独立来源审计通过；小模型解析/下载成功后重复已完成阶段而暂停。37份输入补充审计通过，原审计误报和模型失败保留。完整通用阶段及源码构建/元数据回退/恢复/角色/评估等缺口仍未完成，详见STATUS。
+
+
+1.17当前源码UI：大模型8请求/11动作完成1构建/2复用、锁与JSON/报告读回，13项独立来源检查通过；小模型13请求/12动作虽实际算出正确数值，却用write_file另存JSON、漏读JSON且报告缺构建job_id，完整试次失败。两模型21份输入审计通过不代替质量。282项最终回归/源码工具14项/工具来源10项通过，完整通用阶段及公开源码获取/自动回退、编译器/系统库等剩余要求保留，详见STATUS。搜索暂缓；前述1.16及更早为历史。

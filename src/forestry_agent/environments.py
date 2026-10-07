@@ -1,7 +1,8 @@
 """Task-owned offline wheel environments, prepared by the existing isolated Jobs.
 
 No package code, pip installation or archive extraction runs on the host.
-Public acquisition has a separate authorization boundary; source builds remain pending.
+Public acquisition has a separate authorization boundary. Authorized local source
+archives use native pip build isolation inside the same offline Job.
 """
 from __future__ import annotations
 
@@ -11,24 +12,30 @@ from pathlib import Path
 
 from .contracts import Failure
 from .resources import file_hash, native_path, version
+from .source_build import WORKER
 from .store import encode
 
 MAX_WHEEL_BYTES = 128 * 1024 * 1024
 MAX_ENV_BYTES = 512 * 1024 * 1024
 MAX_ENV_FILES = 30000
 WHEEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+\-]{0,240}\.whl\Z")
+# Archives are mounted by resource ID, never interpolated into a shell. Unlike
+# wheel distribution filenames, local source names may contain Unicode/spaces.
+SOURCE_NAME = re.compile(r"[^/\\:\x00-\x1f\x7f]{1,230}\.(?:tar\.gz|zip)\Z")
 
 
-def preparation_code(wheels, image_reference):
+def preparation_code(wheels, image_reference, sources=None):
     # All filenames come from verified single-file resources; interpolate JSON,
     # never shell commands or package-controlled Python syntax.
     return f'''import hashlib, importlib.metadata, json, os, platform, shutil, subprocess, sys, tempfile, zipfile
 from pathlib import Path
 wheels = {encode(wheels)}
+sources = {encode(sources or [])}
 image_reference = {json.dumps(image_reference)}
+{WORKER if sources else ''}
 if sys.version_info[:2] != (3, 12) or sys.platform != 'linux':
     raise RuntimeError('Environment requires Linux Python 3.12; no silent runtime change')
-with tempfile.TemporaryDirectory(prefix='environment-build-', dir='/tmp') as temporary:
+with tempfile.TemporaryDirectory(prefix='environment-build-', dir={'"/build"' if sources else '"/tmp"'}) as temporary:
     root = Path(temporary)
     wheelhouse, site, scratch = root/'wheels', root/'site', root/'tmp'
     for directory in [wheelhouse, site, scratch]:
@@ -43,14 +50,17 @@ with tempfile.TemporaryDirectory(prefix='environment-build-', dir='/tmp') as tem
         destination = wheelhouse/wheel['filename']
         shutil.copyfile(source, destination)
         requirements.append(str(destination)+' --hash=sha256:'+wheel['sha256'])
+    clean_env = {{'PATH':'/usr/local/bin:/usr/bin:/bin', 'HOME':str(root),
+        'TMPDIR':str(scratch), 'PYTHONDONTWRITEBYTECODE':'1'}}
+    built_wheels = []
+    {'built_requirements, built_wheels = build_sources(root, wheelhouse, sources, clean_env); requirements.extend(built_requirements)' if sources else ''}
     lock_input = root/'requirements.lock'
     lock_input.write_text('\\n'.join(requirements)+'\\n', encoding='utf-8')
     command = [sys.executable, '-I', '-B', '-m', 'pip', '--isolated', '--disable-pip-version-check',
         '--no-cache-dir', 'install', '--no-index', '--only-binary', ':all:', '--require-hashes',
         '--ignore-installed', '--no-compile', '--target', str(site), '--find-links', str(wheelhouse),
         '--report', str(root/'install-report.json'), '-r', str(lock_input)]
-    result = subprocess.run(command, env={{'PATH':'/usr/local/bin:/usr/bin:/bin', 'HOME':str(root),
-        'TMPDIR':str(scratch), 'PYTHONDONTWRITEBYTECODE':'1'}}, check=False)
+    result = subprocess.run(command, env=clean_env, check=False)
     if result.returncode:
         raise SystemExit(result.returncode)
     installed = sorted([{{'name':d.metadata['Name'], 'version':d.version}}
@@ -64,6 +74,10 @@ with tempfile.TemporaryDirectory(prefix='environment-build-', dir='/tmp') as tem
         'python':platform.python_version(), 'platform':sys.platform, 'machine':platform.machine(),
         'wheels':wheels, 'installed':installed, 'installation':'pip_offline_hash_checked',
         'network':'none', 'scientific_accuracy':'not_assessed'}}
+    if sources:
+        manifest.update(sources=sources, built_wheels=built_wheels,
+            build_frontend={{'name':'pip', 'version':importlib.metadata.version('pip'),
+                'isolation':'native_pep517', 'dependency_source':'verified_offline_wheelhouse'}})
     text = json.dumps(manifest, ensure_ascii=False, sort_keys=True, indent=2)
     with zipfile.ZipFile('/output/environment.zip', 'w', compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr('environment-lock.json', text)
@@ -134,17 +148,24 @@ class Environments:
             raise Failure("PERMISSION_DENIED", "wheel须来自本任务当前修订已确认的依赖获取动作", 403)
         return artifact
 
-    def prepare(self, task_id, revision, action_id, wheel_refs, seconds=300, *, wheel_artifact_ids=None):
+    def prepare(self, task_id, revision, action_id, wheel_refs, seconds=300, *, wheel_artifact_ids=None, source_refs=None):
         wheel_artifact_ids = wheel_artifact_ids or []
-        if (not 1 <= len(wheel_refs) + len(wheel_artifact_ids) <= 32 or len(wheel_refs) != len(set(wheel_refs)) or
+        source_refs = source_refs or []
+        if (not 1 <= len(wheel_refs) + len(wheel_artifact_ids) + len(source_refs) <= 32 or
+            len(wheel_refs + source_refs) != len(set(wheel_refs + source_refs)) or
             len(wheel_artifact_ids) != len(set(wheel_artifact_ids))):
-            raise Failure("SCHEMA_INVALID", "依赖准备需1–32个唯一的授权wheel资源/已确认获取产物")
+            raise Failure("SCHEMA_INVALID", "依赖准备需1–32个唯一的授权wheel/源码资源或已确认获取wheel产物")
+        if source_refs:
+            with self.store.transaction() as db:
+                state = self.store.read_task(db, task_id)
+                self.store.authorize_capability(db, state, "environment.prepare")
+                self.store.authorize_capability(db, state, "code.execute")
         wheels, total, filenames = [], 0, set()
         for ref, acquired in [(ref, False) for ref in wheel_refs] + [(ref, True) for ref in wheel_artifact_ids]:
             artifact = self.acquired_wheel(task_id, revision, ref) if acquired else None
             source = Path(artifact["locator"]) if acquired else self.resources.resolve(ref, task_id=task_id)
             if not native_path(source).is_file() or native_path(source).is_symlink() or not WHEEL_NAME.fullmatch(source.name):
-                raise Failure("PRECONDITION_MISSING", "需单独授权名称合法的.whl文件；不执行源码包或宿主安装", 422)
+                raise Failure("PRECONDITION_MISSING", "wheel_refs需名称合法的.whl文件；源码包须通过source_refs单独授权", 422)
             before = version(source)
             size = native_path(source).stat().st_size
             total += size
@@ -158,9 +179,25 @@ class Environments:
                 raise Failure("VERSION_CONFLICT", "记录依赖期间wheel发生变化", 409)
             wheels.append({"resource_id": ref, "filename": source.name, "sha256": sha,
                 "size_bytes": size, "source_version": before, **({"source_kind": "acquired_artifact"} if acquired else {})})
+        sources = []
+        for ref in source_refs:
+            source = self.resources.resolve(ref, task_id=task_id)
+            if not native_path(source).is_file() or native_path(source).is_symlink() or not SOURCE_NAME.fullmatch(source.name):
+                raise Failure("PRECONDITION_MISSING", "source_refs需独立授权名称合法的.tar.gz或.zip单文件", 422)
+            before = version(source)
+            size = native_path(source).stat().st_size
+            total += size
+            if not size or total > MAX_WHEEL_BYTES:
+                raise Failure("RESOURCE_EXHAUSTED", "wheel与源码输入总量须为1–128 MiB", 422)
+            sha = file_hash(source)
+            if version(source) != before:
+                raise Failure("VERSION_CONFLICT", "记录依赖期间源码发生变化", 409)
+            sources.append({"resource_id":ref, "filename":source.name, "sha256":sha,
+                "size_bytes":size, "source_version":before})
         return self.jobs.submit(task_id, revision, action_id,
-            preparation_code(wheels, self.config.code_image), wheel_refs, seconds,
-            job_kind="environment.prepare", environment_recipe=wheels, input_artifact_ids=wheel_artifact_ids)
+            preparation_code(wheels, self.config.code_image, sources), wheel_refs + source_refs, seconds,
+            job_kind="environment.prepare", environment_recipe=wheels, input_artifact_ids=wheel_artifact_ids,
+            source_recipe=sources or None)
 
     def resolve(self, task_id, revision, artifact_id):
         artifact = self.resources.artifact(artifact_id, task_id)
@@ -188,5 +225,18 @@ class Environments:
             manifest.get("wheels") != job["environment_recipe"] or manifest.get("installation") != "pip_offline_hash_checked" or
             manifest.get("image_reference") != job.get("image_reference") or not job.get("image_id")):
             raise Failure("VERIFICATION_FAILED", "环境锁与真实准备作业不一致", 422)
+        if manifest.get("sources", []) != job.get("source_recipe", []):
+            raise Failure("VERIFICATION_FAILED", "环境源码锁与准备作业不一致", 422)
+        if job.get("source_recipe"):
+            built = manifest.get("built_wheels", [])
+            if (len(built) != len(job["source_recipe"]) or
+                manifest.get("build_frontend", {}).get("isolation") != "native_pep517"):
+                raise Failure("VERIFICATION_FAILED", "环境缺少完整源码构建记录", 422)
+            for record, source in zip(built, job["source_recipe"], strict=True):
+                product = next((a for a in locks if a["name"] == record.get("filename")), None)
+                if (not product or record.get("source_resource_id") != source["resource_id"] or
+                    record.get("source_sha256") != source["sha256"] or record.get("sha256") != product["sha256"] or
+                    record.get("size_bytes") != product["size_bytes"]):
+                    raise Failure("VERIFICATION_FAILED", "构建wheel与实际登记产物不一致", 422)
         return {"artifact_id": artifact_id, "sha256": artifact["sha256"], "source": artifact["locator"],
             "image_id": job["image_id"], "manifest": manifest, "lock_artifact_id": lock["artifact_id"]}

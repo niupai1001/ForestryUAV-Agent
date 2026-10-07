@@ -8,8 +8,8 @@
 |---|---|---|---|---|
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
-| P2 | in_progress | 动作/attempt、去重、修订隔离、检查点；断网Jobs/WSL/恢复；目标探测、PEP508 wheel解析、获取及离线复用；回执/错误ID及审批阶段说明 | 真实工具15项通过；271项回归；v2大模型完整流程零执行复核/来源审计通过；v7大模型完整UI/来源审计通过，小模型失败 | 条件源码构建、其他运行时/元数据回退、依赖传输持续核验、两模型稳定依赖质量、完整资源准入及恢复窗口、调试/报告质量 |
-| P3 | in_progress | 验收/清单、文档/知识/记忆、原生上下文/角色、H0/H1/H2；范围与修订、来源事实、原生计划、目标去重、有界纠正；依赖摘要及继续消息 | 完整回归271项；历史范围恢复/修订UI通过；v7共37份输入补充审计通过；v6跨轮次来源证据保留；v5测量缺失单列；历史组件/复合证据及全部失败分存 | 审批/失败恢复及完整工作保持、试次运行隔离、角色异常/冲突交互、两模型本地通用及长任务质量、报告/通用评估；搜索暂缓 |
+| P2 | in_progress | 动作/attempt、去重、修订隔离、检查点；断网Jobs/WSL/恢复；目标探测、PEP508 wheel解析/获取、授权本地源码PEP517构建及离线复用；回执/错误ID及审批阶段说明 | 解析工具15项/源码工具14项及源码独立10项通过；282项最终回归；v7大模型依赖UI与源码v1大模型UI/13项来源检查通过，小模型失败 | 公开源码获取/自动回退、编译器/系统库、其他运行时/元数据回退、依赖传输持续核验、两模型稳定依赖质量、完整资源准入及恢复窗口、调试/报告质量 |
+| P3 | in_progress | 验收/清单、文档/知识/记忆、原生上下文/角色、H0/H1/H2；范围与修订、来源事实、原生计划、目标去重、有界纠正；依赖摘要及继续消息 | 完整回归282项；历史范围恢复/修订UI通过；源码v1共21份和v7共37份输入补充审计通过；v6跨轮次来源证据保留；v5测量缺失单列；历史组件/复合证据及全部失败分存 | 审批/失败恢复及完整工作保持、试次运行隔离、角色异常/冲突交互、两模型本地通用及长任务质量、报告/通用评估；搜索暂缓 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -377,4 +377,19 @@ English: Dependency indexes alone negotiate bounded gzip. Wire/decoded per-respo
 
 脚本收尾后再次实际运行，试次 `26a3dc4a-0562-44a4-88db-0cb26d1b1eb7`、task `0b6e9e64-944c-44fe-936f-6c7a2904a3a3` 返回0；原15项检查再次全通过，六个作业终态均确认（预期失败3个、成功安装及复用3个），cleanup无未确认项。此成功路径不冒充观察超时或停止拒绝的实测。证据 `dependencies-real-26a3dc4a-0562-44a4-88db-0cb26d1b1eb7.json`。最终Ruff/diff及Python语法检查通过。
 
-继续P2条件源码构建、其他运行时/元数据回退与剩余真实恢复窗口；继续核验原生压缩和跨轮次用量绑定，保持完整目标/权限/当前请求及原模型预算；继续核验依赖元数据传输与预算，处理小模型无响应/重复操作与报告质量，并验证新试次隔离，再闭合角色、本地UI和通用评估。单次大模型流程、工具脚本15项及历史审批下载组件通过不代表两模型稳定质量或阶段1；不通过增加预算或删除检查追求通过。Agent联网搜索暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件由用户在pilot后决定，不填入假定设备或测量。
+继续P2公开源码获取/自动回退、编译器/系统库与其他运行时/元数据回退及剩余真实恢复窗口；继续核验原生压缩和跨轮次用量绑定，保持完整目标/权限/当前请求及原模型预算；继续核验依赖元数据传输与预算，处理小模型无响应/重复操作与报告质量，并验证新试次隔离，再闭合角色、本地UI和通用评估。单次大模型流程、工具脚本15项及历史审批下载组件通过不代表两模型稳定质量或阶段1；不通过增加预算或删除检查追求通过。Agent联网搜索暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件由用户在pilot后决定，不填入假定设备或测量。
+
+
+## Baseline 1.17 / 授权本地源码构建与实际来源核验（2026-10-08）
+
+prepare_environment新增可选source_refs，原wheel_refs/wheel_artifact_ids兼容；1–32输入、合计128 MiB，源码.tar.gz/.zip文件可使用中文/空格名称，作为JSON数据并按资源ID只读挂载，无shell插值。沿用原Jobs/角色/动作/安装/归档/执行链。源码需environment.prepare与code.execute；提交、启动、恢复、排队及撤销复核两项，角色保持原交集和输入范围。原生pip PEP517隔离在断网容器从已核验wheelhouse取得静态/动态构建依赖，不另写构建依赖管理器。仅源码作业增加1 GiB /build执行tmpfs；原/tmp noexec/非root/根只读/网络none/CPU/内存/时限不变。源码解包有界，拒绝路径越界、规范化重复、NUL、链接/特殊/加密及项目歧义；文件内容累计512 MiB/30,000项，tar含元数据的解压流累计640 MiB，CRC/截断使用标准库。最终安装仍完整SHA/依赖验证；构建阶段的--no-deps不进入最终安装。原提供wheel均安装并记录，生成wheel作为实际产物，锁记录来源源码、原wheels、built_wheels、pip版本、镜像/平台与安装版本；环境解析匹配实际生产作业和生成wheel产物。模型回执省略重复source_recipe，完整API/日志/锁保持。
+
+182既有环境/作业20项通过（3.86秒）；183新增/角色检查42通过/1断言用语失败，184修正后43项通过（9.19秒）。185中间完整278通过/1失败（45.20秒），新增工具说明使原H2元数据夹具超过原输入预算；精简重复说明，不扩大预算/删除检查。187完整280通过（45.56秒），Ruff通过。真实长路径问题新增实际封存回归；186定向27项通过（7.17秒）。188增补中文/安全标点名称夹具时280通过/2失败（46.07秒），原因是夹具绕过动作创建而触发SQLite外键；修正为原Engine.perform后，189最终完整**282 passed（52.93秒）**。夹具不执行宿主包代码。
+
+真实工具脚本scripts/smoke_source_build.py：初试trial5e036fd4-8233-40eb-9528-c01ad902a19b/task6c863ee1-4ffb-49ac-af16-31e79aba370a仅完成诊断，固定镜像Python3.12.15/pip25.0.1缺gcc而停；失败保留。第二试trial e7370705-0d19-4ed6-bd7c-d5806876ab21/task17300e2a-aeed-4852-92fc-ef826e04b8d6已完成缺依赖/归档故障、补依赖后的tar/zip构建，但Windows261字符生成wheel被原Path.is_file静默漏登记，环境解析正确拒绝。修复Jobs的长路径检查/遍历/封存，不缩短源名掩盖缺口。最终trial **ef142b26-df47-4fb2-bc14-3d3698363956**/task **e8ed4263-f3e0-4e80-9242-3736609a9878**共有20个终态作业，**14项全部通过**：12类归档故障在pip前正确失败、静态setuptools缺失和动态wheel缺失真实失败、经明确审批获取锁定的setuptools80.9.0/wheel0.45.1后完成tar/zip纯Python构建/完整安装、同一环境两次真正导入/计算/产物读回；源只读/宿主包不变/无网络/非root核验通过。原生C扩展实际因gcc缺失失败，条件未解决，不宣称原生编译成功或静默更换镜像。独立只读10项来源核验全部通过，包括全部产物字节、实际只读挂载/镜像/资源、bounded /build、0模型请求、精确配方和生成wheel来源。原失败与最终证据分别保存。
+
+两模型真实工作台source v1：ui-source-build-tests-20261008-v1.json为**1 passed / 1 failed（2.8分钟）**。小模型task **c9b0c973-95cc-4bcf-9dc5-3804c7c34d94**共13模型请求/12动作，实际构建及两次计算均成功，数值42/版本1.0在日志中可见；但计算只打印，两个JSON后来由write_file产生，未按请求由计算作业保存；两个JSON未实际读回，报告还缺构建job_id。原UI首先在必需读回检查失败，独立来源复核另外揭示产物生产者/报告来源缺口；不把正确数值等同完整通过。大模型task **76657593-f565-40fc-90c1-ba760e945443**共8请求/11动作，实际1次构建/2次同环境计算、正确JSON由实际计算作业产生、锁/两个JSON/中文报告全部读回、报告含实际源/生成wheel SHA及3个真实job_id；完整UI及**13项独立来源检查全部通过**。两任务21份实际输入的完整目标/当前请求/只读授权/修订/Schema/工具响应配对/正实测用量/原32K预算与回执来源审计全部通过。来源审计不代替完整工作质量；小模型3个来源缺口保留。随后UI夹具补明确计算作业生产者检查，仍由以上独立13项复核覆盖；未新增第二次模型运行。
+
+专用8769服务在精确PID/创建时间/cwd/cmd及闲置库复核后加载源码构建；UI使用最终源码构建/长路径/说明修复，末尾中文文件名接纳由最终回归覆盖（工作台试次是ASCII来源名，不冒充中文名真实运行）。没有新增库、迁移、能力、执行循环或UI构建，Agent联网搜索继续用户暂缓。单次大模型源码/依赖通过不代表两模型稳定质量或阶段1。公开sdist获取/自动回退、编译器/系统库镜像配方、其他运行时/缺哈希元数据回退、完整恢复/角色/通用评估及原领域/六组合/低资源/≥100 GB/发布范围继续保留。阶段1其余门槛通过前不启动领域开发。
+
+English: Authorized local source archives reuse the existing offline Jobs and native pip PEP 517 isolation, with execution permission and immutable source/built-wheel provenance. Final 282 regressions, 14 real-tool checks and 10 independent tool-provenance checks pass; actual compiler absence remains unresolved. Source UI v1 passes for large with 13 independent provenance checks; small computes correct values but writes JSON outside the required Jobs, omits their readbacks and the build-job report reference. All 21 sent-input audits pass independently. Failures remain; general/two-model acceptance and the full remaining scope are pending. Search stays deferred.

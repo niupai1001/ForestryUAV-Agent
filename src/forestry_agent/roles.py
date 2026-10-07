@@ -185,6 +185,8 @@ class Roles:
             return {"assignment_id": assignment_id, "status": "queued", "namespace": value["namespace"]}
 
     def authorize(self, db, deps, kind, args, *, check_budget=True):
+        if kind == "environment.prepare" and args.get("source_refs"):
+            self.authorize(db, deps, "code.execute", args, check_budget=False)
         state = self.store.read_task(db, deps.task_id)
         self.store.authorize_capability(db, state, kind)
         if not deps.assignment_id:

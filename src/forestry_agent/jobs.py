@@ -124,6 +124,7 @@ class Jobs:
         if isinstance(result.get('job'), dict):
             job = dict(result['job'])
             job.pop('environment_recipe', None)
+            job.pop('source_recipe', None)
             if isinstance(job.get('environment'), dict):
                 job['environment'] = {k: v for k, v in job['environment'].items() if k != 'manifest'}
             result['job'] = job
@@ -131,9 +132,11 @@ class Jobs:
 
     def submit(self, task_id: str, revision: int, action_id: str, code: str,
                input_refs: list[str], seconds: int = 300, *, environment_artifact_id=None,
-               job_kind="code.execute", environment_recipe=None, input_artifact_ids=None):
+               job_kind="code.execute", environment_recipe=None, input_artifact_ids=None, source_recipe=None):
         if job_kind not in {"code.execute", "environment.prepare"}:
             raise Failure("SCHEMA_INVALID", "未知受限作业类型")
+        if source_recipe and job_kind != "environment.prepare":
+            raise Failure("SCHEMA_INVALID", "源码构建仅用于依赖准备作业")
         if not code or len(code.encode()) > 65536:
             raise Failure("SCHEMA_INVALID", "代码须为 1–65536 字节的 Python 文本")
         if seconds < 1 or seconds > self.config.max_code_seconds:
@@ -142,7 +145,7 @@ class Jobs:
         for ref in dict.fromkeys(input_refs):
             source = self.resources.resolve(ref, task_id=task_id)
             # Directory snapshots and link-safe bulk mounting require a later worker.
-            if not source.is_file() or source.is_symlink() or "," in str(source):
+            if not native_path(source).is_file() or native_path(source).is_symlink() or "," in str(source):
                 raise Failure("PRECONDITION_MISSING", "通用代码作业当前仅支持无链接的单文件输入", 422)
             mounts.append({"resource_id": ref, "source": str(source), "target": f"/inputs/{ref}",
                            "version": version(source)})
@@ -167,6 +170,8 @@ class Jobs:
             if state["spec_revision"] != revision or state["pause_requested"] or state["cancellation_requested"]:
                 raise Failure("EXECUTION_STOPPED", "任务规范或控制状态不允许新作业", 409)
             self.store.authorize_capability(db, state, job_kind)
+            if source_recipe:
+                self.store.authorize_capability(db, state, "code.execute")
             job_id = uid()
             assignment = db.execute("SELECT id FROM assignments WHERE json_extract(payload,'$.run_id')=(SELECT turn_id FROM actions WHERE id=?)", (action_id,)).fetchone()
             job = {"schema_version": 1, "job_id": job_id, "task_id": task_id,
@@ -185,6 +190,9 @@ class Jobs:
                 job["environment_tmpfs_bytes"] = 1024*1024*1024
             if environment_recipe is not None:
                 job["environment_recipe"] = environment_recipe
+            if source_recipe:
+                job["source_recipe"] = source_recipe
+                job["build_tmpfs_bytes"] = 1024*1024*1024
             db.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?)",
                 (job_id, task_id, action_id, revision, "queued", encode(job), now()))
             self.store.event(db, task_id, "job.queued", self.public(job))
@@ -208,6 +216,8 @@ class Jobs:
         with self.store.transaction() as db:
             state = self.store.read_task(db, job["task_id"])
             self.store.authorize_capability(db, state, job.get("kind", "code.execute"))
+            if job.get("source_recipe"):
+                self.store.authorize_capability(db, state, "code.execute")
         current = self.read(job["job_id"])
         if current["cancel_requested"] or state["cancellation_requested"] or state["pause_requested"] or state["spec_revision"] != job["spec_revision"]:
             raise Failure("EXECUTION_STOPPED", "控制状态已变化，不启动新容器动作", 409)
@@ -235,6 +245,8 @@ class Jobs:
                 state = self.store.task(job["task_id"])
                 with self.store.transaction() as db:
                     permitted = self.store.capability_allowed(db, state, job.get("kind", "code.execute"))
+                    if job.get("source_recipe"):
+                        permitted = permitted and self.store.capability_allowed(db, state, "code.execute")
                 stopping = job["cancel_requested"] or state["cancellation_requested"] or state["spec_revision"] != job["spec_revision"] or not permitted
                 if job["status"] == "queued":
                     if stopping:
@@ -254,10 +266,10 @@ class Jobs:
                     if job.get("environment") and job["image_id"] != job["environment"]["image_id"]:
                         raise Failure("VERSION_CONFLICT", "运行镜像与依赖准备镜像身份不一致", 409)
                     directory = Path(job["directory"])
-                    (directory / "output").mkdir(parents=True, exist_ok=True)
+                    native_path(directory / "output").mkdir(parents=True, exist_ok=True)
                     prepared = execution_code(job["code"], job["environment"]) if job.get("environment") else job["code"]
                     job["prepared_code_sha256"] = hashlib.sha256(prepared.encode()).hexdigest()
-                    (directory / "run.py").write_bytes(prepared.encode("utf-8"))
+                    native_path(directory / "run.py").write_bytes(prepared.encode("utf-8"))
                     self.verify_inputs(job)
                     self.verify_environment(job)
                     job["status"] = "creating"
@@ -283,6 +295,8 @@ class Jobs:
                         "--mount", f"type=bind,src={directory / 'output'},dst=/output"]
                     for mount in job["mounts"]:
                         args.extend(["--mount", f"type=bind,src={mount['source']},dst={mount['target']},readonly"])
+                    if job.get("source_recipe"):
+                        args.extend(["--tmpfs", f"/build:rw,exec,nosuid,nodev,mode=1777,size={job['build_tmpfs_bytes']}"])
                     if job.get("environment"):
                         # Native wheels need executable mappings on a Linux FS.
                         # Keep /tmp noexec; this separate mount is bounded, nosuid,
@@ -334,18 +348,20 @@ class Jobs:
                 if job["status"] == "collecting":
                     # Keep a recoverable boundary until every output has been frozen.
                     files = []
-                    for directory, folders, names in os.walk(Path(job["directory"]) / "output", followlinks=False):
+                    output_root = Path(job["directory"]) / "output"
+                    walk_root = native_path(output_root)
+                    for directory, folders, names in os.walk(walk_root, followlinks=False):
                         for name in folders + names:
-                            path = Path(directory) / name
-                            if path.is_symlink():
+                            path = output_root / Path(directory).relative_to(walk_root) / name
+                            if native_path(path).is_symlink():
                                 raise Failure("PERMISSION_DENIED", "作业输出不接受符号链接", 403)
                             files.append(path)
                             if len(files) > 1000:
                                 raise Failure("RESOURCE_EXHAUSTED", "作业产物数量超出上限", 422)
                     for path in files:
-                        if path.is_symlink():
+                        if native_path(path).is_symlink():
                             raise Failure("PERMISSION_DENIED", "作业输出不接受符号链接", 403)
-                        if path.is_file():
+                        if native_path(path).is_file():
                             prefix = f"assignments/{job['assignment_id']}/" if job.get("assignment_id") else ""
                             artifact = self.resources.import_file(job["task_id"], job["action_id"], path,
                                 prefix + "jobs/" + job["job_id"] + "/" + path.relative_to(Path(job["directory"]) / "output").as_posix())
@@ -399,6 +415,7 @@ class Jobs:
         # repeating both here spills the archive ID behind a long wheel listing.
         observed = self.public(job)
         observed.pop("environment_recipe", None)
+        observed.pop("source_recipe", None)
         if observed.get("environment"):
             observed["environment"] = {k: v for k, v in observed["environment"].items() if k != "manifest"}
         result = {"job": observed}

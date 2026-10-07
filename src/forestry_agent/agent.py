@@ -741,7 +741,7 @@ wheel用prepare_environment准备，复用wait_job成功的prepared_environment.
                 resolution_lock_artifact_id: str | None = None) -> dict:
             """PyPI/TUNA按name/version/filename获取1–32wheel/128MiB，核对官方大小/SHA。
             私密任务先审批再传approval_id；解析后传resolution_lock_artifact_id绑定完整集合/哈希。wheel_artifact_ids交prepare_environment。
-            不执行包/上传文件，下载不证明安装兼容；源码构建待实现。
+            不执行包/上传文件，下载不证明安装兼容；源码获取待实现。
             """
             payload = [w.model_dump() for w in wheels]
             args = {"wheels": payload, "source": source, "approval_id": approval_id}
@@ -752,17 +752,20 @@ wheel用prepare_environment准备，复用wait_job成功的prepared_environment.
 
         @agent.tool
         async def prepare_environment(ctx: RunContext[Deps], wheel_refs: list[str] | None = None, seconds: int = 300,
-                wheel_artifact_ids: list[str] | None = None) -> dict:
-            """断网容器准备1–32个wheel环境，pip核对SHA、完整依赖/平台；不在宿主安装。
-            wheel_refs为授权资源，wheel_artifact_ids为当前修订确认获取的产物。wait_job成功的prepared_environment.artifact_id用于code_execute复用。
-            失败按真实日志有界修复，不忽略依赖/静默换版本；源码构建待实现。
+                wheel_artifact_ids: list[str] | None = None, source_refs: list[str] | None = None) -> dict:
+            """断网准备1–32个输入，校验SHA/完整依赖，不在宿主安装。
+            wheel_refs/source_refs为授权资源；wheel_artifact_ids为确认获取产物。
+            source_refs(.tar.gz/.zip)另需code.execute，以原生PEP517及所给wheel构建。
+            wait_job成功的prepared_environment.artifact_id用于复用；失败据日志有界修复。
             """
-            args = {"input_refs": wheel_refs or [], "seconds": seconds}
+            args = {"input_refs": [*(wheel_refs or []), *(source_refs or [])], "seconds": seconds}
+            if source_refs is not None:
+                args["source_refs"] = source_refs
             if wheel_artifact_ids is not None:
                 args["wheel_artifact_ids"] = wheel_artifact_ids
             receipt = await asyncio.to_thread(execute, ctx, "environment.prepare", args,
                 lambda action_id: self.environments.prepare(ctx.deps.task_id, ctx.deps.revision, action_id, wheel_refs or [], seconds,
-                    wheel_artifact_ids=wheel_artifact_ids))
+                    wheel_artifact_ids=wheel_artifact_ids, source_refs=source_refs))
             return self.jobs.model_receipt(receipt)
 
         @agent.tool
