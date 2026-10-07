@@ -19,3 +19,5 @@
 English: Native scoped planning reuses the existing framework, database, action journal and budgets. Its UI shows model-proposed progress only. The compatibility adapter retains the native ephemeral reminder after compaction without accumulating history. Protocol, regression and request audits pass; latest real dependency workflow quality fails for both models and remains pending.
 
 1.12完整回归234项通过。此前1.10/1.11计数及试次是历史；新增真实容器目标/成熟解析器及元数据/下载分项审批后，两模型完整UI仍失败，不能用46份输入审计或15项直接工具检查替代模型完成工作。下一步需保持已确认阶段及区分两类审批，原生历史/计划/预算职责不变，详见STATUS。
+
+当前1.13：完整回归243项，模型作业/终态审批回执去掉重复内容，H1/H2提供有来源的历史解析/下载摘要；这不更新计划步骤或证明任务完成。v2大模型完整流程的初始API字段误报经同任务零执行复核纠正，原失败保存；v2小模型、最新v3两模型仍失败。39份实际输入审计通过不能证明稳定质量。继续审批阶段/失败后恢复与完整交付，其余范围保持，联网搜索暂缓。

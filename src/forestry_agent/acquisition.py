@@ -41,6 +41,51 @@ class Acquisition:
         self.engine, self.store = engine, engine.store
         self.http = http or PublicHTTP()
 
+    def confirmed_receipts(self, task_id, revision):
+        """At most one sourced resolution and acquisition, with no copied body.
+
+        These are historical tool facts, not a workflow state or freshness check.
+        Actual reuse still validates immutable bytes, grants and current inputs.
+        """
+        receipts, seen = [], set()
+        with self.store.transaction() as db:
+            rows = db.execute("SELECT id,result FROM actions WHERE task_id=? AND revision=? "
+                "AND kind='environment.acquire' AND status='confirmed' AND json_extract(result,'$.kind')='completed' "
+                "AND json_type(result,'$.wheels')='array' ORDER BY rowid DESC LIMIT 64", (task_id, revision))
+            for row in rows:
+                result = json.loads(row['result'])
+                operation = 'download' if 'wheel_artifact_ids' in result else 'resolve'
+                if operation in seen or not 1 <= len(result['wheels']) <= 32:
+                    continue
+                if operation == 'download' and (len(result['wheel_artifact_ids']) != len(result['wheels']) or
+                    len(set(result['wheel_artifact_ids'])) != len(result['wheel_artifact_ids'])):
+                    continue
+                lock_id = result.get('lock_artifact_id' if operation == 'download' else 'resolution_lock_artifact_id')
+                lock = db.execute("SELECT payload FROM artifacts WHERE id=? AND task_id=?", (lock_id, task_id)).fetchone()
+                lock = json.loads(lock['payload']) if lock else {}
+                if lock.get('producer_action_id') != row['id'] or lock.get('name') != ('acquisition-lock.json' if operation == 'download' else 'resolution-lock.json'):
+                    continue
+                wheels = []
+                for wheel in result['wheels']:
+                    if not all(k in wheel for k in ['name', 'version', 'filename']):
+                        break
+                    value = {k: wheel[k] for k in ['name', 'version', 'filename']}
+                    if operation == 'download':
+                        artifact_id = wheel.get('artifact_id')
+                        stored = db.execute('SELECT payload FROM artifacts WHERE id=? AND task_id=?', (artifact_id, task_id)).fetchone()
+                        artifact = json.loads(stored['payload']) if stored else {}
+                        if (artifact_id not in result['wheel_artifact_ids'] or artifact.get('producer_action_id') != row['id'] or
+                            artifact.get('name') != wheel['filename'] or artifact.get('sha256') != wheel.get('sha256')):
+                            break
+                        value['artifact_id'] = artifact_id
+                    wheels.append(value)
+                else:
+                    receipts.append({'operation': operation, 'source_action_id': row['id'],
+                        'lock_artifact_id': lock_id, 'wheels': wheels,
+                        **({'target_artifact_id': result['target_artifact_id']} if operation == 'resolve' and 'target_artifact_id' in result else {})})
+                    seen.add(operation)
+        return receipts
+
     def acquire(self, deps, action_id, wheels, source: Literal["pypi", "tuna"] = "pypi", approval_id=None,
                 resolution_lock_artifact_id=None):
         wheels = [WheelRequest.model_validate(w).model_dump() for w in wheels]

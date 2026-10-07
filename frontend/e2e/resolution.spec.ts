@@ -29,7 +29,7 @@ test.afterEach(async({page},info)=>{
     errors:info.errors,source_unchanged:sha(readFileSync(trial.source))===trial.hash,all_passed:false,general_stage_acceptance:'incomplete'},null,2));
 });
 for(const model of ['small','large'])test(`${model} resolves downloads installs and reuses dependencies through UI`,async({page})=>{
-  test.skip(process.env.RUN_RESOLUTION_UI!=='1','Explicit real model, metadata/download approvals and restricted job trial.');
+  test.skip(process.env.RUN_RESOLUTION_UI!=='1'||!!process.env.FORESTRY_RECHECK_RESOLUTION_TASK,'Explicit new real task; rechecks use the existing task only.');
   test.setTimeout(480000);
   const directory=resolve(root,'workspace/resolution-ui-fixtures',crypto.randomUUID());mkdirSync(directory,{recursive:true});
   const source=resolve(directory,`resolution-heights-${model}.csv`);writeFileSync(source,'height_m\n8.25\n12.50\n16.75\n');
@@ -59,7 +59,8 @@ for(const model of ['small','large'])test(`${model} resolves downloads installs 
       pending=grants.find((g:any)=>g.status==='pending'&&(operation==='resolve'?g.request.operation==='resolve':!g.request.operation));
       const state=await(await page.request.get(`/tasks/${taskId}`)).json();
       return pending?'pending':['paused','failed'].includes(state.status)?state.status:'working';
-    },{timeout:180000,intervals:[1000,2000]}).toBe('pending');
+    },{timeout:180000,intervals:[1000,2000]}).toMatch(/^(pending|paused|failed)$/);
+    expect(pending,'A terminal failed/paused task cannot supply the required approval.').toBeTruthy();
     expect(pending.request.package_execution).toBe(false);
     const value=JSON.parse(pending.request.value);
     if(operation==='resolve')expect(value.requirements).toEqual(['numpy==2.2.6','python-dateutil==2.9.0.post0']);
@@ -74,13 +75,21 @@ for(const model of ['small','large'])test(`${model} resolves downloads installs 
   }
   await expect.poll(async()=>(await(await page.request.get(`/tasks/${taskId}`)).json()).status,
     {timeout:200000,intervals:[1000,2000]}).toMatch(/^(waiting_user|paused|failed)$/);
-  const observed=await snapshot(page,taskId),path=evidence(`ui-resolution-${model}-${taskId}.json`);
+  await validateOutcome(page,await snapshot(page,taskId),taskId,model,ref,source,hash,errors);
+});
+
+async function validateOutcome(page:any,observed:any,taskId:string,model:string,ref:string,source:string,hash:string,errors:string[],suffix=''){
+  const path=evidence(`ui-resolution-${model}-${taskId}${suffix}.json`);
   const record={model,task_id:taskId,...observed,all_passed:false,general_stage_acceptance:'incomplete',scientific_accuracy:'not_assessed'};
   writeFileSync(path,JSON.stringify(record,null,2));expect(observed.state.status).toBe('waiting_user');
   expect(observed.approvals).toHaveLength(2);expect(observed.approvals.every((g:any)=>g.status==='consumed')).toBe(true);
   expect(observed.jobs).toHaveLength(4);expect(observed.jobs.every(j=>j.status==='succeeded')).toBe(true);
   const installation=observed.jobs.filter(j=>j.kind==='environment.prepare');expect(installation).toHaveLength(1);
-  const probe=observed.jobs.find(j=>j.code.includes('EXECUTION_TARGET_READY'));expect(probe.mounts).toEqual([]);
+  const target=observed.artifacts.find((a:any)=>a.name==='execution-target.json');expect(target).toBeTruthy();
+  const probe=observed.jobs.find((j:any)=>j.action_id===target.producer_action_id);expect(probe).toBeTruthy();
+  const probeCode=readFileSync(resolve(root,'src/forestry_agent/resolution.py'),'utf8').replace(/\r\n/g,'\n').match(/PROBE_CODE = '''([\s\S]*?)'''/)![1];
+  expect(probe.code_sha256).toBe(sha(Buffer.from(probeCode)));
+  const actualTarget=await(await page.request.get(target.preview_url)).json();expect(actualTarget.sys_platform).toBe('linux');expect(actualTarget.python_full_version).toMatch(/^3\.12\./);
   const computations=observed.jobs.filter(j=>j.environment);expect(computations).toHaveLength(2);
   expect(computations.every(j=>j.environment.artifact_id===computations[0].environment.artifact_id&&j.image_id===probe.image_id)).toBe(true);
   for(const name of ['resolution-result-1.json','resolution-result-2.json','resolution-report.md']){
@@ -89,9 +98,24 @@ for(const model of ['small','large'])test(`${model} resolves downloads installs 
     if(name.endsWith('.json'))expect(await(await page.request.get(product.preview_url)).json()).toEqual({tree_count:3,total_height_m:37.5,mean_height_m:12.5,
       parsed_date:'2026-10-06',numpy_version:'2.2.6',dateutil_version:'2.9.0.post0',six_version:'1.17.0'});
     else {const text=await(await page.request.get(product.preview_url)).text();expect(text).toMatch(/[\u4e00-\u9fff]/);
-      for(const id of [...observed.jobs.map(j=>j.job_id),ref,computations[0].environment.artifact_id,'37.5','12.5','1.17.0','2.9.0.post0','2.2.6'])expect(text).toContain(id);}
+      for(const id of [...observed.jobs.map((j:any)=>j.job_id),ref,computations[0].environment.artifact_id,'37.5','12.5','1.17.0','2.9.0.post0','2.2.6'])expect(text).toContain(id);}
   }
   expect(observed.events.some(e=>e.type==='action.started'&&['web.search','web.read','role.delegate'].includes(e.payload.tool))).toBe(false);
   expect(sha(readFileSync(source))).toBe(hash);expect(errors).toEqual([]);
   writeFileSync(path,JSON.stringify({...record,all_passed:true,source_unchanged:true},null,2));
+}
+
+test('recheck an existing resolution workflow without a new model or job',async({page})=>{
+  const taskId=process.env.FORESTRY_RECHECK_RESOLUTION_TASK;
+  test.skip(process.env.RUN_RESOLUTION_UI!=='1'||!taskId,'Explicit existing real task.');
+  await page.goto('/');expect((await page.request.get('/session')).ok()).toBe(true);
+  const observed=await snapshot(page,taskId!);
+  const resources=await(await page.request.get('/resources')).json();
+  expect(observed.state.input_refs).toHaveLength(1);const ref=observed.state.input_refs[0];
+  const source=resources.find((r:any)=>r.resource_id===ref).locator;
+  const expectedHash=sha(Buffer.from('height_m\n8.25\n12.50\n16.75\n'));
+  await validateOutcome(page,observed,taskId!,observed.state.model_profile,ref,source,expectedHash,[],'-recheck');
+  const after=await snapshot(page,taskId!);
+  expect(after.state.model_requests).toBe(observed.state.model_requests);
+  expect(after.jobs.map(j=>j.job_id)).toEqual(observed.jobs.map(j=>j.job_id));
 });

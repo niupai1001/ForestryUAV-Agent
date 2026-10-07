@@ -330,6 +330,22 @@ class Network:
         with self.store.transaction() as db:
             return [json.loads(r["payload"]) for r in db.execute("SELECT payload FROM approvals WHERE task_id=? ORDER BY rowid", (task_id,))]
 
+    def model_facts(self, task_id, revision):
+        """Active grants retain exact scope; terminal grants cannot authorize I/O.
+
+        Immutable full requests remain in the approval API/journal. Terminal
+        summaries retain intent, destination, digest and consumption provenance.
+        """
+        facts = []
+        for record in [a for a in self.list(task_id) if a['spec_revision'] == revision][-12:]:
+            value = {k: record[k] for k in ['approval_id', 'status', 'request_sha256', 'request']}
+            if record['status'] not in {'pending', 'approved'}:
+                value['request'] = {k: v for k, v in record['request'].items() if k in {'kind', 'operation', 'value', 'destinations'}}
+                value['scope_is_summary'] = True
+                value['consumed_action_id'] = record.get('consumed_action_id')
+            facts.append(value)
+        return facts
+
     def admit(self, deps, action_id, request, digest, approval_id):
         with self.store.transaction() as db:
             state = self.store.read_task(db, deps.task_id)
@@ -343,14 +359,14 @@ class Network:
             if row:
                 record = json.loads(row["payload"])
                 if record["request_sha256"] != digest or record["spec_revision"] != deps.revision:
-                    raise Failure("VERSION_CONFLICT", "授权请求摘要或来源版本不匹配", 409)
+                    raise Failure("VERSION_CONFLICT", "授权请求摘要或来源版本不匹配；不同请求不能复用此approval_id。先检查已完成回执；新请求不带approval_id提出范围，等待匹配的新审批。", 409)
                 if record["status"] == "approved" and datetime.fromisoformat(record["expires_at"]) > datetime.now(UTC):
                     record.update(status="consumed", consumed_at=now(), consumed_action_id=action_id)
                     db.execute("UPDATE approvals SET status='consumed',payload=? WHERE id=?", (encode(record), record["approval_id"]))
                     self.store.event(db, deps.task_id, "approval.consumed", {"approval_id": record["approval_id"], "action_id": action_id})
                     return record["approval_id"]
                 if record["status"] != "pending":
-                    raise Failure("PERMISSION_DENIED", "授权已拒绝、过期、撤销或消费", 403)
+                    raise Failure("PERMISSION_DENIED", "授权已拒绝、过期、撤销或消费；不能作为新请求授权。已完成工作复用原确认回执，不重复发送。", 403)
             else:
                 if approval_id:
                     raise Failure("PERMISSION_DENIED", "审批ID不属于当前任务", 403)

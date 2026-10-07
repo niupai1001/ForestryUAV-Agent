@@ -39,6 +39,14 @@ source可选pypi/tuna，每次1–32项/128 MiB，官方元数据单份2 MiB、�
 
 H1/H2 根指令另外提供已有产物名称/ID和当前修订最近作业的有界记录，诊断只复制已确认终态观察的stderr末尾512字节；记录不能代替新观察。报告复制实际job_id，不能将动作回执ID标为作业；仅对实际返回来源citation的读取动作使用citation_actions，代码/作业通常没有来源citation。不同标识不可混用，read_artifact只接受artifact_id与offset。
 
+## 模型回执与失败修正（1.13）
+
+提交的模型回执省略重复environment_recipe及environment.manifest，完整API/作业/确认动作仍保留，观察继续提供实际日志和环境身份。H1/H2根事实最多保留当前修订各一份确认解析与下载的动作/锁/wheel身份摘要，无正文，不替代实际字节、安装或验收核验。活动审批提供完整范围；终态模型摘要含scope_is_summary与消费动作，不能当作新授权。H0与子角色不注入这些依赖事实。
+
+resolve_dependencies的target_artifact_id接受UUID或null，不接受字符串"None"。wait_job不存在的ID通过原动作日志返回失败，提示使用成功提交回执中的job.job_id，不能使用action_id；原生模型仍受既有纠正、重复操作及请求预算限制。权限/修订/控制错误不会被自动重试。元数据请求失败仍消费本次批准，后续新尝试须重新提出匹配范围，不得重用消费审批。
+
+完整回归243项。v2大模型完整流程经同任务零执行复核及独立来源审计通过，原API字段误报保存；v2小模型、最新v3两模型失败。此单次成功及39份已发输入审计不等于两模型稳定质量或阶段1验收。完整证据见STATUS。
+
 ## 真实验证
 
 以下下载脚本仅供可信开发者准备固定的公开软件夹具，不是模型工具，不接触任务私密输入。默认从 PyPI 下载；显式选择 TUNA 镜像时仍依据官方 PyPI JSON 的大小和 SHA-256 核对，不能把同源哈希说成独立签名。[PyPI JSON API](https://docs.pypi.org/api/json/)、[TUNA 镜像说明](https://mirrors.tuna.tsinghua.edu.cn/help/pypi/)

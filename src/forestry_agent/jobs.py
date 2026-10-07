@@ -90,7 +90,7 @@ class Jobs:
         with self.store.transaction() as db:
             row = db.execute("SELECT payload FROM jobs WHERE id=?", (job_id,)).fetchone()
             if not row:
-                raise Failure("NOT_FOUND", "作业不存在", 404)
+                raise Failure("NOT_FOUND", "作业不存在；job_id须取成功提交回执的job.job_id，不能使用action_id。提交失败没有创建作业，先修正失败的调用。", 404)
             job = json.loads(row["payload"])
         if task_id and job["task_id"] != task_id:
             raise Failure("PERMISSION_DENIED", "作业不属于当前任务", 403)
@@ -111,6 +111,22 @@ class Jobs:
         result = {k: v for k, v in job.items() if k not in {"code", "mounts", "directory"}}
         if result.get("environment"):
             result["environment"] = {k: v for k, v in result["environment"].items() if k != "source"}
+        return result
+
+    @staticmethod
+    def model_receipt(receipt):
+        """Keep actionable identities without repeating persisted install recipes.
+
+        Public API/job records and the confirmed action journal remain complete.
+        This projection also applies to replayed historical tool receipts.
+        """
+        result = dict(receipt)
+        if isinstance(result.get('job'), dict):
+            job = dict(result['job'])
+            job.pop('environment_recipe', None)
+            if isinstance(job.get('environment'), dict):
+                job['environment'] = {k: v for k, v in job['environment'].items() if k != 'manifest'}
+            result['job'] = job
         return result
 
     def submit(self, task_id: str, revision: int, action_id: str, code: str,
