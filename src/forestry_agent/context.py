@@ -6,7 +6,13 @@ import os
 from dataclasses import replace
 from pathlib import Path
 
-from pydantic_ai.messages import ModelMessagesTypeAdapter, ModelRequest, ModelResponse
+from pydantic_ai.messages import (
+    CachePoint,
+    ModelMessagesTypeAdapter,
+    ModelRequest,
+    ModelResponse,
+    UserPromptPart,
+)
 from pydantic_ai_harness.compaction import estimate_context_tokens, estimate_token_count
 
 from .contracts import Failure
@@ -19,6 +25,33 @@ ESTIMATOR = "native-usage-anchor-with-utf8-deltas-v4-bound-schema-receipt"
 def byte_bound(text: str):
     """Conservative text estimate; measure actual provider usage separately."""
     return len(text.encode("utf-8"))
+
+
+def deduplicate_objective(request_context, objective):
+    """Reference the complete authoritative objective without changing history.
+
+    Only an exact user-prompt copy is replaced; tool content, images, receipts,
+    distinct follow-ups and other parts remain intact. Native cache points stay
+    behind the referenced content. The caller ensures root H1/H2 facts exist.
+    """
+    reference = "当前用户的完整原始目标见权威任务事实objective，请保留全部要求并依据已确认记录继续。"
+    messages = []
+    for message in request_context.messages:
+        if not isinstance(message, ModelRequest):
+            messages.append(message)
+            continue
+        parts = []
+        for part in message.parts:
+            if isinstance(part, UserPromptPart):
+                content = part.content
+                if isinstance(content, str) and content == objective:
+                    part = replace(part, content=reference)
+                elif (isinstance(content, (list, tuple)) and all(isinstance(p, (str, CachePoint)) for p in content)
+                    and "".join(p for p in content if isinstance(p, str)) == objective):
+                    part = replace(part, content=[reference, *[p for p in content if isinstance(p, CachePoint)]])
+            parts.append(part)
+        messages.append(replace(message, parts=parts))
+    request_context.messages = messages
 
 
 def utf8_window(data: bytes, offset=0, limit=4000, from_end=False):

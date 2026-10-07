@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic_ai.models.test import TestModel
 from test_core import task
 from test_jobs import ExecutorFixture
 
@@ -20,9 +21,9 @@ def wheel(client, tmp_path, name="fixture-1.0-py3-none-any.whl", request_id="whe
     return source, reply.json()["resource_id"]
 
 
-def environment_fixture(client, app, tmp_path):
+def environment_fixture(client, app, tmp_path, harness_mode="H2"):
     source, ref = wheel(client, tmp_path)
-    state, _ = task(client, input_refs=[ref])
+    state, _ = task(client, input_refs=[ref], harness_mode=harness_mode)
     engine, docker = app.state.engine, ExecutorFixture()
     jobs = Jobs(engine.config, engine.store, engine.resources, docker)
     environments = Environments(engine.config, engine.store, engine.resources, jobs)
@@ -155,3 +156,43 @@ def test_preparation_recipe_requires_hashes_and_complete_offline_resolution():
     assert "--no-index" in code and "--no-deps" not in code
     # JSON with non-Python literals must remain data in the generated launcher.
     compile(execution_code("print(42)", {"sha256": "a"*64, "manifest": {"value": None}}), "environment-use", "exec")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["H0", "H1", "H2"])
+async def test_ready_archive_fact_requires_confirmed_observation_and_real_producer(client, app, tmp_path, mode):
+    state, deps, jobs, _, artifact, _ = environment_fixture(client, app, tmp_path, mode)
+    engine = app.state.engine
+    with engine.store.transaction() as db:
+        job_id = db.execute("SELECT id FROM jobs WHERE task_id=?", (state["task_id"],)).fetchone()[0]
+    for observed in [False, True]:
+        if observed:
+            receipt = engine.perform(deps, "observe-ready", "job.observe", {"job_id":job_id},
+                lambda _: jobs.observation(job_id, state["task_id"]))
+            forged = engine.resources.write(state["task_id"], "wrong-producer", "environment.zip", "not an environment")
+            bad = {"kind":"completed", "job":{"job_id":job_id, "status":"succeeded"},
+                "prepared_environment":{"artifact_id":forged["artifact_id"], "sha256":forged["sha256"]}}
+            with engine.store.transaction() as db:
+                db.execute("INSERT INTO actions VALUES(?,?,?,?,?,?,?,?,?)", ("forged-ready-receipt", state["task_id"], deps.turn_id,
+                    "forged-ready", 1, "job.observe", "{}", "confirmed", json.dumps(bad)))
+        turn_id = f"ready-facts-{observed}"
+        agent, connection = engine.make_agent("small", turn_id, state["config_snapshot"], state["task_id"])
+        try:
+            with agent.override(model=TestModel(call_tools=[], custom_output_args={"summary":"已观察环境标识夹具", "artifact_ids":[]})):
+                await agent.run("检查已记录的环境标识", deps=Deps(engine, state["task_id"], turn_id, 1))
+            with engine.store.transaction() as db:
+                manifest = json.loads(db.execute("SELECT payload FROM contexts WHERE turn_id=? ORDER BY rowid DESC LIMIT 1", (turn_id,)).fetchone()[0])
+            body = json.loads(Path(manifest["prepared_input_ref"]).read_bytes())
+            instructions = "\n".join(body["instructions"])
+            if mode == "H0":
+                assert '"recent_jobs"' not in instructions
+            else:
+                facts = next(json.loads(text.split("：",1)[1].split("\n",1)[0]) for text in body["instructions"] if text.startswith("当前权威任务事实"))
+                recorded = next(j for j in facts["recent_jobs"] if j["job_id"] == job_id)
+                assert recorded["environment_artifact_id"] == (artifact if observed else None)
+                if observed:
+                    assert recorded["environment_observation_action_id"] == receipt["action_id"]
+                else:
+                    assert "environment_observation_action_id" not in recorded
+        finally:
+            await connection.aclose()

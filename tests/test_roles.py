@@ -35,7 +35,9 @@ async def test_native_two_delegations_are_isolated_scoped_and_do_not_finish_pare
     grant = client.post("/resources/register", json={"request_id": "scope", "path": str(source)}).json()
     state, _ = task(client, objective="PARENT_PRIVATE_MARKER：独立数据准备与质量复核", input_refs=[grant["resource_id"]])
     engine, returns_seen, scopes_seen = app.state.engine, [], []
-    engine.resources.write(state["task_id"], "parent-metadata", "PARENT_ARTIFACT_MARKER.md", "Private parent body")
+    private_product = engine.resources.write(state["task_id"], "parent-metadata", "PARENT_ARTIFACT_MARKER.md", "Private parent body")
+    parent_read = engine.perform(Deps(engine, state["task_id"], "root-role-test", 1), "parent-read", "artifact.read",
+        {"artifact_id":private_product["artifact_id"]}, lambda _: engine.resources.read_artifact(state["task_id"], private_product["artifact_id"]))
     with engine.store.transaction() as db:
         engine.store.event(db, state["task_id"], "run.reconciled", {"spec_revision": 1,
             "turn_id": "root-role-test", "private": "PARENT_RECOVERY_MARKER"})
@@ -46,6 +48,7 @@ async def test_native_two_delegations_are_isolated_scoped_and_do_not_finish_pare
             assert "PARENT_PRIVATE_MARKER" not in (info.instructions or "") + str(messages)
             assert "PARENT_RECOVERY_MARKER" not in (info.instructions or "") + str(messages)
             assert "PARENT_ARTIFACT_MARKER" not in (info.instructions or "") + str(messages)
+            assert parent_read["action_id"] not in (info.instructions or "") + str(messages)
             names = {t.name for t in info.function_tools}
             assert "delegate_task" not in names and "code_execute" not in names and "read_user_memory" not in names
             role = "quality" if '"role_id":"quality"' in info.instructions else "data"

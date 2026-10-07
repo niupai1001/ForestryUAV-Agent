@@ -8,8 +8,8 @@
 |---|---|---|---|---|
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
-| P2 | in_progress | 动作/attempt、请求去重、修订隔离、检查点；断网容器、独立 WSL、终态日志、同回合恢复事实；离线范围依赖和环境复用 | 真实计算/取消/超时、两模型运行中作业真实进程恢复通过；历史大模型调试/依赖UI通过，最新v9两模型失败；离线依赖真实15项通过；完整回归177项 | Agent依赖获取/源码构建、两模型稳定完整依赖UI、完整资源准入、全部恢复窗口及 UI、小模型完整调试/报告质量 |
-| P3 | in_progress | 候选指纹/验收/清单；文档/知识/记忆；原生上下文/角色；H0/H1/H2；已有网络边界、持久输入/引用、无进展保护、工具范围与 UI 修订；有界事实及Schema实测绑定、原生计划与UI视图 | 完整回归177项；两模型文件范围恢复与修订/重传 UI 通过；最新43份输入/原生计划审计通过；历史搜索单项证据保留 | 角色异常/冲突交互、两模型完整本地通用及长任务质量、完整报告/通用评估；联网搜索用户暂缓 |
+| P2 | in_progress | 动作/attempt、请求去重、修订隔离、检查点；断网容器、独立 WSL、终态日志、同回合恢复事实；离线范围依赖和环境复用 | 真实计算/取消/超时、两模型运行中作业真实进程恢复通过；历史大模型调试/依赖UI通过，最新v11两模型失败；离线依赖真实15项通过；完整回归188项 | Agent依赖获取/源码构建、两模型稳定完整依赖UI、完整资源准入、全部恢复窗口及 UI、小模型完整调试/报告质量 |
+| P3 | in_progress | 候选指纹/验收/清单；文档/知识/记忆；原生上下文/角色；H0/H1/H2；已有网络边界、持久输入/引用、无进展保护、工具范围与 UI 修订；有界来源事实及Schema实测绑定、原生计划/ID回执/视图、出站目标去重 | 完整回归188项；两模型文件范围恢复与修订/重传 UI 通过；最新38份输入/计划/回执/目标审计通过；历史搜索单项证据保留 | 角色异常/冲突交互、两模型完整本地通用及长任务质量、完整报告/通用评估；联网搜索用户暂缓 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -226,6 +226,27 @@ UI加入计划页签和自报状态说明；当前任务只显示自身5个授�
 最终完整回归`pytest -q -p no:cacheprovider --basetemp workspace/test-temp-20261007-139`：177 passed（25.13秒），Ruff通过。初始175项（37.05秒）之后新增上述2项检查。一次受限终端测试长时间无输出，单独中断该测试会话；提升后的8项正常完成，没有据此重启产品服务。完整通用阶段、两模型稳定质量、Agent依赖获取/源码构建、完整恢复/UI及领域/规模仍未验收；搜索用户暂缓。
 
 English: Baseline1.9 reuses native planning, storage, actions and budgets. Actual v8 snapshots exposed reminders dropped by compaction; the small before-hook adapter fixes this without accumulating history. All43 sent v9 inputs pass reminder/provenance/usage audits, while both workflows fail: small misuses environments and reaches the context guard; large completes files but repeats reads and triggers NO_PROGRESS. Original failures, a report-reference false positive and a zero-execution same-task supplemental pass remain distinct. Coalesced refresh fixes empty-plan UI; desktop/mobile checks and177 regressions pass. Full local acceptance remains incomplete; search is deferred.
+
+## Baseline 1.10 / 确认回执与请求去重
+
+H1/H2根事实复制当前任务/修订/逻辑回合最近8个不同产物的最后确认读取窗口与来源动作，不复制正文。只接受匹配已登记产物SHA的确认回执；末尾窗口不证明前文已读、当前未篡改、内容正确或验收。准备成功作业的归档身份只取已确认job.observe，核对真实输出/哈希/名称/准备动作。H0及子角色不接收父级辅助事实。协议夹具覆盖有界数量、重复窗口、失败/异回合/异修订/错误哈希、未观察成功和伪造生产者；环境夹具不代表真实pip安装。
+
+原生write_plan渲染回执没有步骤ID，v10小模型为了找回ID反复检查计划；现在回执追加原生解析并提交的step_ids，保留原始JSON动作日志，默认ID及重放由协议夹具验证。原生历史仍保留完整用户消息；仅出站H1/H2根请求中的逐字相同objective副本变为事实引用。完整目标逐字保存在权威事实，不改不同后续消息、工具正文或图像；纯请求替换保留原生缓存锚点，发生在压缩后、预算/快照前。H0仍保留原用户提示。数据库迁移2、公开Schema版本1、19项能力均不变。
+
+v10保留**2失败/1只读复核跳过**，证据`ui-dependencies-tests-20261007-v10.json`。small `d50e984d-a83a-417e-8f74-e35a34f665fc`：13请求/13动作/4作业，准备正确环境并提交第一次成功计算，随后改计划、inspect_action、read_plan触发NO_PROGRESS，未观察计算/完成交付。large `8ac6c480-c911-4d53-80bc-7155a52dffdc`：16请求/19动作/5作业，两结果及报告实际生成/读回，下一输入估算28913超过可用28672，CONTEXT_EXHAUSTED暂停，未final_result。29份已发请求的标准输入/Schema/正用量、确认读取/环境身份、原生计划审计均通过；任务仍失败。
+
+v11夹具补充：计划只列实际工具工作，不将final_result或后续用户验收列为待更新步骤。final_result终止回合，用户验收在后，因此要求完成后再改计划会形成循环。原五作业、两计算、三文件读回、报告真实引用/数值、源只读、最终waiting_user检查均保留；这是夹具语义澄清，不是应用新增“全计划完成才能验收”规则，也不覆盖v10失败。
+
+v11结果仍为**2失败/1只读复核跳过**，完整证据`ui-dependencies-tests-20261007-v11.json`：
+
+- small `63935d9f-bbfa-4724-84fd-99a50b049ab2`：22请求/22动作/6作业，正确环境准备两次，另有重复不兼容/无环境计算；未产生计算结果或报告。计划更新、旧失败观察、read_plan触发NO_PROGRESS。两个归档分别为`27a3b24e-8da9-4403-8f9f-18f7c3b544f7`与`4f1db583-d0a6-4c38-818d-536517dcdf17`，不称为一次环境复用通过。
+- large `b012737f-a3ab-432d-a4d5-fa97785711b7`：16请求/19动作/5作业，环境`7972dd40-270c-444d-a3be-a03e60fa24fe`及两个JSON存在，真实读回后仍重复窗口，NO_PROGRESS暂停。未写报告/未final_result，不能把两次计算当完整UI通过。
+
+38份已发请求的独立审计全部通过：`ui-dependencies-context-audit-corrected-<task_id>.json`核对摘要/正用量/Schema响应绑定；`confirmed-readback-facts-audit-<task_id>.json`核对确认窗口与环境回执；`native-planning-request-audit-<task_id>.json`核对当前提醒；`objective-plan-ids-audit-<task_id>.json`核对完整目标及无逐字出站副本、原生步骤ID回执。试次动作均少于清单64项动作引用上限，该独立读取窗口审计不宣称覆盖任意更长历史。末次已发输入估算/实测分别small26346/10074、large24911/9151；无提高预算或放松检查。输入审计与产品验收分别表示。
+
+完整回归`pytest -q -p no:cacheprovider --basetemp workspace/test-temp-20261007-145`：**188 passed（43.12秒）**，Ruff通过，计划协议9项。新增11项检查相对177项基线覆盖确认元数据/角色隔离、原生默认ID/更新/重放、出站精确去重与持久历史。无UI源码改动，沿用已打包资源；未重复构建或据旧截图声明新流程成功。8768仅在确认空闲并核对PID/配置/创建时间后重载；v11终态后只读核对无活跃任务、非终态作业或未确认动作，其余服务未重载。
+
+English: Baseline 1.10 adds sourced read windows/prepared archive IDs, native step-ID receipts and exact outgoing objective deduplication while retaining full facts/history and all limits. All 188 regressions and 38 sent v11 request audits pass. Both workflows still pause through NO_PROGRESS: small repeats preparation/failure observations without results; large computes and rereads both JSONs but produces no report. v10/v11 failures and the fixture clarification remain explicit. Full local acceptance, dependency acquisition/source builds and other original gates remain pending; search is user-deferred.
 
 ## Next / 下一步
 

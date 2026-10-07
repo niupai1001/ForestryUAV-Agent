@@ -32,6 +32,57 @@ async def test_native_hooks_output_schema_and_checkpoint_compatible(client, app)
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["H0", "H1", "H2"])
+async def test_confirmed_readback_windows_remain_scoped_without_copying_body(client, app, mode):
+    state, _ = task(client, harness_mode=mode)
+    engine, turn_id = app.state.engine, "readback-facts"
+    deps = Deps(engine, state["task_id"], turn_id, 1)
+    products = [engine.resources.write(state["task_id"], f"write-{n}", f"read-{n}.md", "READBACK_PRIVATE_BODY"*300)
+        for n in range(10)]
+    receipts = []
+    for n, product in enumerate(products):
+        receipts.append(engine.perform(deps, f"read-{n}", "artifact.read", {"artifact_id":product["artifact_id"], "offset":0},
+            lambda _, product=product: engine.resources.read_artifact(state["task_id"], product["artifact_id"])))
+    latest = engine.perform(deps, "tail", "artifact.read", {"artifact_id":products[-1]["artifact_id"], "offset":4000},
+        lambda _: engine.resources.read_artifact(state["task_id"], products[-1]["artifact_id"], 4000))
+    # A later failed read must not replace confirmed metadata; neither may an old
+    # turn, another revision or a receipt with a different immutable fingerprint.
+    with engine.store.transaction() as db:
+        for label, turn, revision, status, sha in [
+            ("FAILED_READ_MARKER", turn_id, 1, "failed", products[-1]["sha256"]),
+            ("OTHER_TURN_READ_MARKER", "other-turn", 1, "confirmed", products[-1]["sha256"]),
+            ("OLD_REVISION_READ_MARKER", turn_id, 2, "confirmed", products[-1]["sha256"]),
+            ("HASH_MISMATCH_MARKER", turn_id, 1, "confirmed", "0"*64)]:
+            result = {"kind":"completed", "artifact_id":products[-1]["artifact_id"], "sha256":sha,
+                "offset":0, "next":1, "has_more":False, "text":label}
+            db.execute("INSERT INTO actions VALUES(?,?,?,?,?,?,?,?,?)", (label, state["task_id"], turn, label,
+                revision, "artifact.read", "{}", status, json.dumps(result)))
+    agent, connection = engine.make_agent("small", turn_id, state["config_snapshot"], state["task_id"])
+    try:
+        with agent.override(model=TestModel(call_tools=[], custom_output_args={"summary":"读回记录边界夹具", "artifact_ids":[]})):
+            await agent.run("检查已读窗口", deps=deps)
+        with engine.store.transaction() as db:
+            manifest = json.loads(db.execute("SELECT payload FROM contexts WHERE turn_id=? ORDER BY rowid DESC LIMIT 1", (turn_id,)).fetchone()[0])
+        body = json.loads(Path(manifest["prepared_input_ref"]).read_bytes())
+        instructions = "\n".join(body["instructions"])
+        assert "READBACK_PRIVATE_BODY" not in instructions
+        if mode == "H0":
+            assert '"recent_artifact_readbacks"' not in instructions
+        else:
+            facts = next(json.loads(text.split("：",1)[1].split("\n",1)[0]) for text in body["instructions"] if text.startswith("当前权威任务事实"))
+            observed = facts["recent_artifact_readbacks"]
+            assert len(observed) == 8 and len({r["artifact_id"] for r in observed}) == 8
+            assert observed[0] == {"source_action_id":latest["action_id"], "artifact_id":products[-1]["artifact_id"],
+                "sha256":products[-1]["sha256"], "offset":4000, "next":latest["next"], "has_more":False}
+            assert observed[-1]["source_action_id"] == receipts[2]["action_id"]
+            assert not {"FAILED_READ_MARKER","OTHER_TURN_READ_MARKER","OLD_REVISION_READ_MARKER","HASH_MISMATCH_MARKER"} & {
+                r["source_action_id"] for r in observed}
+            assert "offset>0不证明前文已读" in instructions and "记录不能证明内容正确" in instructions
+    finally:
+        await connection.aclose()
+
+
+@pytest.mark.asyncio
 async def test_changed_weight_digest_stops_before_model_request(client, app, monkeypatch):
     state, _ = task(client)
     engine = app.state.engine
@@ -140,7 +191,7 @@ async def test_named_artifacts_and_recent_job_records_are_scoped_bounded_native_
         assert all(marker not in instructions for marker in ["PRIVATE_BODY_MARKER", "PRIVATE_CODE_MARKER",
             "PRIVATE_MANIFEST", hidden["artifact_id"], "FOREIGN_ARTIFACT_MARKER", "FOREIGN_JOB_MARKER", "OTHER_REVISION_JOB_MARKER"])
         if mode == "H0":
-            assert '"recent_artifacts"' not in instructions and '"recent_jobs"' not in instructions
+            assert all(key not in instructions for key in ['"recent_artifacts"', '"recent_jobs"', '"recent_artifact_readbacks"'])
         else:
             facts = next(json.loads(text.split("：",1)[1].split("\n",1)[0]) for text in body["instructions"]
                 if text.startswith("当前权威任务事实"))

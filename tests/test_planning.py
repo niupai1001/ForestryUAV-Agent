@@ -163,3 +163,38 @@ async def test_child_plan_mutation_is_isolated_and_wrong_run_cannot_commit(clien
     with pytest.raises(Failure, match="当前委派"):
         await invalid.set_items([PlanItem(content="覆盖父计划")])
     assert await invalid.get_items() == [] and (await scoped.get_items())[0].id == "child"
+
+
+@pytest.mark.asyncio
+async def test_native_generated_ids_are_returned_for_updates_and_replays(client, app):
+    state, _ = task(client, harness_mode="H1", constraints={"allowed_capabilities":["task.plan"]})
+    engine, turn_id = app.state.engine, "native-plan-generated-id"
+    deps = Deps(engine, state["task_id"], turn_id, 1)
+    committed_ids = []
+    def model(messages, info):
+        returns = [p for m in messages if isinstance(m, ModelRequest) for p in m.parts
+            if isinstance(p, ToolReturnPart) and p.tool_name == "write_plan"]
+        if not returns:
+            return ModelResponse(parts=[ToolCallPart("write_plan", {"items":[{"content":"原生默认ID步骤", "status":"pending"}]}, "create-without-id")])
+        ids = returns[-1].content["step_ids"]
+        assert len(ids) == 1
+        committed_ids.append(ids[0])
+        if len(committed_ids) == 1:
+            return ModelResponse(parts=[ToolCallPart("write_plan", {"items":[{"id":ids[0], "content":"同一步更新", "status":"completed"}]}, "update-same-id")])
+        assert committed_ids[0] == ids[0]
+        return ModelResponse(parts=[ToolCallPart("final_result", {"summary":"原生ID稳定更新夹具", "artifact_ids":[]}, "done")])
+    agent, connection = engine.make_agent("small", turn_id, state["config_snapshot"], state["task_id"])
+    try:
+        with agent.override(model=FixtureFunctionModel(model, stream_function=stream_adapter(model))):
+            await agent.run("创建、更新同一步计划", deps=deps)
+        assert (await ScopedPlanStore(engine, state["task_id"], 1, turn_id).get_items())[0].id == committed_ids[0]
+        with engine.store.transaction() as db:
+            actions = db.execute("SELECT * FROM actions WHERE task_id=? AND kind='task.plan' ORDER BY rowid", (state["task_id"],)).fetchall()
+        assert len(actions) == 2
+        assert "id" not in json.loads(actions[0]["args"])["items"][0]
+        replay = engine.perform(deps, "create-without-id", "task.plan", json.loads(actions[0]["args"]),
+            lambda _: pytest.fail("Native plan replay repeated mutation"))
+        assert replay["step_ids"] == [committed_ids[0]]
+        assert (await ScopedPlanStore(engine, state["task_id"], 1, turn_id).get_items())[0].content == "同一步更新"
+    finally:
+        await connection.aclose()

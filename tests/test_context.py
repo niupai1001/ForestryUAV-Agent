@@ -6,7 +6,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from pydantic_ai.messages import ModelRequest, ModelResponse, ToolCallPart, ToolReturnPart, UserPromptPart
+from pydantic_ai.messages import (
+    CachePoint,
+    ModelRequest,
+    ModelResponse,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.usage import RequestUsage
@@ -15,7 +22,7 @@ from test_core import task
 
 from forestry_agent.agent import Deps
 from forestry_agent.client import collect_events
-from forestry_agent.context import input_bound, utf8_window
+from forestry_agent.context import deduplicate_objective, input_bound, utf8_window
 from forestry_agent.contracts import Failure
 from forestry_agent.store import encode, now
 
@@ -29,6 +36,51 @@ def test_evidence_export_follows_every_event_page(client, app):
     fixture_events = [e for e in events if e["type"] == "fixture.audit"]
     assert [e["payload"]["index"] for e in fixture_events] == list(range(170))
     assert len({e["event_id"] for e in events}) == len(events)
+
+
+def test_objective_reference_is_request_only_exact_and_keeps_cache_and_tool_content():
+    objective = "完整约束🙂\n指定方法保持不变。"
+    cache = CachePoint()
+    initial = ModelRequest(parts=[UserPromptPart([objective, cache]),
+        UserPromptPart(objective+"另有后续要求"), ToolReturnPart("read_document", objective, "source")])
+    history = [initial]
+    request = SimpleNamespace(messages=list(history))
+    deduplicate_objective(request, objective)
+    assert initial.parts[0].content == [objective, cache]
+    assert request.messages[0] is not initial
+    assert request.messages[0].parts[0].content[-1] is cache
+    assert "完整原始目标见" in request.messages[0].parts[0].content[0]
+    assert request.messages[0].parts[1] is initial.parts[1]
+    assert request.messages[0].parts[2] is initial.parts[2]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["H0", "H1", "H2"])
+async def test_exact_objective_is_complete_once_in_actual_enhanced_request_and_retained_in_history(client, app, mode):
+    objective = "只读来源，不改变指定科学方法。🙂\n原始用户要求必须完整保留。"
+    state, _ = task(client, objective=objective, harness_mode=mode)
+    engine, turn_id = app.state.engine, "canonical-objective"
+    with engine.store.transaction() as db:
+        db.execute("INSERT INTO turns VALUES(?,?,?,?,?,?)", (turn_id, state["task_id"], 1, objective, "running", now()))
+    agent, connection = engine.make_agent("small", turn_id, state["config_snapshot"], state["task_id"])
+    try:
+        with agent.override(model=TestModel(call_tools=[], custom_output_args={"summary":"目标完整保留夹具", "artifact_ids":[]})):
+            result = await agent.run(objective, deps=Deps(engine, state["task_id"], turn_id, 1))
+        assert any(isinstance(p, UserPromptPart) and p.content == objective
+            for m in result.all_messages() if isinstance(m, ModelRequest) for p in m.parts)
+        with engine.store.transaction() as db:
+            manifest = json.loads(db.execute("SELECT payload FROM contexts WHERE turn_id=?", (turn_id,)).fetchone()[0])
+        body = json.loads(Path(manifest["prepared_input_ref"]).read_bytes())
+        prompt_parts = [p for m in body["messages"] for p in m.get("parts", []) if p.get("part_kind") == "user-prompt"]
+        if mode == "H0":
+            assert any(p["content"] == objective for p in prompt_parts)
+        else:
+            assert all(objective not in str(p["content"]) for p in prompt_parts)
+            facts = next(json.loads(text.split("：",1)[1].split("\n",1)[0]) for text in body["instructions"] if text.startswith("当前权威任务事实"))
+            assert facts["objective"] == objective and facts["current_turn_user_request_is_objective"] is True
+            assert "\n".join(body["instructions"]).count(encode(objective)) == 1
+    finally:
+        await connection.aclose()
 
 
 @pytest.mark.asyncio

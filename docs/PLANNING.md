@@ -2,7 +2,7 @@
 
 多步骤任务在 H1/H2 中可使用“跟踪任务计划”（task.plan）。自定义工具范围须明确勾选；“文件与报告”预设未包含此能力。“通用能力”仍受冻结的角色和应用上限约束。H0没有计划工具；历史任务不因升级扩大冻结权限。
 
-模型通过框架原生 write_plan 保存完整步骤，通过 read_plan 找回步骤 ID。最多16步、8192 UTF-8字节，每步正文1–500字符、ID1–64字符、active_form最多120字符，最多一步进行中。本次不开放子任务/依赖图或额外计划调度器。计划工具沿用现有动作、权限和预算；只改计划或反复读计划不构成执行进展。
+模型通过框架原生 write_plan 保存完整步骤，回执step_ids按items顺序返回实际提交的原生ID（含自动生成值），后续更新保留这些ID；需要找回时才read_plan。重放返回原回执，不重复写入。最多16步、8192 UTF-8字节，每步正文1–500字符、ID1–64字符、active_form最多120字符，最多一步进行中。本次不开放子任务/依赖图或额外计划调度器。计划工具沿用现有动作、权限和预算；只改计划或反复读计划不构成执行进展。
 
 工作台右侧“计划”显示当前规范最新根回合的步骤和自报状态。计划和真实作业、产物、验收分别检查：助手标记完成仍是 model_proposed，acceptance 为 not_assessed。计划不能授予权限、改方法或将任务验收通过。后续回合或规范修订不会继承另一命名空间的计划；子角色计划独立保存，不在根计划视图中合并。
 
@@ -12,6 +12,8 @@
 
 当前框架的 Planning 在 wrap_model_request 注入提醒，而压缩器在后续 before-model 阶段从持久历史重建消息，可能移除提醒。兼容适配调用原生提醒注入方法，将它移到压缩之后、输入预算与私有快照之前。原生工具、格式、缓存锚点、读写和持久化继续由框架负责；提醒保持临时内容，不累积进历史。
 
-协议夹具8项及完整回归177项通过；桌面/390px手机的真实已存计划、授权来源、刷新和溢出检查通过。修复后的两模型43次实际请求分别核对当前计划、输入摘要与用量，提醒均存在并对应先前确认的计划动作。这些证明集成和边界，不证明模型会正确执行或更新计划：最新依赖任务两模型都暂停，小模型误用环境且上下文超限，大模型完成文件后重复读取触发无进展。原始失败及上下文审计见 STATUS，完整通用阶段仍未验收。
+计划协议夹具9项及完整回归188项通过；历史桌面/390px手机计划视图检查通过，当前仅修改工具协议/事实及E2E夹具，无新增UI构建。v11两模型38次实际请求核对当前计划、输入摘要、用量、步骤ID和目标去重均通过。但两模型都因无进展暂停：小模型重复环境准备/旧失败观察，大模型重复JSON读回且未写报告。集成审计不证明执行质量，详见STATUS。
+
+依赖E2E夹具明确计划只列实际工具工作，不将终止原生回合的final_result或后续用户验收列为待更新步骤，避免要求它们完成后再调用write_plan的循环矛盾。该夹具仍要求独立核验作业、数值、文件、报告与最终响应；并非应用要求所有模型计划completed才可验收，也没有覆盖历史失败。
 
 English: Native scoped planning reuses the existing framework, database, action journal and budgets. Its UI shows model-proposed progress only. The compatibility adapter retains the native ephemeral reminder after compaction without accumulating history. Protocol, regression and request audits pass; latest real dependency workflow quality fails for both models and remains pending.
