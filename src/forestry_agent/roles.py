@@ -185,7 +185,7 @@ class Roles:
             return {"assignment_id": assignment_id, "status": "queued", "namespace": value["namespace"]}
 
     def authorize(self, db, deps, kind, args, *, check_budget=True):
-        if kind == "environment.prepare" and args.get("source_refs"):
+        if kind == "environment.prepare" and (args.get("source_refs") or args.get("source_artifact_ids")):
             self.authorize(db, deps, "code.execute", args, check_budget=False)
         state = self.store.read_task(db, deps.task_id)
         self.store.authorize_capability(db, state, kind)
@@ -215,8 +215,9 @@ class Roles:
             raise Failure("PERMISSION_DENIED", "产物超出委派范围", 403)
         if args.get("environment_artifact_id") and args["environment_artifact_id"] not in self.artifacts(value, db):
             raise Failure("PERMISSION_DENIED", "依赖环境超出委派产物范围", 403)
-        if args.get("wheel_artifact_ids") and not set(args["wheel_artifact_ids"]) <= set(self.artifacts(value, db)):
-            raise Failure("PERMISSION_DENIED", "依赖wheel超出委派产物范围", 403)
+        if (args.get("wheel_artifact_ids") or args.get('source_artifact_ids')) and not {
+                *(args.get('wheel_artifact_ids') or []), *(args.get('source_artifact_ids') or [])} <= set(self.artifacts(value, db)):
+            raise Failure("PERMISSION_DENIED", "依赖发行文件超出委派产物范围", 403)
         if args.get("job_id"):
             owned = db.execute("SELECT 1 FROM jobs j JOIN actions a ON j.action_id=a.id WHERE j.id=? AND a.turn_id=?", (args["job_id"], value["run_id"])).fetchone()
             if not owned:

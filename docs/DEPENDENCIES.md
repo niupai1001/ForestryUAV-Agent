@@ -1,5 +1,17 @@
 # 范围依赖准备与复用
 
+## 1.18：精确公开源码获取
+
+在既有acquire_dependencies中使用source_packages，例如`[{"name":"sampleproject","version":"4.0.0","filename":"sampleproject-4.0.0.tar.gz"}]`；源码单独请求时可省略wheels。wheels只接受.whl，source_packages只接受.tar.gz/.zip；每次所有文件总计1–32项/128 MiB，包名与文件名不得重复。私密任务核对完整精确载荷后审批，用相同参数和此approval_id重调；获取核对官方JSON里的sdist类型、名字/版本、未撤回状态、文件名、大小及SHA，下载只保存不可变字节。[PyPI发行JSON](https://docs.pypi.org/api/json/)、[源码发行格式](https://packaging.python.org/en/latest/specifications/source-distribution-format/)
+
+返回的source_artifact_ids传给prepare_environment同名参数；本地授权文件仍用source_refs，两者兼容。同一受限Jobs在构建前核对本任务当前修订已确认获取动作/产物/字节，源码另需code.execute；确认的源码ID不扩大子角色产物范围。构建/运行wheel仍用wheel_refs或wheel_artifact_ids。wheel解析锁仅绑定完整wheel集合，不能拿它授权源码或复用下载审批；源码的构建与运行依赖须按真实后端/安装日志和相应需求取得。最终安装保留完整哈希/依赖检查。
+
+确认依赖摘要分别保留真实wheel/source产物ID，重复下载相同字节不能因新ID成为进展。通用提示现区分文档write_file与任务要求的计算作业产物：后者由代码写/output，随后真实读回，不能在容器外重造。CLI schema命令新增共享PackageRequest导出，保留WheelRequest兼容。
+
+`scripts/smoke_public_source.py --config config/app.wsl.example.yaml --source pypi`不调用模型：精确下载sampleproject4.0.0源码，保留setuptools缺失失败，探测实际容器并解析setuptools80.9.0/wheel0.45.1/peppercorn0.6的完整wheel集合，独立审批获取，再保留缺peppercorn的实际安装失败；补齐后构建一次并复用两次。最终6作业终态、12项工具检查与14项独立来源检查通过。两次计算实际使用sample.simple.add_one(41)，版本4.0.0/peppercorn0.6、非root、网络阻断及产物读回均核对。来源归档仅在受限容器解包/执行，宿主包不变。前两试次在汇总时取错配方/生成wheel的字段而失败，原记录保留，不能改成模型成功。
+
+300项完整回归通过。源码UI v2仍使用已授权本地夹具：大模型完整通过及15项独立来源核验通过，小模型JSON生产者/读回已正确但报告遗漏构建job_id、产物UUID被标为SHA，完整失败；21份输入审计不是质量验收。自动源码候选/构建及运行依赖回退、编译器/系统库、其他运行时或完整阶段验收仍待开发与实测。公开源码工具通过不代表Agent自主源码下载通过。联网搜索继续暂缓。以下1.17及更早为历史。
+
 ## 1.17：授权本地源码构建
 
 prepare_environment保留wheel_refs（授权文件）和wheel_artifact_ids（当前修订确认获取的wheel产物），新增可选source_refs（单独授权的.tar.gz/.zip文件）。所有输入合计1–32个/128 MiB。源码执行额外需code.execute；同一动作及作业沿用原角色交集、只读输入、控制/恢复/撤销保护，不增加能力或执行循环。

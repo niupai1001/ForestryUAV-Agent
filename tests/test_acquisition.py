@@ -35,10 +35,12 @@ class ReleaseFixture:
         return {"body": body, "url": url, "hops": [{"url": url, "address": "8.8.8.8", "status": 200}], "observed_at": now()}
 
 
-def acquire(engine, state, call="download", wheels=None, source="pypi", approval=None):
+def acquire(engine, state, call="download", wheels=None, source="pypi", approval=None, source_packages=None):
     deps = Deps(engine, state["task_id"], "acquisition-test", state["spec_revision"])
-    return engine.perform(deps, call, "environment.acquire", {"wheels": wheels or [WHEEL], "source": source, "approval_id": approval},
-        lambda action: engine.acquisition.acquire(deps, action, wheels or [WHEEL], source, approval))
+    selected = [] if source_packages else wheels or [WHEEL]
+    return engine.perform(deps, call, "environment.acquire", {"wheels": selected, "source": source, "approval_id": approval,
+        **({'source_packages':source_packages} if source_packages else {})},
+        lambda action: engine.acquisition.acquire(deps, action, selected, source, approval, source_packages=source_packages))
 
 
 def public_task(client, **kwargs):
@@ -93,14 +95,20 @@ def test_invalid_metadata_or_download_never_becomes_an_installable_wheel(client,
 
 
 @pytest.mark.parametrize("condition", ["revoked", "paused", "amended", "changed_input"])
-def test_control_and_scope_are_rechecked_between_metadata_and_file(client, app, tmp_path, condition):
+@pytest.mark.parametrize("distribution", ["wheel", "source"])
+def test_control_and_scope_are_rechecked_between_metadata_and_file(client, app, tmp_path, condition, distribution):
     source = tmp_path / "private.csv"
     source.write_text("synthetic fixture")
     ref = client.post("/resources/register", json={"request_id": "private", "path": str(source)}).json()["resource_id"]
     state, _ = task(client, input_refs=[ref])
     engine, fake = app.state.engine, ReleaseFixture()
     engine.acquisition.http = fake
-    acquire(engine, state)
+    sources = None
+    if distribution == 'source':
+        sources = [{**WHEEL, 'filename':'six-1.17.0.tar.gz'}]
+        fake.entry.update(filename=sources[0]['filename'], packagetype='sdist',
+            url='https://files.pythonhosted.org/packages/ab/'+sources[0]['filename'])
+    acquire(engine, state, source_packages=sources)
     record = engine.network.list(state["task_id"])[0]
     assert resolve(client, state, record).status_code == 200
     def changed():
@@ -118,7 +126,7 @@ def test_control_and_scope_are_rechecked_between_metadata_and_file(client, app, 
                     current["spec_revision"] += int(condition == "amended")
                     engine.store.save_task(db, current, current["state_version"])
     fake.after_response = changed
-    result = acquire(engine, state, "approved", approval=record["approval_id"])
+    result = acquire(engine, state, "approved", approval=record["approval_id"], source_packages=sources)
     assert result["kind"] == "failed" and len(fake.calls) == 1
 
 

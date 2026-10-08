@@ -8,8 +8,8 @@
 |---|---|---|---|---|
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
-| P2 | in_progress | 动作/attempt、去重、修订隔离、检查点；断网Jobs/WSL/恢复；目标探测、PEP508 wheel解析/获取、授权本地源码PEP517构建及离线复用；回执/错误ID及审批阶段说明 | 解析工具15项/源码工具14项及源码独立10项通过；282项最终回归；v7大模型依赖UI与源码v1大模型UI/13项来源检查通过，小模型失败 | 公开源码获取/自动回退、编译器/系统库、其他运行时/元数据回退、依赖传输持续核验、两模型稳定依赖质量、完整资源准入及恢复窗口、调试/报告质量 |
-| P3 | in_progress | 验收/清单、文档/知识/记忆、原生上下文/角色、H0/H1/H2；范围与修订、来源事实、原生计划、目标去重、有界纠正；依赖摘要及继续消息 | 完整回归282项；历史范围恢复/修订UI通过；源码v1共21份和v7共37份输入补充审计通过；v6跨轮次来源证据保留；v5测量缺失单列；历史组件/复合证据及全部失败分存 | 审批/失败恢复及完整工作保持、试次运行隔离、角色异常/冲突交互、两模型本地通用及长任务质量、报告/通用评估；搜索暂缓 |
+| P2 | in_progress | 动作/attempt、去重、修订隔离、检查点；断网Jobs/WSL/恢复；目标探测、PEP508 wheel解析/获取、精确公开源码获取/授权源码PEP517构建及离线复用；回执/错误ID及审批阶段说明 | 公开源码工具12项/独立14项与300项最终回归通过；源码v2大模型UI/15项来源检查通过，小模型报告失败 | 自动源码候选/依赖回退、编译器/系统库、其他运行时/元数据回退、依赖传输持续核验、两模型稳定依赖质量、完整资源准入及恢复窗口、调试/报告质量 |
+| P3 | in_progress | 验收/清单、文档/知识/记忆、原生上下文/角色、H0/H1/H2；范围与修订、来源事实、原生计划、目标去重、有界纠正；依赖摘要及继续消息 | 完整回归300项；历史范围恢复/修订UI通过；源码v2共21份实际输入审计通过，v1/v7证据保留；v6跨轮次来源证据保留；v5测量缺失单列；历史组件/复合证据及全部失败分存 | 审批/失败恢复及完整工作保持、试次运行隔离、角色异常/冲突交互、两模型本地通用及长任务质量、报告/通用评估；搜索暂缓 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -377,7 +377,7 @@ English: Dependency indexes alone negotiate bounded gzip. Wire/decoded per-respo
 
 脚本收尾后再次实际运行，试次 `26a3dc4a-0562-44a4-88db-0cb26d1b1eb7`、task `0b6e9e64-944c-44fe-936f-6c7a2904a3a3` 返回0；原15项检查再次全通过，六个作业终态均确认（预期失败3个、成功安装及复用3个），cleanup无未确认项。此成功路径不冒充观察超时或停止拒绝的实测。证据 `dependencies-real-26a3dc4a-0562-44a4-88db-0cb26d1b1eb7.json`。最终Ruff/diff及Python语法检查通过。
 
-继续P2公开源码获取/自动回退、编译器/系统库与其他运行时/元数据回退及剩余真实恢复窗口；继续核验原生压缩和跨轮次用量绑定，保持完整目标/权限/当前请求及原模型预算；继续核验依赖元数据传输与预算，处理小模型无响应/重复操作与报告质量，并验证新试次隔离，再闭合角色、本地UI和通用评估。单次大模型流程、工具脚本15项及历史审批下载组件通过不代表两模型稳定质量或阶段1；不通过增加预算或删除检查追求通过。Agent联网搜索暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件由用户在pilot后决定，不填入假定设备或测量。
+继续P2自动源码候选/构建及运行依赖回退、编译器/系统库与其他运行时/元数据回退及剩余真实恢复窗口；继续核验原生压缩和跨轮次用量绑定，保持完整目标/权限/当前请求及原模型预算；继续核验依赖元数据传输与预算，处理小模型无响应/重复操作与报告质量，并验证新试次隔离，再闭合角色、本地UI和通用评估。单次大模型流程、工具脚本15项及历史审批下载组件通过不代表两模型稳定质量或阶段1；不通过增加预算或删除检查追求通过。Agent联网搜索暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件由用户在pilot后决定，不填入假定设备或测量。
 
 
 ## Baseline 1.17 / 授权本地源码构建与实际来源核验（2026-10-08）
@@ -393,3 +393,32 @@ prepare_environment新增可选source_refs，原wheel_refs/wheel_artifact_ids兼
 专用8769服务在精确PID/创建时间/cwd/cmd及闲置库复核后加载源码构建；UI使用最终源码构建/长路径/说明修复，末尾中文文件名接纳由最终回归覆盖（工作台试次是ASCII来源名，不冒充中文名真实运行）。没有新增库、迁移、能力、执行循环或UI构建，Agent联网搜索继续用户暂缓。单次大模型源码/依赖通过不代表两模型稳定质量或阶段1。公开sdist获取/自动回退、编译器/系统库镜像配方、其他运行时/缺哈希元数据回退、完整恢复/角色/通用评估及原领域/六组合/低资源/≥100 GB/发布范围继续保留。阶段1其余门槛通过前不启动领域开发。
 
 English: Authorized local source archives reuse the existing offline Jobs and native pip PEP 517 isolation, with execution permission and immutable source/built-wheel provenance. Final 282 regressions, 14 real-tool checks and 10 independent tool-provenance checks pass; actual compiler absence remains unresolved. Source UI v1 passes for large with 13 independent provenance checks; small computes correct values but writes JSON outside the required Jobs, omits their readbacks and the build-job report reference. All 21 sent-input audits pass independently. Failures remain; general/two-model acceptance and the full remaining scope are pending. Search stays deferred.
+
+
+## Baseline 1.18 / 精确公开源码获取与实际构建复用（2026-10-08）
+
+acquire_dependencies新增source_packages，可只请求明确name/version/filename的.tar.gz/.zip；wheels仍只接受wheel。公共发行文件共享PackageRequest，服务端按各组严格核对类型，不重复建立下载器/审批/执行循环。每次合计1–32文件/128 MiB，保留官方元数据、大小/SHA、未撤回、公开固定IP/TLS、URL/来源/规范修订/控制/撤销/截止时间边界；宿主不解包、安装或执行包。源码请求有独立精确审批，wheel解析锁不能授权源码。不可变源码与获取锁记录actual producer及官方元数据SHA，source_artifact_ids进入原prepare_environment；当前任务/修订确认动作、真实文件名/大小/SHA、代码执行权限与角色产物交集在原提交/排队/启动/恢复边界核验，挂载仍只读。确认摘要与重复下载无进展指纹扩展至源码。CLI schema导出PackageRequest并保持WheelRequest；没有新增库、能力、迁移、执行器或前端构建。
+
+190定向80项为79通过/1原H2预算失败，191定向63项为62通过/1预算失败；合并重复通用说明/引用说明与工具说明，不删权限/事实、不提高32K/4K预算。192定向70项通过（18.06秒）。193受限进程在首个TestClient夹具无输出不结束，核验精确PID/创建时间/cwd/cmd后终止此测试进程；不当作产品通过。194正常权限完整296项通过（47.58秒）。新增源码下载期间撤销/暂停/修订/输入变化四项覆盖后，195定向40项通过（8.82秒）；196完整300项通过（71.84秒）。CLI新增共享发行DTO导出实际运行成功，197最终代码完整**300 passed（51.58秒）**，Ruff/diff检查通过。夹具和宿主源码检查不执行公共包。
+
+真实脚本scripts/smoke_public_source.py不调用模型。前两次trial `2bed699d-7020-4472-a830-901980473d70` / task `8c660980-2277-4670-a7bc-5b4039198474` 和trial `3799b339-a2d5-437a-a359-24a7b66834d8` / task `86bc0961-5282-4a9a-9841-f1cefdaae0a8`均完成实际构建/两次计算，但验证脚本分别取错source_recipe的artifact_id和built_wheels的name字段而汇总失败；两份原失败保留。按真实配方字段resource_id/filename修正后，最终trial **db5a7a01-b6e8-43c7-92d6-b62615575005** / task **f3feb240-fdf3-4d4d-a8f7-a899358d7eba**返回0，**12项工具检查全部通过**：
+
+- 独立精确审批取得PyPA sampleproject4.0.0源码，大小5760字节、官方SHA `0ace7980f82c5815ede4cd7bf9f6693684cec2ae47b9b7ade9add533b8627c6b`，纯字节封存，不使用开发者本地源码夹具代替获取。
+- 构建wheel缺setuptools的实际失败保留；原无输入目标探测确认实际容器，通过单独元数据审批解析setuptools80.9.0/wheel0.45.1/peppercorn0.6的完整wheel集合，再通过第三次精确下载审批取得完整匹配集合。
+- 仅给构建wheel时最终安装真实因peppercorn缺失失败；补齐完整集合后沿用原断网PEP517构建/哈希依赖安装一次，生成wheel作为实际构建产物，锁记录acquired_artifact源码、静态/动态原生隔离、实际镜像和安装版本。
+- 两个真实计算作业在同环境调用sample.simple.add_one(41)，实际得到answer42、sampleproject4.0.0/peppercorn0.6、UID65534及网络阻断；两个实际JSON由计算作业产生并读回，源码字节和宿主包不变。6作业均确认终态：2预期依赖失败、1目标探测、1构建安装及2计算。
+
+最终证据public-source-real-<trial>.json保存实际日志、容器、动作、清单、检查和cleanup。独立只读public-source-provenance-audit-<task>-v3.json的**14项全部通过**，直接读取真实DB动作、全部产物字节及Docker容器身份/ExitCode/只读挂载/固定镜像/原6 GiB/4 CPU/非root/网络none/权限限制、三项审批和源码/生成wheel/计算产物生产者。初版-v2审计把无环境的code.execute目标探测也算成“同环境复用计算”，单项误报保留；补充只按实际environment复用字段计数，不重跑模型或作业。更早脚本安装版本字段误用的异常输出也保留。
+
+通用提示原“文件产物使用write_file”与计算作业产物要求存在冲突；现明确文档write_file，任务要求的Job文件由代码写/output，禁止在容器外重造，并保持实际读回/字段/值类型/引用/摘要/语言要求。源码UI v2在加载上述最终服务代码后，保持v1全部检查并含实际计算生产者检查，ui-source-build-tests-20261008-v2.json仍为**1 passed / 1 failed（2.8分钟）**：
+
+- small task **32a89482-b8a2-46c9-8844-31e2b4e57bb7**：13请求/12确认动作，1次成功构建和2次同环境真实计算。两个JSON由实际计算作业生成，准确42/1.0并实际读回，锁/报告也读回；相比v1产物方式/读回改善，但不能证明单一提示是因果来源。报告遗漏构建job_id，结果表将两个artifact UUID标为SHA；原UI在构建job_id检查失败，独立15项来源检查有2项报告失败。计算数值正确不能使报告通过。
+- large task **b1b6f8b6-122b-4b71-bd02-e022b7b00ec8**：8请求/11确认动作，3真实成功作业、实际环境/生成wheel与两个JSON生产者、全部要求读回及中文报告/真实来源完整；桌面/手机UI完整通过，**15项独立来源核验全部通过**。单次通过不等于稳定质量。
+
+两模型**21份实际发出输入审计全部通过**：字节SHA/消息顺序/原生工具返回或绑定RetryPromptPart配对、完整目标/当前请求、授权只读/修订、Schema、正实测用量/原预算和真实回执来源。只读审计同时支持源码摘要的实际获取动作/产物来源；此UI没有环境获取工具调用，不冒充模型源码下载验收。UI使用已授权本地软件夹具，agent_download=false。两模型来源审计文件分别为source-ui-provenance-audit-<task>-v3.json，输入审计为source-context-audit-<task>-v2.json；初始失败/截图不覆盖。
+
+三项只读容器审计曾因自动审批服务的账户用量错误未执行，该失败不是unsafe认定；只读账户状态随后恢复ordinaryUsageAllowed=true，再通过原审批路径重试成功，没有绕过审批。public-source-current-state-20261008-v1.json保留中断及恢复关联。专用8769服务启动前核验旧PID/创建时间/cwd/cmd及所有任务/作业/动作/assignment空闲；当前服务加载实际1.18代码，健康application/database ready而domain仍not_implemented。运行健康不证明阶段通过。
+
+精确公共sdist获取、工具修复及模型本地源码构建均不替代自动源码候选/构建及运行依赖回退、编译器/系统库支持、其他运行时/缺哈希元数据回退、完整恢复/角色/通用评估。阶段1出口仍未通过，后续真实ODM、PDAL/lidR、六组合重复/holdout、用户pilot选择低资源、≥100 GB规模和发布/安装/备份恢复继续保留，阶段1门槛前不启动领域功能。Agent联网搜索仍按用户要求暂缓。
+
+English: Exact public sdists share existing acquisition approval/hash controls and offline source Jobs. The final sampleproject direct-tool trial passes 12 checks and 14 independent record/byte/container checks; 300 final regressions pass. Source UI v2 uses local authorized fixtures: large passes with 15 independent checks, while small now produces and reads correct computation JSON but still fails report provenance/hash labeling. All 21 sent-input audits pass separately. Initial smoke/audit bookkeeping failures and the temporary approval-service interruption remain with corrected follow-ups. Autonomous source fallback and the full remaining general/domain/evaluation/scale/release scope remain pending; search stays deferred.

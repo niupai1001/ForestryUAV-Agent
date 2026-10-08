@@ -41,12 +41,15 @@ def observation(tool, result):
         # Re-downloading the same public bytes into fresh artifact IDs is not
         # new task evidence. Keep release/hash/source facts, not receipt handles.
         value.pop("wheel_artifact_ids", None)
+        value.pop("source_artifact_ids", None)
         value.pop("lock_artifact_id", None)
         value.pop("resolution_lock_artifact_id", None)
         value.pop("target_artifact_id", None)
         value.pop("metadata_requests", None)
-        value["wheels"] = [{k: v for k, v in wheel.items() if k not in
-            {"artifact_id", "metadata_artifact_id", "hops", "observed_at"}} for wheel in value["wheels"]]
+        for group in ['wheels', 'source_packages']:
+            if group in value:
+                value[group] = [{k: v for k, v in package.items() if k not in
+                    {"artifact_id", "metadata_artifact_id", "hops", "observed_at"}} for package in value[group]]
     if tool in {"write_file", "inspect_artifact", "fs.write_workspace", "artifact.inspect"}:
         value.pop("artifact_id", None)
     if tool in {"read_tool_result_window", "read_tool_result"}:

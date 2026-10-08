@@ -136,26 +136,39 @@ class Environments:
         self.config, self.store, self.resources, self.jobs = config, store, resources, jobs
 
     def acquired_wheel(self, task_id, revision, artifact_id):
+        return self.acquired_package(task_id, revision, artifact_id, source=False)
+
+    def acquired_source(self, task_id, revision, artifact_id):
+        return self.acquired_package(task_id, revision, artifact_id, source=True)
+
+    def acquired_package(self, task_id, revision, artifact_id, *, source=None):
         artifact = self.resources.artifact(artifact_id, task_id)
+        if source is None:
+            source = bool(SOURCE_NAME.fullmatch(artifact['name']))
+        group, ids = ('source_packages', 'source_artifact_ids') if source else ('wheels', 'wheel_artifact_ids')
+        valid_name = SOURCE_NAME.fullmatch(artifact['name']) if source else WHEEL_NAME.fullmatch(artifact['name'])
         with self.store.transaction() as db:
             row = db.execute("SELECT result FROM actions WHERE id=? AND task_id=? AND revision=? "
                 "AND kind='environment.acquire' AND status='confirmed'", (artifact["producer_action_id"], task_id, revision)).fetchone()
         receipt = json.loads(row[0]) if row else {}
-        record = next((w for w in receipt.get("wheels", []) if w.get("artifact_id") == artifact_id), None)
-        if (receipt.get("kind") != "completed" or artifact_id not in receipt.get("wheel_artifact_ids", []) or not record or
+        record = next((w for w in receipt.get(group, []) if w.get("artifact_id") == artifact_id), None)
+        if (not valid_name or receipt.get("kind") != "completed" or artifact_id not in receipt.get(ids, []) or not record or
             record.get("sha256") != artifact["sha256"] or record.get("size_bytes") != artifact["size_bytes"] or
             record.get("filename") != artifact["name"]):
-            raise Failure("PERMISSION_DENIED", "wheel须来自本任务当前修订已确认的依赖获取动作", 403)
+            raise Failure("PERMISSION_DENIED", "发行文件类型/产物须匹配本任务当前修订已确认的依赖获取动作", 403)
         return artifact
 
-    def prepare(self, task_id, revision, action_id, wheel_refs, seconds=300, *, wheel_artifact_ids=None, source_refs=None):
+    def prepare(self, task_id, revision, action_id, wheel_refs, seconds=300, *, wheel_artifact_ids=None, source_refs=None,
+                source_artifact_ids=None):
         wheel_artifact_ids = wheel_artifact_ids or []
         source_refs = source_refs or []
-        if (not 1 <= len(wheel_refs) + len(wheel_artifact_ids) + len(source_refs) <= 32 or
+        source_artifact_ids = source_artifact_ids or []
+        artifact_ids = wheel_artifact_ids + source_artifact_ids
+        if (not 1 <= len(wheel_refs) + len(source_refs) + len(artifact_ids) <= 32 or
             len(wheel_refs + source_refs) != len(set(wheel_refs + source_refs)) or
-            len(wheel_artifact_ids) != len(set(wheel_artifact_ids))):
+            len(artifact_ids) != len(set(artifact_ids))):
             raise Failure("SCHEMA_INVALID", "依赖准备需1–32个唯一的授权wheel/源码资源或已确认获取wheel产物")
-        if source_refs:
+        if source_refs or source_artifact_ids:
             with self.store.transaction() as db:
                 state = self.store.read_task(db, task_id)
                 self.store.authorize_capability(db, state, "environment.prepare")
@@ -180,8 +193,9 @@ class Environments:
             wheels.append({"resource_id": ref, "filename": source.name, "sha256": sha,
                 "size_bytes": size, "source_version": before, **({"source_kind": "acquired_artifact"} if acquired else {})})
         sources = []
-        for ref in source_refs:
-            source = self.resources.resolve(ref, task_id=task_id)
+        for ref, acquired in [(ref, False) for ref in source_refs] + [(ref, True) for ref in source_artifact_ids]:
+            artifact = self.acquired_source(task_id, revision, ref) if acquired else None
+            source = Path(artifact['locator']) if acquired else self.resources.resolve(ref, task_id=task_id)
             if not native_path(source).is_file() or native_path(source).is_symlink() or not SOURCE_NAME.fullmatch(source.name):
                 raise Failure("PRECONDITION_MISSING", "source_refs需独立授权名称合法的.tar.gz或.zip单文件", 422)
             before = version(source)
@@ -193,10 +207,10 @@ class Environments:
             if version(source) != before:
                 raise Failure("VERSION_CONFLICT", "记录依赖期间源码发生变化", 409)
             sources.append({"resource_id":ref, "filename":source.name, "sha256":sha,
-                "size_bytes":size, "source_version":before})
+                "size_bytes":size, "source_version":before, **({'source_kind':'acquired_artifact'} if acquired else {})})
         return self.jobs.submit(task_id, revision, action_id,
             preparation_code(wheels, self.config.code_image, sources), wheel_refs + source_refs, seconds,
-            job_kind="environment.prepare", environment_recipe=wheels, input_artifact_ids=wheel_artifact_ids,
+            job_kind="environment.prepare", environment_recipe=wheels, input_artifact_ids=artifact_ids,
             source_recipe=sources or None)
 
     def resolve(self, task_id, revision, artifact_id):
