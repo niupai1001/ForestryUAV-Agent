@@ -1,5 +1,11 @@
 # 范围依赖准备与复用
 
+## 1.22：动态检查前置条件及实际模型失败边界
+
+动态检查需已授权、字节核验的pyproject-hooks==1.2.0和packaging==25.0 wheel；缺少或版本不符时返回PRECONDITION_MISSING，尚无Job，不得猜job_id或调用wait_job。依照同源码static结果，将实际requirements及frontend_requirements交既有解析/独立审批/获取，可分批补齐后dynamic；实际内容和后端约束仍在容器核验。源码解析锁在现有精确下载接口中是可选项，提供时必须核验；未提供时仍须独立精确审批及实际官方元数据/哈希校验。测试审批还要求候选/文件名来自真实解析结果，禁止猜测。没有强制重写成新工作流。
+
+349项最终回归通过。新两轮四个模型UI试次均未完成：第一轮有一个测试强制锁错误，第二轮小模型猜wheel、大模型在构建依赖审批后无进展暂停。57份输入/来源及每任务14项独立完整性核验通过，不代表自主依赖流程验收。详见STATUS；下文1.21工具验证和旧试次为历史。
+
 ## 1.21：静态声明与标准后端 hook 发现构建依赖
 
 沿用原 prepare_environment 的源码输入，传 inspect_build="static"，不提供 wheel；它与 build_only 互斥。提交后 wait_job 返回 build_requirements：inspection、requirements、frontend_requirements、实际清单 artifact_id/image_id 和 runtime_installation=false。静态检查在原受限容器内复用源码构建的有界解包，pyproject.toml 最多 1 MiB；读取 build-system.requires/backend/backend-path，缺声明的 setup.py 项目按标准使用 setuptools>=40.8.0 与 setuptools.build_meta:__legacy__。缺 required 字段、坏 TOML、越界 backend-path 或不合法 PEP508 需求如实失败，不执行 setup.py。返回清单只是有来源的构建需求，不是完整运行依赖闭包或环境。

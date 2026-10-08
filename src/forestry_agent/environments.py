@@ -226,6 +226,23 @@ class Environments:
                 raise Failure("VERSION_CONFLICT", "记录依赖期间源码发生变化", 409)
             sources.append({"resource_id":ref, "filename":source.name, "sha256":sha,
                 "size_bytes":size, "source_version":before, **({'source_kind':'acquired_artifact'} if acquired else {})})
+        if inspect_build == 'dynamic':
+            from packaging.utils import InvalidWheelFilename, parse_wheel_filename
+            from packaging.version import Version
+
+            provided = set()
+            for wheel in wheels:
+                try:
+                    name, wheel_version, _, _ = parse_wheel_filename(wheel['filename'])
+                    provided.add((name,wheel_version))
+                except InvalidWheelFilename:
+                    continue
+            required = {(name,Version(value)) for name,value in (r.split('==') for r in FRONTEND_REQUIREMENTS)}
+            if not required <= provided:
+                raise Failure('PRECONDITION_MISSING',
+                    '动态检查缺少已核验前端wheel。先对同一源码inspect_build="static"并wait_job，'
+                    '把build_requirements.requirements+frontend_requirements交resolve_dependencies/独立审批获取，'
+                    '再以实际wheel_artifact_ids和源码ID调用inspect_build="dynamic"；尚未提交作业，不要wait_job或猜job_id。',422)
         return self.jobs.submit(task_id, revision, action_id,
             preparation_code(wheels, self.config.code_image, sources, build_only=build_only, inspect_build=inspect_build), wheel_refs + source_refs, seconds,
             job_kind="environment.prepare", environment_recipe=wheels, input_artifact_ids=artifact_ids,

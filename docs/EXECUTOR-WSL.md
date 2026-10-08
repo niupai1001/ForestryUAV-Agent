@@ -41,3 +41,10 @@ uv run --locked python scripts/smoke_recovery.py --config config/app.wsl.example
 新增[离线依赖准备与复用](DEPENDENCIES.md)仍复用同一 Jobs。pip 安装使用 Linux tmpfs；环境归档解压在专用 `/environment` tmpfs 中进行，允许原生扩展映射，代码作业普通 `/tmp` 保持 noexec。两者计入原有容器内存预算，不是额外内存。基础真实安装/两次复用试次通过15项检查；完整两模型 UI、Agent 依赖获取和源码构建仍未通过或完成。
 
 English: This optional project-owned WSL distribution uses the existing isolated Docker job manager, an explicit Unix socket, fixed signed Ubuntu image, pinned guest packages and immutable Python image. It does not reset existing Docker/WSL data. Real restricted compute, cancellation and timeout were exercised; object/store reopen is not process restart. The offline dependency core trial passes 15 checks, but complete model UI, acquisition/source builds and general-stage acceptance remain pending. Agent network-search development is deferred by the user's instruction.
+
+
+## 1.22 模型UI源码检查记录（2026-10-08）
+
+专用8769服务的旧PID588/create1791433150.6078172在精确身份、任务/Jobs/动作/assignment闲置核验后尝试两次Ctrl-C未停止；重新核验后仅终止该已知闲置进程，确认终止并启动新PID63504/create1791434943.9302144（exec77541）。application/database ready、domain not_implemented；没有操作未知8768或自动恢复历史暂停任务。证据source-discovery-service-reload/terminal/ready-20261008-v1.json。
+
+四个H1实际模型试次共8个终态Jobs（6成功/2失败），没有源码成功构建或最终环境/函数结果/报告，全部流程失败保留。每任务14项只读独立核验包括实际容器network=none、UID65534、根只读、6GiB/4CPU、输入只读，真实原生代码、生产者、产物字节、审批和源版本均通过。动态检查前端缺失的提交前拒绝由3种回归夹具验证；当前修复版模型试次未证明能走到完整动态检查。测试轮次和实际产品限制详见STATUS，不把Docker启动/退出码等同模型或科学验收。完整阶段1、领域、规模与发布仍待完成，联网搜索暂缓。

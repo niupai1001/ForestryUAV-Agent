@@ -8,8 +8,8 @@
 |---|---|---|---|---|
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
-| P2 | in_progress | 原动作/Jobs/WSL/恢复、目标/PEP508 解析获取、源码候选/用途锁/实际 wheel 身份、只构建与元数据/运行复用；1.21 静态/动态构建依赖检查及标准 hook | 最终 346 项完整回归；docopt 工具24/独立30、动态夹具工具19/独立20通过；旧源码模型 UI 成功与失败保留 | 跨源码版本自动回退、不兼容多项目构建工具链、编译器/系统库、其他运行时/元数据回退、传输核验、两模型稳定完整依赖质量、资源准入/恢复窗口及调试/报告质量 |
-| P3 | in_progress | 原验收/清单、文档/知识/记忆、原生上下文/角色及 H0/H1/H2、来源/计划/有界纠正；检查回执只保留需求与来源 ID | 完整回归346项；1.21无新模型/UI试次；1.19两模型34份输入核验通过、质量一通过/一失败；全部历史结果保留 | 审批/失败恢复、完整工作保持、运行隔离、角色异常/冲突交互、两模型本地通用/长任务质量、报告/通用评估；搜索暂缓 |
+| P2 | in_progress | 原动作/Jobs/WSL/恢复、目标/PEP508 解析获取、源码候选/用途锁/实际 wheel 身份、只构建与元数据/运行复用；1.22 动态检查前置提示、静态/动态构建依赖检查及标准 hook | 最终349项完整回归；1.21工具证据保留；1.22两轮四模型UI全部失败、57份输入及每任务14项完整性核验通过 | 跨源码版本自动回退、不兼容多项目构建工具链、编译器/系统库、其他运行时/元数据回退、传输核验、两模型稳定完整依赖质量、资源准入/恢复窗口及调试/报告质量 |
+| P3 | in_progress | 原验收/清单、文档/知识/记忆、原生上下文/角色及 H0/H1/H2、来源/计划/有界纠正；检查回执只保留需求与来源 ID | 完整回归349项；四个新模型UI均失败；57份实际输入与来源核验通过；历史结果保留 | 审批/失败恢复、完整工作保持、运行隔离、角色异常/冲突交互、两模型本地通用/长任务质量、报告/通用评估；搜索暂缓 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -495,3 +495,26 @@ in-tree backend 试次 **9e269f50-7587-4c53-a302-2cba5c5d6972**，任务 **7f71f
 当前构建需求发现已实现，模型驱动的完整流程仍待验收；跨未构建源码版本/运行冲突自动回退、不兼容多项目工具链、编译器/系统库、其他运行时/缺哈希元数据回退、完整恢复/角色/通用评估保持。阶段1未通过，真实ODM/PDAL/lidR、两模型×H0/H1/H2重复/holdout、用户pilot选择低资源、真实≥100 GB、发布/干净安装/备份还原全部保持。Agent联网搜索继续用户暂缓。
 
 English: Existing offline Jobs now discover static and dynamic source build requirements through the public PyPA hook API. The same active archive validator and existing approval/resolution/acquisition/build/install paths are reused. All346 final regressions, real docopt24 driver/30 independent checks and the nonempty dynamic fixture19 driver/20 independent checks pass. Historical code/products remain exactly verifiable. No model/new UI trial is run; compiler, automatic cross-source fallback and complete general/domain/evaluation/scale/release acceptance remain pending. Agent search remains deferred.
+
+
+## Baseline 1.22 / 实际模型源码UI失败定位与过度约束修正（2026-10-08）
+
+1.22 增加真实两模型公开源码 UI 验证，并修正验证脚本把可选源码解析锁设成必选的过度约束。精确源码请求仍须来源于实际解析候选，wheel 请求须来源于实际解析结果；有锁时核验用途和字节，不能批准猜测文件名。构建需求可以按实际检查结果分批解析/获取，不要求模型一次提交所有根。动态检查在所有输入授权/字节核验后，确认 pyproject-hooks==1.2.0 和 packaging==25.0 的 wheel；缺少或版本不符时返回明确 PRECONDITION_MISSING，不提交作业，并提示先静态检查、解析/独立审批获取后继续。文件名检查仅为必要前置条件，真实 wheel 内容/后端依赖仍由原断网容器和 pip 核验。原生循环、权限、Jobs、代码/产物身份及预算不变，没有新执行器、能力、迁移、宿主安装或产品前端改动。
+
+最终349项完整回归通过（60.57秒），相关42项通过（8.61秒），Ruff/diff通过。四个新H1真实模型UI试次均未完成：第一轮小模型被错误的强制锁测试约束挡住，大模型未补检查前端而反复动态检查；修正后的第二轮小模型请求未被解析器确认的wheel文件名而被审批检查挡住，大模型选源/下载/静态检查成功，但构建依赖审批后重复读取旧资料触发原3次无进展暂停。两轮各2项失败保留，未提高模型预算或重置暂停计数。四任务57份实际模型输入及扩展候选/下载字节来源核验通过；每任务14项独立完整性核验通过，不能代替流程质量。下一步核对审批后原生模型续执行及两模型工作保持，随后仍须跨源码版本/不兼容多项目工具链、编译器/系统库、其他运行时/元数据回退、恢复/角色/通用/领域/评估/规模/发布。阶段1未通过，Agent联网搜索继续用户暂缓。下文1.21及更早为历史。
+
+原始UI命令：`RUN_PUBLIC_SOURCE_UI=1 FORESTRY_TEST_BASE_URL=http://127.0.0.1:8769 npm test -- public-source.spec.ts --workers=1`。真实模型按small/large串行，原32K/4K、30请求/回合、3次无进展及6GiB/4CPU预算保持。只读中文调用说明给docopt==0.6.2和两组argv（--flag/alpha及beta），不提供源码文件名或构建工具；任务要求真实选源、静态/动态发现、独立审批、只构建一次/运行安装一次、两次实际计算JSON读回及中文报告。审批由QA操作员在UI仅核对精确公开载荷，模型自行决定工具调用，不由脚本执行后端或代写答案。
+
+第一轮（原始reporter ui-public-source-tests-20261008-v1.json）2失败：small任务b3cab817-8362-47e5-95e0-70c34ff07f75（23.3秒）正确取得真实候选，但精确源码下载省略可选锁，被我错误的强制锁测试挡住，不能归为单纯模型失败；之后原无进展保护暂停。候选源SHA49b3a825280bd66b3aa83585ef59c4a8c82f2c8a522dbe754a8bc8d08c85c491，pending下载审批未批准。large任务ce4f9a13-214c-46e9-864d-55467e5f9a21（约2.4分钟）选源/独立下载成功，提前dynamic无前端失败；static得到setuptools>=40.8.0，仍不补wheel再次dynamic失败并重复观察暂停。4Jobs为2成功/2失败；没有wheel/最终环境/结果报告。
+
+第二轮（原始reporter ui-public-source-tests-20261008-v2.json，213.32秒）2失败：small任务4aad8154-6cf9-44ba-8f78-18d8b2dc46cf（19.2秒）只完成实际目标探测，直接请求未经解析确认的docopt-0.6.2-py2.py3-none-any.whl，被审批检查挡住，pending请求未批准，随后原无进展暂停。large任务392150de-cbf8-4ed4-8634-23b623a44ade（约3.2分钟）两次审批消费，源码选取/下载及实际static成功；第三个正确的构建根元数据请求获批后，模型未用该approval_id重新解析，而重复读源说明/目标/旧索引/静态清单触发NO_PROGRESS。实际最后两份输入已含当前approved状态、完整请求、requested_tool与ID，不能说审批信息丢失。原测试显示70秒未消费超时，但任务早已因连续3次无新增证据暂停，不能只通过延长等待变成成功。随后仅修正测试观察：原300秒模型截止对应320秒审批消费等待，终态暂停即时失败，避免误报等待超时；`--list`确认2项测试编译成功，此观察修正未再启动模型试次，第二轮原始失败未改写。
+
+扩展独立输入核验分别11/18/10/18份，共57份全部通过：实际输入SHA/消息/工具协议（含schema重试）、当前目标/请求/源范围/修订、原预算/实际usage/跨回合schema来源，以及源码候选闭包false/实际锁生产者/SHA/项目版本/实际下载字节。文件source-context-audit-<task_id>public-source-v1-expanded.json / public-source-v2-expanded.json。另四份public-source-ui-independent-<task_id>-v2.json各14项完整性全通过，实际8Jobs（6成功/2失败）、18产物来源/字节、审批状态/精确消费、原生检查代码、实际容器限制、源版本无变化；workflow_all_passed=false。原v1审计保留。UI失败快照、审批决策和截图均按task_id保存，不能从完整性通过推导交付完成。
+
+修复后的验证过程：221定向23失败/19通过（7.38秒），原因包括测试夹具重复传wheel_refs、重复request_id及工具说明使H2上界超9字节；修正夹具唯一ID/参数/导入顺序并缩短说明后222定向42项通过（8.61秒），223最终完整349项通过（60.57秒），Ruff/diff通过。pytest缓存写入权限警告保留，没有跳过/删除测试或提高预算。新增none/backend_only/wrong_frontend_version三例验证明确前置失败且无Job；既有输入权限/撤销/恢复回归保持。新的public-source.spec.ts只增加验证，不改变产品UI；此前1.21真实工具24/30和动态夹具19/20证据及旧模型成功/失败保持历史。
+
+专用服务加载及当前证据见EXECUTOR-WSL与source-discovery-service-*.json。四个新任务当前均暂停，原pending/approved但未消费请求保留，没有盲目批准错误请求或自动恢复历史任务。下一步先针对已批准请求的模型续执行和不猜文件名验证一般工具指导/上下文保持，不能由新增强制工作流、重置计数或放大预算掩盖失败。阶段1出口、跨源码版本/多项目工具链/编译器及其余通用、ODM/PDAL/lidR、两模型六组合重复/holdout、用户pilot低资源、真实≥100 GB、发布安装备份恢复仍未完成。Agent联网搜索继续用户暂缓。
+
+Version 1.22 adds a real two-model public-source UI trial and corrects an overdefined test gate that incorrectly required an optional source-candidate lock. Exact filenames still need actual resolver provenance; a supplied lock is checked by purpose and bytes. Build roots may be acquired in valid subsets derived from actual inspection. Dynamic inspection now returns actionable PRECONDITION_MISSING before Job submission when verified pyproject-hooks==1.2.0 or packaging==25.0 wheel inputs are missing or incompatible. Filename validation is only a necessary precondition; the existing offline container and pip still validate wheel contents and backend requirements. Native loop, permissions, Job/product identities and original budgets remain unchanged.
+
+All349 final regressions pass (60.57 seconds), with42 related checks and clean Ruff/diff checks. Both rounds of real small/large H1 UI tests fail and remain recorded. Round1 small was blocked by the test's erroneous mandatory-lock gate; large repeatedly attempted dynamic inspection without prerequisites. Round2 small guessed an unconfirmed wheel filename and was blocked by the operator gate; large selected/downloaded source and inspected static requirements, then ignored an approved build-metadata continuation and repeatedly read existing evidence until the original three-observation no-progress stop. No workflow is accepted. All57 actual sent-input/provenance audits and14 independent integrity checks for each of four tasks pass, which does not establish task quality. Stage1 and the complete source/compiler/runtime/recovery/role/general/domain/evaluation/scale/release scope remain incomplete. Agent search remains deferred. The following1.21 and earlier records are historical.

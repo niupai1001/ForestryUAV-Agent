@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 
 import pytest
+from test_core import task
+from test_environments import wheel
 from test_source_build_only import built_fixture
 from test_source_environments import source_job
 
@@ -97,3 +99,22 @@ def test_exact_historical_source_build_remains_valid_but_modified_code_does_not(
     assert environments.built(state['task_id'],1,job['action_id'])['wheel_artifact_ids']
     job['code']+='\nprint("changed")';jobs.save(job,'test.modified_fixture')
     with pytest.raises(Failure):environments.built(state['task_id'],1,job['action_id'])
+
+
+@pytest.mark.parametrize('frontend',['none','backend_only','wrong_frontend_version'])
+def test_dynamic_missing_frontend_has_actionable_failure_and_no_job(client,app,tmp_path,frontend):
+    _,ref=wheel(client,tmp_path,'fixture.tar.gz','source')
+    refs=[]
+    if frontend!='none':
+        names=['setuptools-80.9.0-py3-none-any.whl'] if frontend=='backend_only' else [
+            'pyproject_hooks-1.1.0-py3-none-any.whl','packaging-25.0-py3-none-any.whl']
+        for name in names:
+            _,value=wheel(client,tmp_path,name,'verified-protocol-fixture-'+name)
+            refs.append(value)
+    state,_=task(client,input_refs=[ref,*refs])
+    with pytest.raises(Failure,match='尚未提交作业') as failure:
+        app.state.engine.environments.prepare(state['task_id'],1,'missing-frontend',refs,
+            source_refs=[ref],inspect_build='dynamic')
+    assert failure.value.code=='PRECONDITION_MISSING'
+    with app.state.store.transaction() as db:
+        assert not db.execute('SELECT 1 FROM jobs').fetchone()

@@ -16,7 +16,12 @@ from forestry_agent.roles import AssignmentRequest
 
 def source_job(client, app, tmp_path, *, build_only=False, inspect_build=None):
     source, ref = wheel(client, tmp_path, "fixture.tar.gz", "source")
-    state, _ = task(client, input_refs=[ref])
+    frontend=[]
+    if inspect_build == 'dynamic':
+        for name in ['pyproject_hooks-1.2.0-py3-none-any.whl','packaging-25.0-py3-none-any.whl']:
+            _,value=wheel(client,tmp_path,name,'frontend-fixture-'+name)
+            frontend.append(value)
+    state, _ = task(client, input_refs=[ref,*frontend])
     engine, docker = app.state.engine, ExecutorFixture()
     jobs = Jobs(engine.config, engine.store, engine.resources, docker)
     environments = Environments(engine.config, engine.store, engine.resources, jobs)
@@ -26,7 +31,7 @@ def source_job(client, app, tmp_path, *, build_only=False, inspect_build=None):
     jobs.input_artifact_validator = environments.acquired_package
     deps = Deps(engine, state["task_id"], "source-fixture", 1)
     reply = engine.perform(deps, "build", "environment.prepare", {"input_refs":[ref], "source_refs":[ref], 'build_only':build_only},
-        lambda action: environments.prepare(state["task_id"], 1, action, [], source_refs=[ref],
+        lambda action: environments.prepare(state["task_id"], 1, action, frontend, source_refs=[ref],
             build_only=build_only, inspect_build=inspect_build))
     assert reply["kind"] == "completed"
     return source, ref, state, deps, jobs, environments, reply["job"]["job_id"]

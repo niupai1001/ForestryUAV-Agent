@@ -767,8 +767,8 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
                 wheel_artifact_ids: list[str] | None = None, source_refs: list[str] | None = None,
                 source_artifact_ids: list[str] | None = None, build_only: bool = False,
                 inspect_build: Literal['static','dynamic'] | None = None) -> dict:
-            """离线依赖准备，源码需code.execute。inspect_build检查构建依赖，dynamic需静态+frontend_requirements wheel。
-            build_only只产wheel；默认安装环境。提交后wait_job，不重复提交。
+            """源码需code.execute。先inspect_build=static，获取requirements+frontend_requirements的wheel，再dynamic。
+            build_only只产wheel；默认安装环境。提交后wait_job，失败未提交则无job_id。
             """
             args = {"input_refs": [*(wheel_refs or []), *(source_refs or [])], "seconds": seconds}
             if build_only:
