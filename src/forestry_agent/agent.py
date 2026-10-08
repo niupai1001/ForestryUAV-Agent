@@ -79,6 +79,7 @@ class Engine:
         self.jobs = Jobs(config, store, resources)
         self.environments = Environments(config, store, resources, self.jobs)
         self.jobs.environment_resolver = self.environments.resolve
+        self.jobs.source_build_resolver = self.environments.built
         self.jobs.input_artifact_validator = self.environments.acquired_package
         self.documents = Documents(resources)
         self.knowledge = Knowledge(store, self.documents)
@@ -725,14 +726,18 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
 
         @agent.tool
         async def resolve_dependencies(ctx: RunContext[Deps], requirements: list[str],
-                target_artifact_id: UUID | None = None, approval_id: str | None = None) -> dict:
-            """PEP508需求→兼容wheel闭包（回退/extra/marker）。无target_artifact_id先提交断网无输入探测（需code.execute）；wait_job后用execution-target.json ID重试。
-            私密请求先审批再传approval_id；wheels/解析锁交acquire_dependencies。不执行包。
+                target_artifact_id: UUID | None = None, approval_id: str | None = None,
+                built_wheel_artifact_ids: list[str] | None = None) -> dict:
+            """PEP508解析wheel闭包；无target先断网无输入探测(需code.execute)，wait_job后传目标ID。
+            built_wheel_artifact_ids复用源码元数据；私密审批后带approval_id。下载wheels/锁后与built IDs合并安装。
             """
             target = str(target_artifact_id) if target_artifact_id is not None else None
             args = {"requirements": requirements, "target_artifact_id": target, "approval_id": approval_id}
+            if built_wheel_artifact_ids is not None:
+                args['built_wheel_artifact_ids'] = built_wheel_artifact_ids
             receipt = await asyncio.to_thread(execute, ctx, "environment.acquire", args,
-                lambda action: self.resolution.resolve(ctx.deps, action, requirements, target, approval_id))
+                lambda action: self.resolution.resolve(ctx.deps, action, requirements, target, approval_id,
+                    built_wheel_artifact_ids=built_wheel_artifact_ids))
             return self.jobs.model_receipt(receipt)
 
         @agent.tool
@@ -757,12 +762,14 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
         @agent.tool
         async def prepare_environment(ctx: RunContext[Deps], wheel_refs: list[str] | None = None, seconds: int = 300,
                 wheel_artifact_ids: list[str] | None = None, source_refs: list[str] | None = None,
-                source_artifact_ids: list[str] | None = None) -> dict:
-            """断网准备1–32个输入，校验SHA/完整依赖，不在宿主安装。
-            *_refs为授权资源；*_artifact_ids为确认获取产物。源码另需code.execute，以PEP517及所给wheel构建。
-            wait_job成功的prepared_environment.artifact_id用于复用；失败据日志有界修复。
+                source_artifact_ids: list[str] | None = None, build_only: bool = False) -> dict:
+            """断网核对1–32项的SHA/完整依赖，不宿主安装。
+            *_refs授权资源；*_artifact_ids确认获取/构建产物；源码另需code.execute。
+            build_only仅构建，wait_job返回prepared_wheels；补依赖后安装。正常返回prepared_environment.artifact_id复用。
             """
             args = {"input_refs": [*(wheel_refs or []), *(source_refs or [])], "seconds": seconds}
+            if build_only:
+                args['build_only'] = True
             if source_refs is not None:
                 args["source_refs"] = source_refs
             if source_artifact_ids is not None:
@@ -771,15 +778,15 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
                 args["wheel_artifact_ids"] = wheel_artifact_ids
             receipt = await asyncio.to_thread(execute, ctx, "environment.prepare", args,
                 lambda action_id: self.environments.prepare(ctx.deps.task_id, ctx.deps.revision, action_id, wheel_refs or [], seconds,
-                    wheel_artifact_ids=wheel_artifact_ids, source_refs=source_refs, source_artifact_ids=source_artifact_ids))
+                    wheel_artifact_ids=wheel_artifact_ids, source_refs=source_refs, source_artifact_ids=source_artifact_ids,
+                    build_only=build_only))
             return self.jobs.model_receipt(receipt)
 
         @agent.tool
         async def code_execute(ctx: RunContext[Deps], code: str, input_refs: list[str], seconds: int = 300,
                          environment_artifact_id: str | None = None) -> dict:
-            """提交隔离 Python 作业。输入文件只读映射到 /inputs/<resource_id>，输出写 /output。
-            默认仅标准库；可明确引用prepare_environment成功的environment.zip。环境绑定真实镜像/哈希，输入只读、无网络。
-            返回持久作业句柄；用wait_job等待结果，不重复提交。
+            """断网Python作业，输入只读到/inputs/<resource_id>，输出/output。
+            默认标准库；environment_artifact_id复用确认environment.zip，绑定镜像/SHA。返回持久job_id，用wait_job观察，不重复提交。
             """
             arguments = {"code": code, "input_refs": input_refs, "seconds": seconds}
             if environment_artifact_id is not None:

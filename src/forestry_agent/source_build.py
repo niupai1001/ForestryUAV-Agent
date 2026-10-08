@@ -123,3 +123,40 @@ def build_sources(root, wheelhouse, sources, clean_env):
             'filename':product.name, 'sha256':digest, 'size_bytes':size})
     return requirements, records
 '''
+
+# Executed only by the same restricted preparation Job, after native pip builds.
+# Read one bounded metadata member into a separate immutable text product; never
+# expose a host archive extractor or install runtime dependencies in this mode.
+BUILD_ONLY = r'''
+def export_build_result(wheelhouse, sources, wheels, records, image_reference):
+    metadata_total = 0
+    for record in records:
+        product = wheelhouse/record['filename']
+        with zipfile.ZipFile(product) as archive:
+            members = archive.infolist()
+            if len(members) > 30000 or sum(m.file_size for m in members) > 512*1024*1024:
+                raise RuntimeError('Built wheel exceeds metadata inspection limits')
+            metadata = [m for m in members if m.orig_filename == m.filename and
+                len(Path(m.filename).parts) == 2 and
+                m.filename.split('/')[0].endswith('.dist-info') and
+                m.filename.split('/')[-1] == 'METADATA' and not m.is_dir()]
+            if len(metadata) != 1 or metadata[0].file_size > 2*1024*1024 or metadata[0].flag_bits & 1:
+                raise RuntimeError('Built wheel requires one bounded unencrypted Core Metadata member')
+            with archive.open(metadata[0]) as reader:
+                data = reader.read(2*1024*1024+1)
+            metadata_total += len(data)
+            if not data or len(data) > 2*1024*1024 or metadata_total > 32*1024*1024:
+                raise RuntimeError('Built wheel Core Metadata exceeds limits')
+        filename = record['filename']+'.metadata'
+        Path('/output',filename).write_bytes(data)
+        record.update(metadata_filename=filename, metadata_sha256=hashlib.sha256(data).hexdigest(),
+            metadata_size_bytes=len(data))
+    manifest = {'schema_version':1, 'kind':'source_wheel_build', 'image_reference':image_reference,
+        'python':platform.python_version(), 'platform':sys.platform, 'machine':platform.machine(),
+        'sources':sources, 'wheels':wheels, 'built_wheels':records, 'network':'none',
+        'build_frontend':{'name':'pip','version':importlib.metadata.version('pip'),
+            'isolation':'native_pep517','dependency_source':'verified_offline_wheelhouse'},
+        'runtime_installation':False, 'scientific_accuracy':'not_assessed'}
+    Path('/output/source-build-lock.json').write_text(json.dumps(manifest,sort_keys=True,indent=2),encoding='utf-8')
+    print('SOURCE_WHEELS_READY',flush=True)
+'''

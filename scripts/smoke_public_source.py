@@ -32,12 +32,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config/app.wsl.example.yaml")
     parser.add_argument("--source", choices=["pypi", "tuna"], default="pypi")
+    parser.add_argument("--build-only", action="store_true", help="Reuse one source-built wheel after missing runtime dependencies")
     args = parser.parse_args()
     trial = str(uuid4())
     directory = ROOT/"workspace"/"public-source-trials"/trial
     directory.mkdir(parents=True)
     config = load_config(args.config).model_copy(update={"workspace_root":directory/"runtime"})
-    evidence = {"trial_id":trial, "model_used":False, "autonomous_source_fallback":False,
+    evidence = {"trial_id":trial, "model_used":False, "autonomous_source_fallback":False, 'build_only':args.build_only,
         "scientific_accuracy":"not_assessed", "general_stage_acceptance":"incomplete",
         "all_passed":False, "cases":[]}
     output = ROOT/"workspace"/"evidence"/("public-source-real-"+trial+".json")
@@ -98,19 +99,22 @@ def main():
             source = engine.environments.acquired_source(task_id, 1, source_id)
             source_sha = file_hash(native_path(source["locator"]))
 
-            def prepare(call, wheels, expected="succeeded"):
-                payload = {"source_artifact_ids":[source_id], "wheel_artifact_ids":wheels, "input_refs":[]}
+            def prepare(call, wheels, expected="succeeded", *, build_only=False, with_source=True):
+                sources = [source_id] if with_source else []
+                payload = {"source_artifact_ids":sources, "wheel_artifact_ids":wheels, "input_refs":[], 'build_only':build_only}
                 return observe(engine.perform(deps, call, "environment.prepare", payload,
                     lambda action:engine.environments.prepare(task_id, 1, action, [],
-                        source_artifact_ids=[source_id], wheel_artifact_ids=wheels)), call, expected)
+                        source_artifact_ids=sources, wheel_artifact_ids=wheels, build_only=build_only)), call, expected)
 
             failed_build = prepare("missing_build_dependencies", [], "failed")
             assert "setuptools" in json.dumps(failed_build["logs"])
 
-            def resolve(call, target=None, approval=None):
-                return engine.perform(deps, call, "environment.acquire", {"requirements":REQUIREMENTS,
-                    "target_artifact_id":target, "approval_id":approval},
-                    lambda action:engine.resolution.resolve(deps, action, REQUIREMENTS, target, approval))
+            def resolve(call, target=None, approval=None, *, requirements=None, built=None):
+                roots = requirements if requirements is not None else REQUIREMENTS[:2] if args.build_only else REQUIREMENTS
+                payload = {"requirements":roots,"target_artifact_id":target,"approval_id":approval}
+                if built:payload['built_wheel_artifact_ids'] = built
+                return engine.perform(deps, call, "environment.acquire", payload,
+                    lambda action:engine.resolution.resolve(deps, action, roots, target, approval,built_wheel_artifact_ids=built))
 
             probe = observe(resolve("target-probe"), "actual_target_probe")
             target = next(ref for ref in probe["job"]["artifact_ids"]
@@ -127,9 +131,36 @@ def main():
             evidence["wheel_acquisition"] = wheels
             assert wheels["kind"] == "completed", wheels
             build_ids = [w["artifact_id"] for w in wheels["wheels"] if w["name"] != "peppercorn"]
-            failed_runtime = prepare("missing_runtime_dependency", build_ids, "failed")
+            build_case = None
+            runtime_wheels = wheels
+            if args.build_only:
+                build_case = prepare('source_build_without_runtime_installation',build_ids,build_only=True)
+                build_observed = engine.perform(deps,'observe-source-wheel','job.observe',{'job_id':build_case['job']['job_id']},
+                    lambda _:jobs.observation(build_case['job']['job_id'],task_id))
+                evidence['source_build'] = build_observed['prepared_wheels']
+                build_ids = evidence['source_build']['wheel_artifact_ids']
+                for record in evidence['source_build']['built_wheels']:
+                    ref = record['metadata_artifact_id']
+                    metadata = engine.perform(deps,'read-source-metadata','artifact.read',{'artifact_id':ref},
+                        lambda _,ref=ref:engine.resources.read_artifact(task_id,ref))
+                    evidence['built_metadata_readback'] = metadata
+                    assert 'Requires-Dist: peppercorn' in metadata['text'],metadata
+                runtime_roots = ['sampleproject==4.0.0']
+                runtime_proposal = resolve('runtime-resolution-proposal',target,requirements=runtime_roots,built=build_ids)
+                evidence['runtime_resolution_proposal'] = runtime_proposal
+                runtime_resolution = resolve('approved-runtime-resolution',target,approve(runtime_proposal),requirements=runtime_roots,built=build_ids)
+                evidence['runtime_resolution'] = runtime_resolution
+                assert runtime_resolution['kind']=='completed',runtime_resolution
+                runtime_lock = runtime_resolution['resolution_lock_artifact_id']
+                runtime_download = acquire('runtime-wheel-proposal',runtime_resolution['wheels'],lock=runtime_lock)
+                evidence['runtime_download_proposal'] = runtime_download
+                runtime_wheels = acquire('approved-runtime-wheels',runtime_resolution['wheels'],approval=approve(runtime_download),lock=runtime_lock)
+                evidence['runtime_wheel_acquisition'] = runtime_wheels
+                assert runtime_wheels['kind']=='completed',runtime_wheels
+            failed_runtime = prepare("missing_runtime_dependency", build_ids, "failed",with_source=not args.build_only)
             assert "peppercorn" in json.dumps(failed_runtime["logs"])
-            ready = prepare("build_and_install_full_closure", wheels["wheel_artifact_ids"])
+            final_wheels = build_ids + runtime_wheels['wheel_artifact_ids'] if args.build_only else wheels['wheel_artifact_ids']
+            ready = prepare("build_and_install_full_closure", final_wheels,with_source=not args.build_only)
             observed = engine.perform(deps, "observe-build", "job.observe", {"job_id":ready["job"]["job_id"]},
                 lambda _:jobs.observation(ready["job"]["job_id"], task_id))
             archive = observed["prepared_environment"]["artifact_id"]
@@ -157,21 +188,33 @@ Path('/output/answer-{index}.json').write_text(json.dumps(dict(answer=add_one(41
                     lambda _, ref=ref:engine.resources.read_artifact(task_id, ref))
                 computed["readback"], computed["numbers"] = readback, json.loads(readback["text"])
                 results.append(computed)
-            built = environment["manifest"]["built_wheels"]
+            source_case = build_case or ready
+            built = evidence['source_build']['built_wheels'] if args.build_only else environment["manifest"]["built_wheels"]
             checks = {
                 "official_typed_hashed_sdist":source_result["source_packages"][0]["sha256"] == source_sha and source_result["wheels"] == [],
-                "three_distinct_exact_approvals_consumed":len(engine.network.list(task_id)) == 3 and all(g["status"] == "consumed" for g in engine.network.list(task_id)),
-                "actual_target_and_complete_resolved_wheels":{w["name"] for w in resolution["wheels"]} == {"setuptools","wheel","peppercorn"},
+                "distinct_exact_approvals_consumed":len(engine.network.list(task_id)) == (5 if args.build_only else 3) and all(g["status"] == "consumed" for g in engine.network.list(task_id)),
+                "actual_target_and_complete_resolved_build_wheels":{w["name"] for w in resolution["wheels"]} == ({"setuptools","wheel"} if args.build_only else {"setuptools","wheel","peppercorn"}),
                 "missing_build_and_runtime_failures_preserved":failed_build["job"]["status"] == failed_runtime["job"]["status"] == "failed",
-                "sdist_reused_as_readonly_acquired_artifact":ready["job"]["source_recipe"][0]["source_kind"] == "acquired_artifact" and ready["job"]["source_recipe"][0]["resource_id"] == source_id,
+                "sdist_reused_as_readonly_acquired_artifact":source_case["job"]["source_recipe"][0]["source_kind"] == "acquired_artifact" and source_case["job"]["source_recipe"][0]["resource_id"] == source_id,
                 "built_wheel_bound_to_official_source":len(built) == 1 and built[0]["source_sha256"] == source_sha and built[0]["filename"] == "sampleproject-4.0.0-py3-none-any.whl",
-                "native_pep517_isolation":environment["manifest"]["build_frontend"]["isolation"] == "native_pep517",
+                "native_pep517_isolation":(engine.environments.built(task_id,1,build_case['job']['action_id'])['runtime_installation'] is False
+                    if args.build_only else environment["manifest"]["build_frontend"]["isolation"] == "native_pep517"),
                 "two_exact_actual_readbacks":all(c["numbers"] == {"answer":42,"version":"4.0.0","dependency_version":"0.6","uid":65534,"network_blocked":True} for c in results),
                 "same_environment_and_image":all(c["job"]["environment"]["artifact_id"] == archive and c["container"]["Image"] == environment["image_id"] for c in results),
                 "all_containers_restricted":all(c["container"]["HostConfig"]["NetworkMode"] == "none" and c["container"]["HostConfig"]["ReadonlyRootfs"] and "ALL" in c["container"]["HostConfig"]["CapDrop"] and c["container"]["Config"]["User"] == "65534:65534" for c in evidence["cases"]),
                 "source_archive_unchanged":file_hash(native_path(source["locator"])) == source_sha,
                 "host_packages_unchanged":host_packages() == before_host,
             }
+            if args.build_only:
+                checks.update(
+                    one_successful_build_only_reused_after_runtime_failure=not failed_runtime['job'].get('source_recipe') and not ready['job'].get('source_recipe') and
+                        [w['resource_id'] for w in failed_runtime['job']['environment_recipe']]==evidence['source_build']['wheel_artifact_ids'] and
+                        built[0]['artifact_id'] in [w['resource_id'] for w in ready['job']['environment_recipe']],
+                    final_environment_has_only_runtime_packages={p['name'] for p in environment['manifest']['installed']}=={'sampleproject','peppercorn'},
+                    built_metadata_actual_readback_and_no_environment=evidence['built_metadata_readback']['kind']=='completed' and
+                        all(engine.resources.artifact(ref)['name']!='environment.zip' for ref in build_case['job']['artifact_ids']),
+                    runtime_dependency_derived_from_built_metadata=evidence['runtime_resolution']['built_wheel_artifact_ids']==build_ids and
+                        {w['name'] for w in evidence['runtime_resolution']['wheels']}=={'peppercorn'} and runtime_roots==['sampleproject==4.0.0'])
             evidence.update(checks=checks, all_passed=all(checks.values()))
         except Exception as error:
             logging.getLogger(__name__).exception("Public source trial failed; original evidence retained")

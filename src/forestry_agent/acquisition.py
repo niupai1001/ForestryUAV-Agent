@@ -64,7 +64,11 @@ class Acquisition:
                 result = json.loads(row['result'])
                 operation = 'download' if 'wheel_artifact_ids' in result else 'resolve'
                 source_packages = result.get('source_packages', [])
-                if operation in seen or not 1 <= len(result['wheels']) + len(source_packages) <= 32:
+                built_packages = result.get('built_wheels', [])
+                if operation in seen or not 1 <= len(result['wheels']) + len(source_packages) + len(built_packages) <= 32:
+                    continue
+                if built_packages and (operation != 'resolve' or
+                    result.get('built_wheel_artifact_ids') != [p.get('artifact_id') for p in built_packages]):
                     continue
                 if operation == 'download' and (len(result['wheel_artifact_ids']) != len(result['wheels']) or
                     len(set(result['wheel_artifact_ids'])) != len(result['wheel_artifact_ids'])):
@@ -98,9 +102,23 @@ class Acquisition:
                     receipts.append({'operation': operation, 'source_action_id': row['id'],
                         'lock_artifact_id': lock_id, 'wheels': wheels,
                         **({'source_packages':sources} if sources else {}),
+                        **({'built_wheels':built_packages} if built_packages else {}),
                         **({'target_artifact_id': result['target_artifact_id']} if operation == 'resolve' and 'target_artifact_id' in result else {})})
                     seen.add(operation)
-        return receipts
+        # Resource validation opens its own transactions. Never nest it inside
+        # the action-snapshot transaction (SQLite BEGIN IMMEDIATE would deadlock).
+        confirmed = []
+        for receipt in receipts:
+            try:
+                for package in receipt.get('built_wheels', []):
+                    artifact = self.engine.environments.acquired_wheel(task_id, revision, package['artifact_id'])
+                    built = self.engine.environments.built(task_id, revision, artifact['producer_action_id'])
+                    if not any(all(record.get(k) == package.get(k) for k in ['name','version','filename','artifact_id']) for record in built['built_wheels']):
+                        raise Failure('VERIFICATION_FAILED', '构建摘要不匹配真实生产作业', 422)
+            except (Failure, KeyError):
+                continue
+            confirmed.append(receipt)
+        return confirmed
 
     def acquire(self, deps, action_id, wheels, source: Literal["pypi", "tuna"] = "pypi", approval_id=None,
                 resolution_lock_artifact_id=None, *, source_packages=None):
@@ -120,10 +138,10 @@ class Acquisition:
                 raise Failure('VERSION_CONFLICT', 'wheel解析锁不授权源码获取；须独立精确源码审批', 409)
             resolution, lock_artifact = self.engine.resolution.lock(deps, resolution_lock_artifact_id)
             requested = {encode(w) for w in wheels}
-            selected = {encode({k: w[k] for k in ['name', 'version', 'filename']}) for w in resolution['selected']}
+            selected = {encode({k: w[k] for k in ['name', 'version', 'filename']}) for w in resolution['selected'] if not w.get('artifact_id')}
             if requested != selected:
                 raise Failure('VERSION_CONFLICT', '获取集合须与已确认解析锁的完整wheel集合相同', 409)
-            resolved = {w['filename']: w['sha256'] for w in resolution['selected']}
+            resolved = {w['filename']: w['sha256'] for w in resolution['selected'] if not w.get('artifact_id')}
         state = self.store.task(deps.task_id)
         sources = [{"resource_id": ref, "version": version(self.engine.resources.resolve(ref, task_id=deps.task_id))}
             for ref in state["input_refs"]]

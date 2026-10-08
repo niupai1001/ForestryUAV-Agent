@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .contracts import Failure
 from .resources import file_hash, native_path, version
-from .source_build import WORKER
+from .source_build import BUILD_ONLY, WORKER
 from .store import encode
 
 MAX_WHEEL_BYTES = 128 * 1024 * 1024
@@ -24,7 +24,7 @@ WHEEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+\-]{0,240}\.whl\Z")
 SOURCE_NAME = re.compile(r"[^/\\:\x00-\x1f\x7f]{1,230}\.(?:tar\.gz|zip)\Z")
 
 
-def preparation_code(wheels, image_reference, sources=None):
+def preparation_code(wheels, image_reference, sources=None, *, build_only=False):
     # All filenames come from verified single-file resources; interpolate JSON,
     # never shell commands or package-controlled Python syntax.
     return f'''import hashlib, importlib.metadata, json, os, platform, shutil, subprocess, sys, tempfile, zipfile
@@ -33,6 +33,7 @@ wheels = {encode(wheels)}
 sources = {encode(sources or [])}
 image_reference = {json.dumps(image_reference)}
 {WORKER if sources else ''}
+{BUILD_ONLY if build_only else ''}
 if sys.version_info[:2] != (3, 12) or sys.platform != 'linux':
     raise RuntimeError('Environment requires Linux Python 3.12; no silent runtime change')
 with tempfile.TemporaryDirectory(prefix='environment-build-', dir={'"/build"' if sources else '"/tmp"'}) as temporary:
@@ -54,6 +55,7 @@ with tempfile.TemporaryDirectory(prefix='environment-build-', dir={'"/build"' if
         'TMPDIR':str(scratch), 'PYTHONDONTWRITEBYTECODE':'1'}}
     built_wheels = []
     {'built_requirements, built_wheels = build_sources(root, wheelhouse, sources, clean_env); requirements.extend(built_requirements)' if sources else ''}
+    {'export_build_result(wheelhouse, sources, wheels, built_wheels, image_reference); raise SystemExit(0)' if build_only else ''}
     lock_input = root/'requirements.lock'
     lock_input.write_text('\\n'.join(requirements)+'\\n', encoding='utf-8')
     command = [sys.executable, '-I', '-B', '-m', 'pip', '--isolated', '--disable-pip-version-check',
@@ -155,14 +157,20 @@ class Environments:
         if (not valid_name or receipt.get("kind") != "completed" or artifact_id not in receipt.get(ids, []) or not record or
             record.get("sha256") != artifact["sha256"] or record.get("size_bytes") != artifact["size_bytes"] or
             record.get("filename") != artifact["name"]):
+            if valid_name and not source:
+                built = self.built(task_id, revision, artifact['producer_action_id'])
+                if artifact_id in built['wheel_artifact_ids']:
+                    return artifact
             raise Failure("PERMISSION_DENIED", "发行文件类型/产物须匹配本任务当前修订已确认的依赖获取动作", 403)
         return artifact
 
     def prepare(self, task_id, revision, action_id, wheel_refs, seconds=300, *, wheel_artifact_ids=None, source_refs=None,
-                source_artifact_ids=None):
+                source_artifact_ids=None, build_only=False):
         wheel_artifact_ids = wheel_artifact_ids or []
         source_refs = source_refs or []
         source_artifact_ids = source_artifact_ids or []
+        if type(build_only) is not bool or (build_only and not (source_refs or source_artifact_ids)):
+            raise Failure('SCHEMA_INVALID', 'build_only须为布尔值且仅用于有授权源码的构建')
         artifact_ids = wheel_artifact_ids + source_artifact_ids
         if (not 1 <= len(wheel_refs) + len(source_refs) + len(artifact_ids) <= 32 or
             len(wheel_refs + source_refs) != len(set(wheel_refs + source_refs)) or
@@ -209,9 +217,65 @@ class Environments:
             sources.append({"resource_id":ref, "filename":source.name, "sha256":sha,
                 "size_bytes":size, "source_version":before, **({'source_kind':'acquired_artifact'} if acquired else {})})
         return self.jobs.submit(task_id, revision, action_id,
-            preparation_code(wheels, self.config.code_image, sources), wheel_refs + source_refs, seconds,
+            preparation_code(wheels, self.config.code_image, sources, build_only=build_only), wheel_refs + source_refs, seconds,
             job_kind="environment.prepare", environment_recipe=wheels, input_artifact_ids=artifact_ids,
-            source_recipe=sources or None)
+            source_recipe=sources or None, source_build_only=build_only)
+
+    def built(self, task_id, revision, action_id):
+        """Accept only source wheels and metadata produced by this exact Job.
+
+        This proves provenance and bounded metadata, not runtime installation or
+        the complete dependency closure. No wheel is opened on the host.
+        """
+        from packaging.utils import InvalidWheelFilename, parse_wheel_filename
+
+        from .resolution import core_metadata, requirement
+
+        with self.store.transaction() as db:
+            row = db.execute("SELECT j.payload FROM jobs j JOIN actions a ON a.id=j.action_id WHERE "
+                "j.task_id=? AND j.revision=? AND j.action_id=? AND j.status='succeeded' "
+                "AND a.kind='environment.prepare' AND a.status='confirmed'", (task_id, revision, action_id)).fetchone()
+        job = json.loads(row[0]) if row else {}
+        if (not job.get('source_recipe') or job.get('kind') != 'environment.prepare' or job.get('exit_code') != 0 or
+            job.get('image_reference') != self.config.code_image or not job.get('image_id') or
+            job.get('code') != preparation_code(job.get('environment_recipe', []), self.config.code_image,
+                job.get('source_recipe'), build_only=True)):
+            raise Failure('PERMISSION_DENIED', 'wheel须来自当前修订已确认且真实成功的仅源码构建作业或依赖获取动作', 403)
+        products = [self.resources.artifact(ref, task_id) for ref in job['artifact_ids']]
+        lock = next((a for a in products if a['name'] == 'source-build-lock.json'), None)
+        if not lock or lock['producer_action_id'] != action_id or lock['size_bytes'] > 65536:
+            raise Failure('VERIFICATION_FAILED', '源码构建缺少有界实际锁', 422)
+        try:
+            manifest = json.loads(native_path(lock['locator']).read_bytes())
+            if (manifest.get('kind') != 'source_wheel_build' or manifest.get('schema_version') != 1 or
+                manifest.get('sources') != job['source_recipe'] or manifest.get('wheels') != job['environment_recipe'] or
+                manifest.get('image_reference') != job['image_reference'] or manifest.get('runtime_installation') is not False or
+                manifest.get('network') != 'none' or manifest.get('build_frontend', {}).get('isolation') != 'native_pep517' or
+                len(manifest.get('built_wheels', [])) != len(job['source_recipe'])):
+                raise ValueError('build lock identity')
+            records = []
+            for record, source in zip(manifest['built_wheels'], job['source_recipe'], strict=True):
+                wheel = next((a for a in products if a['name'] == record['filename']), {})
+                metadata = next((a for a in products if a['name'] == record['metadata_filename']), {})
+                if (record['source_resource_id'] != source['resource_id'] or record['source_sha256'] != source['sha256'] or
+                    wheel.get('producer_action_id') != action_id or metadata.get('producer_action_id') != action_id or
+                    record['sha256'] != wheel.get('sha256') or record['size_bytes'] != wheel.get('size_bytes') or
+                    record['metadata_filename'] != record['filename']+'.metadata' or
+                    record['metadata_sha256'] != metadata.get('sha256') or
+                    record['metadata_size_bytes'] != metadata.get('size_bytes') or not 0 < metadata['size_bytes'] <= 2*1024*1024):
+                    raise ValueError('built products/provenance')
+                name, version_value, _, _ = parse_wheel_filename(record['filename'])
+                dependencies = core_metadata(native_path(metadata['locator']).read_bytes(), name, version_value, manifest['python'])
+                # A source backend cannot add a private/direct URL by returning it
+                # in generated metadata; the existing public requirement contract applies.
+                for dependency in dependencies:
+                    requirement(str(dependency))
+                records.append({**record, 'name':name, 'version':str(version_value), 'artifact_id':wheel['artifact_id'],
+                    'metadata_artifact_id':metadata['artifact_id']})
+        except (ValueError, KeyError, TypeError, OSError, InvalidWheelFilename) as error:
+            raise Failure('VERIFICATION_FAILED', '源码构建锁、生成wheel或元数据与真实作业不一致', 422) from error
+        return {'wheel_artifact_ids':[r['artifact_id'] for r in records], 'built_wheels':records,
+            'lock_artifact_id':lock['artifact_id'], 'image_id':job['image_id'], 'runtime_installation':False}
 
     def resolve(self, task_id, revision, artifact_id):
         artifact = self.resources.artifact(artifact_id, task_id)
@@ -225,6 +289,9 @@ class Environments:
         job = json.loads(row["payload"]) if row else None
         if not job or job.get("kind") != "environment.prepare" or job["spec_revision"] != revision:
             raise Failure("PERMISSION_DENIED", "环境须由本任务当前修订的依赖准备作业产生", 403)
+        if job.get('source_build_only') or (job.get('source_recipe') and job.get('code') ==
+            preparation_code(job.get('environment_recipe', []), job['image_reference'],job['source_recipe'],build_only=True)):
+            raise Failure('PERMISSION_DENIED', '仅构建作业不能提供已安装的环境归档', 403)
         if artifact_id not in job["artifact_ids"]:
             raise Failure("PERMISSION_DENIED", "环境产物未被准备作业登记", 403)
         locks = [self.resources.artifact(ref, task_id) for ref in job["artifact_ids"]]

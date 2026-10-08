@@ -84,6 +84,7 @@ class Jobs:
         self.worker: asyncio.Task | None = None
         self.cancel_assignments = None
         self.environment_resolver = None
+        self.source_build_resolver = None
         self.input_artifact_validator = None
 
     def read(self, job_id: str, task_id: str | None = None):
@@ -132,11 +133,14 @@ class Jobs:
 
     def submit(self, task_id: str, revision: int, action_id: str, code: str,
                input_refs: list[str], seconds: int = 300, *, environment_artifact_id=None,
-               job_kind="code.execute", environment_recipe=None, input_artifact_ids=None, source_recipe=None):
+               job_kind="code.execute", environment_recipe=None, input_artifact_ids=None, source_recipe=None,
+               source_build_only=False):
         if job_kind not in {"code.execute", "environment.prepare"}:
             raise Failure("SCHEMA_INVALID", "未知受限作业类型")
         if source_recipe and job_kind != "environment.prepare":
             raise Failure("SCHEMA_INVALID", "源码构建仅用于依赖准备作业")
+        if type(source_build_only) is not bool or (source_build_only and not source_recipe):
+            raise Failure('SCHEMA_INVALID', '仅构建用途需实际源码配方')
         if not code or len(code.encode()) > 65536:
             raise Failure("SCHEMA_INVALID", "代码须为 1–65536 字节的 Python 文本")
         if seconds < 1 or seconds > self.config.max_code_seconds:
@@ -193,6 +197,8 @@ class Jobs:
             if source_recipe:
                 job["source_recipe"] = source_recipe
                 job["build_tmpfs_bytes"] = 1024*1024*1024
+                if source_build_only:
+                    job['source_build_only'] = True
             db.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?)",
                 (job_id, task_id, action_id, revision, "queued", encode(job), now()))
             self.store.event(db, task_id, "job.queued", self.public(job))
@@ -424,7 +430,15 @@ class Jobs:
             # Keep the same job ownership and container identity checks as the UI.
             result["logs"] = self.logs(job_id, task_id)
         if job["status"] == "succeeded" and job.get("kind") == "environment.prepare" and self.environment_resolver:
+            if job.get('source_build_only'):
+                if not self.source_build_resolver:
+                    raise Failure('VERIFICATION_FAILED', '源码构建缺少生产者核验', 422)
+                result['prepared_wheels'] = self.source_build_resolver(task_id, job['spec_revision'], job['action_id'])
+                return result
             archive = next((ref for ref in job["artifact_ids"] if self.resources.artifact(ref, task_id)["name"] == "environment.zip"), None)
+            if not archive and self.source_build_resolver and any(self.resources.artifact(ref, task_id)['name'] == 'source-build-lock.json' for ref in job['artifact_ids']):
+                result['prepared_wheels'] = self.source_build_resolver(task_id, job['spec_revision'], job['action_id'])
+                return result
             if not archive:
                 raise Failure("VERIFICATION_FAILED", "依赖作业未生成可复用环境归档", 422)
             environment = self.environment_resolver(task_id, job["spec_revision"], archive)

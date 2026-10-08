@@ -1,4 +1,8 @@
-# 修订后的实施基线 · 1.18
+# 修订后的实施基线 · 1.19
+
+1.19把源码构建与最终安装分开：prepare_environment(build_only=true)仍由原断网Jobs和原生pip PEP517构建，返回prepared_wheels而非已安装环境。生成wheel及其实际Core Metadata作为有生产者/大小/SHA的独立产物，source-build-lock.json记录源码和构建配方。resolve_dependencies(built_wheel_artifact_ids=...)沿用resolvelib，用这些元数据解析完整运行依赖；只对远程wheel另行审批获取，已有构建wheel不被公开下载替换。缺依赖安装失败后可复用同一构建产物，无需重新执行源码后端。最终安装仍完整哈希/依赖核验；构建用途写入Jobs并拒绝将后端伪造的environment.zip认作可运行环境。没有新增库、能力、迁移、执行器或前端产品改动。
+
+最终313项完整回归通过。公开sampleproject仅从实际生成元数据推导peppercorn，5项独立精确审批、7个实际终态作业、16项工具检查和21项独立来源检查通过；源码成功构建一次，最终环境只含sampleproject/peppercorn，两次真实计算/读回均正确。此直接工具试次不调用模型。最新只构建/安装UI大模型通过（独立18项），小模型第二次计算猜测答案/缺JSON及报告而失败；34份输入审计通过不代替质量，不冒充模型自主公开源码获取。自动源码候选与静态/动态构建依赖回退、编译器/系统库、其他运行时/元数据回退及完整恢复/角色/通用/领域/评估/规模/发布范围继续保留。阶段1未通过，Agent联网搜索继续暂缓。下文1.18及更早为历史。
 
 1.18将精确公开源码获取接入既有acquire_dependencies：source_packages按name/version/filename请求.tar.gz/.zip，wheels仍只接受wheel。合计1–32文件/128 MiB，官方发行类型、名称、版本、未撤回状态、大小与SHA须全部匹配；下载只保存字节，不在宿主解包或执行。源码下载采用独立精确审批，wheel解析锁不能授权源码。返回source_artifact_ids由prepare_environment复用既有受限构建链，核对当前任务/修订确认的生产动作及实际字节；代码执行权限、角色产物交集、排队只读挂载和撤销检查保持。确认摘要/无进展指纹扩展到源码，CLI导出共享PackageRequest；无新增库、能力、迁移、执行器或UI构建。
 

@@ -8,8 +8,8 @@
 |---|---|---|---|---|
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
-| P2 | in_progress | 动作/attempt、去重、修订隔离、检查点；断网Jobs/WSL/恢复；目标探测、PEP508 wheel解析/获取、精确公开源码获取/授权源码PEP517构建及离线复用；回执/错误ID及审批阶段说明 | 公开源码工具12项/独立14项与300项最终回归通过；源码v2大模型UI/15项来源检查通过，小模型报告失败 | 自动源码候选/依赖回退、编译器/系统库、其他运行时/元数据回退、依赖传输持续核验、两模型稳定依赖质量、完整资源准入及恢复窗口、调试/报告质量 |
-| P3 | in_progress | 验收/清单、文档/知识/记忆、原生上下文/角色、H0/H1/H2；范围与修订、来源事实、原生计划、目标去重、有界纠正；依赖摘要及继续消息 | 完整回归300项；历史范围恢复/修订UI通过；源码v2共21份实际输入审计通过，v1/v7证据保留；v6跨轮次来源证据保留；v5测量缺失单列；历史组件/复合证据及全部失败分存 | 审批/失败恢复及完整工作保持、试次运行隔离、角色异常/冲突交互、两模型本地通用及长任务质量、报告/通用评估；搜索暂缓 |
+| P2 | in_progress | 动作/attempt、去重、修订隔离、检查点；断网Jobs/WSL/恢复；目标探测、PEP508解析/获取、精确公开源码/PEP517构建及离线复用；1.19只构建/实际元数据补运行依赖/同wheel复用；回执/错误ID及审批阶段说明 | 1.19公开源码工具16项/独立21项与313项最终回归通过；1.18源码v2大模型UI/15项来源检查通过，小模型报告失败 | 自动源码候选/构建依赖回退、编译器/系统库、其他运行时/元数据回退、依赖传输持续核验、两模型稳定依赖质量、完整资源准入及恢复窗口、调试/报告质量 |
+| P3 | in_progress | 验收/清单、文档/知识/记忆、原生上下文/角色、H0/H1/H2；范围与修订、来源事实、原生计划、目标去重、有界纠正；依赖摘要及继续消息 | 完整回归313项；历史范围恢复/修订UI通过；源码v2共21份实际输入审计通过，v1/v7证据保留；v6跨轮次来源证据保留；v5测量缺失单列；历史组件/复合证据及全部失败分存 | 审批/失败恢复及完整工作保持、试次运行隔离、角色异常/冲突交互、两模型本地通用及长任务质量、报告/通用评估；搜索暂缓 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -422,3 +422,34 @@ acquire_dependencies新增source_packages，可只请求明确name/version/filen
 精确公共sdist获取、工具修复及模型本地源码构建均不替代自动源码候选/构建及运行依赖回退、编译器/系统库支持、其他运行时/缺哈希元数据回退、完整恢复/角色/通用评估。阶段1出口仍未通过，后续真实ODM、PDAL/lidR、六组合重复/holdout、用户pilot选择低资源、≥100 GB规模和发布/安装/备份恢复继续保留，阶段1门槛前不启动领域功能。Agent联网搜索仍按用户要求暂缓。
 
 English: Exact public sdists share existing acquisition approval/hash controls and offline source Jobs. The final sampleproject direct-tool trial passes 12 checks and 14 independent record/byte/container checks; 300 final regressions pass. Source UI v2 uses local authorized fixtures: large passes with 15 independent checks, while small now produces and reads correct computation JSON but still fails report provenance/hash labeling. All 21 sent-input audits pass separately. Initial smoke/audit bookkeeping failures and the temporary approval-service interruption remain with corrected follow-ups. Autonomous source fallback and the full remaining general/domain/evaluation/scale/release scope remain pending; search stays deferred.
+
+
+## Baseline 1.19 / 源码只构建、实际元数据解析运行依赖及产物复用（2026-10-08）
+
+prepare_environment增加可选build_only=true，在同一受限Jobs中以原生pip PEP517构建一次，跳过运行安装。生成wheel与实际Core Metadata作为独立不可变产物，source-build-lock.json记录来源/构建wheels/生成wheel及元数据大小/SHA、固定镜像、pip版本与runtime_installation=false。容器有界读取wheel成员；宿主不解包或执行包。Environments.built核对当前任务/修订确认的真实成功Jobs、精确生成代码、源码/配方、产物生产者与字节，返回prepared_wheels。明确写入source_build_only并在观察与环境解析中拒绝该用途提供后端伪造的environment.zip；故障夹具验证此边界。
+
+resolve_dependencies接收built_wheel_artifact_ids，共享原Core Metadata验证与resolvelib，而非复制解析算法。实际wheel/元数据和无输入探测目标须同真实镜像；精确元数据审批绑定这些产物SHA，网络请求前和解析锁读回时复核。既有构建项目只能选传入产物，运行传递依赖仍按原Simple索引/Core Metadata解析。返回远程wheels与选中构建IDs分别供获取/安装，完整解析锁绑定两组；下载审批只授权远程子集，不替换已生成wheel。确认摘要/无进展指纹保持真实来源，新UUID不当作新进展。修复摘要验证的嵌套SQLite事务，移到短快照事务之后核验真实资源，不新增状态系统。
+
+198定向70项69通过/1原预算失败；精简重复工具说明后199定向22项通过，200中间311项完整通过。加入运行闭包后201定向有夹具误用目标artifact对象及重复说明预算失败，202有嵌套SQLite失败；按实际ID/事务边界修复，203定向73项全通过，204中间312项完整通过。加入明确构建用途与伪环境拒绝后205定向34项通过；206最终完整 **313 passed（76.06秒）**，Ruff/diff通过。原模型输入/输出预算、夹具和检查保留，不通过提高预算追求通过。
+
+`scripts/smoke_public_source.py --build-only`不调用模型。中间trial94c0ec4d-fcfa-4f75-a1d6-db2af067705b只证明产物复用，当时运行依赖还由脚本预列；后续trialf7cd83f0-9dd6-40a4-9b77-680f96a434f2已由实际元数据推导，但早于明确用途字段。最终trial **dbb88802-267c-4482-995a-43da84804b9f** / task **c1c747f2-bf32-45e2-ab94-591a8f1a9dab**在最后代码下返回0，**16项工具检查全部通过**：
+
+- 官方sampleproject4.0.0 sdist大小5760/SHA保持；缺setuptools失败后，实际探测并只解析/下载构建根setuptools80.9.0与wheel0.45.1。
+- 原生PEP517只成功构建一次，实际生成wheel及元数据读回。运行解析唯一根sampleproject==4.0.0，peppercorn由真实Requires-Dist自动补出，没有脚本预列运行根。
+- 5项独立精确审批依次为源码下载、构建元数据、构建wheel下载、运行元数据、运行wheel下载；最终仅下载peppercorn远程wheel。运行缺依赖真实失败保留，成功安装复用同一构建wheel ID/SHA，不重跑源码后端，也不把构建工具装入最终环境。
+- 7作业确认终态（2预期失败、1探测、1只构建、1安装、2计算）；实际两次sample.simple.add_one(41)=42，版本4.0.0/0.6、UID65534/网络阻断，两个计算JSON实际生产/读回，同环境/镜像、只读源和宿主包不变。
+
+最终public-source-real-<trial>.json保存实际动作/日志/产物/容器。独立只读 **21项全部通过**，public-source-metadata-audit-<task>-v1.json直接核验DB生产者、所有产物字节/大小、5项精确审批/源码与元数据锁/失败安装及成功安装的同wheel、实际Docker身份/终态/只读挂载/原6 GiB/4 CPU/非root/断网、两个计算与读回。审计初次误查不存在的model_requests表而异常，输出保留；改查实际contexts表并零执行重审同一试次，没有重跑模型/作业。零上下文、model_used=false，不计作模型或科学验收。
+
+专用8769服务在旧PID55384/create1791392320.671383/cwd/cmd及当前任务/作业/动作/assignment闲置核验后加载1.19，新的实际PID32744/create1791428983.9158776，健康application/database ready、domain not_implemented；历史暂停任务未自动继续。没有新增库、能力、迁移、执行器或产品UI构建。
+
+本轮原source-build.spec.ts增加显式SOURCE_BUILD_ONLY_UI模式，保留原v2全部默认检查；新模式沿用同一已授权本地夹具，要求源码只构建一次、实际锁/元数据读回、只用生成wheel独立安装、两次真实调用产生JSON、完整中文报告和真实来源。没有产品UI更改或重新构建。ui-source-build-only-tests-20261008-v1.json为 **1 passed / 1 failed（3.4分钟）**，固定reporter输出先保存在ui-tests.json，核对两个实际新模式标题后原字节复制到独立文件（配置outputFile使环境变量覆盖未生效，不重跑模型）。
+
+- small task **5d95ab0c-28dd-4727-8254-69ffbb781d3d**：21次实际请求，7真实作业。只构建/安装均成功，第一次真实调用并保存source-result-1.json正确；随后把版本当答案、int('1.0')失败，再硬编码“假设版本1.0对应42”而只打印、不生成第二个JSON，重复工作/读回后按原无进展上限paused。没有第二个所需JSON或报告，UI失败；独立18项有6项工作质量失败。源码/生成wheel/安装/隔离检查通过不覆盖这次失败。
+- large task **64d9508c-5f9a-4dd4-88ad-5233500d47d0**：13次实际请求，4真实成功作业（1只构建、1独立安装、2真实函数调用）。wheel/元数据由实际构建产生，安装仅此wheel，两个JSON正确且由实际计算作业生产、所有锁/元数据/结果/报告读回，中文报告包含真实源与生成wheel SHA、环境及4个job_id；桌面/手机工作台完整通过。独立 **18项全部通过**，实际只读产物字节/DB来源/容器再次核对。
+
+只读来源证据source-build-only-ui-provenance-<task>-v1.json分别记录失败与通过。两任务 **34份实际发出输入审计全部通过**（21+13），source-context-audit-<task>-build-only-v1.json核对实际字节/原生消息顺序与工具或绑定纠正响应、完整目标/当前请求/输入只读范围/修订/Schema、正实测用量/原预算与真实回执来源。该夹具无运行依赖、不调用网络，未涉及已确认built_wheels解析摘要，不冒充模型自动运行闭包或自主公开源码获取。历史1.18源码UI v2失败/通过及本轮小模型失败均保留。输入/来源通过不替代两模型稳定通用质量。
+
+自动源码候选、静态/动态构建依赖发现与审批获取回退、编译器/系统库、其他运行时/缺哈希元数据回退、完整恢复/角色/通用评估仍待完成。阶段1出口未通过；真实ODM/PDAL/lidR、六组合重复/holdout、用户pilot选择低资源、真实≥100 GB及发布/干净安装/备份恢复完整范围不变。Agent联网搜索继续用户暂缓。
+
+English: Build-only source Jobs produce immutable wheels and actual metadata for the existing resolver. Runtime dependencies are derived from generated Requires-Dist and separately approved remote wheels; missing-runtime repair reuses the same built wheel without executing the backend again. Explicit Job purpose prevents a forged installed-environment product. All 313 final regressions, 16 final public direct-tool checks and 21 independent record/byte/container checks pass. These are not model or scientific acceptance. The full remaining source/build/compiler/runtime/recovery/role/general/domain/evaluation/scale/release scope remains pending; search stays deferred.

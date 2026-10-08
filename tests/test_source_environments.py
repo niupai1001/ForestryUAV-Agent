@@ -14,16 +14,18 @@ from forestry_agent.jobs import Jobs
 from forestry_agent.roles import AssignmentRequest
 
 
-def source_job(client, app, tmp_path):
+def source_job(client, app, tmp_path, *, build_only=False):
     source, ref = wheel(client, tmp_path, "fixture.tar.gz", "source")
     state, _ = task(client, input_refs=[ref])
     engine, docker = app.state.engine, ExecutorFixture()
     jobs = Jobs(engine.config, engine.store, engine.resources, docker)
     environments = Environments(engine.config, engine.store, engine.resources, jobs)
     jobs.environment_resolver = environments.resolve
+    jobs.source_build_resolver = environments.built
+    jobs.input_artifact_validator = environments.acquired_package
     deps = Deps(engine, state["task_id"], "source-fixture", 1)
-    reply = engine.perform(deps, "build", "environment.prepare", {"input_refs":[ref], "source_refs":[ref]},
-        lambda action: environments.prepare(state["task_id"], 1, action, [], source_refs=[ref]))
+    reply = engine.perform(deps, "build", "environment.prepare", {"input_refs":[ref], "source_refs":[ref], 'build_only':build_only},
+        lambda action: environments.prepare(state["task_id"], 1, action, [], source_refs=[ref], build_only=build_only))
     assert reply["kind"] == "completed"
     return source, ref, state, deps, jobs, environments, reply["job"]["job_id"]
 

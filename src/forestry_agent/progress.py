@@ -42,11 +42,12 @@ def observation(tool, result):
         # new task evidence. Keep release/hash/source facts, not receipt handles.
         value.pop("wheel_artifact_ids", None)
         value.pop("source_artifact_ids", None)
+        value.pop('built_wheel_artifact_ids', None)
         value.pop("lock_artifact_id", None)
         value.pop("resolution_lock_artifact_id", None)
         value.pop("target_artifact_id", None)
         value.pop("metadata_requests", None)
-        for group in ['wheels', 'source_packages']:
+        for group in ['wheels', 'source_packages', 'built_wheels']:
             if group in value:
                 value[group] = [{k: v for k, v in package.items() if k not in
                     {"artifact_id", "metadata_artifact_id", "hops", "observed_at"}} for package in value[group]]

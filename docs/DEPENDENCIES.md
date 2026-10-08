@@ -1,5 +1,15 @@
 # 范围依赖准备与复用
 
+## 1.19：构建wheel复用与实际元数据运行依赖解析
+
+需要先取得构建产物或避免缺运行依赖时重复构建，可以沿用prepare_environment的源码/wheel参数并传build_only=true。必须有源码，仍需environment.prepare和code.execute，源码后端只在原断网受限Jobs执行。wait_job成功返回prepared_wheels.wheel_artifact_ids、built_wheels里的metadata_artifact_id及lock_artifact_id；它没有prepared_environment，不能直接给code_execute。source-build-lock.json和独立.metadata记录实际生产者、源码/生成wheel/元数据SHA、pip原生隔离与runtime_installation=false。元数据只在容器读取wheel，宿主只核验有界纯文本/字节。
+
+把根PEP508需求、实际目标target_artifact_id和上述built_wheel_artifact_ids交resolve_dependencies；私密任务仍需精确元数据审批，批准后保留全部相同参数重调。现有resolvelib从实际生成Requires-Dist推导依赖、extra和marker。返回wheels只包含需下载的远程项，返回built_wheel_artifact_ids包含选中的既有构建产物；解析锁绑定两组及Core Metadata SHA和真实目标镜像。非空wheels/解析锁交acquire_dependencies另行精确审批，下载成功后合并远程wheel_artifact_ids与既有构建IDs交prepare_environment，不再传源码或build_only。无远程项可直接安装已有wheel IDs。构建工具无需进入最终环境，实际pip仍核验完整依赖和哈希，不自动跳过缺项。
+
+生成wheel只可由当前任务/修订确认的真实构建作业供给；在解析、下载锁检查及排队安装时重新核验源配方/实际产物/SHA。Jobs保存source_build_only用途，观察只返回prepared_wheels；即使源码后端额外写出environment.zip，也不能被该作业授权为已安装环境。原生循环、权限交集、固定镜像、只读输入、断网/非root及原资源/请求预算保持。
+
+`scripts/smoke_public_source.py --config config/app.wsl.example.yaml --source pypi --build-only`的最终试次只为构建工具显式列根需求。源码构建一次后，以sampleproject==4.0.0为唯一运行根，由实际元数据推导peppercorn；保留缺构建/运行依赖两个真实失败，补齐后复用同wheel/同镜像并计算两次。16项工具及21项独立来源检查通过，完整回归313项通过；无模型/科学验收。自动公开源码候选及静态/动态构建依赖获取回退、编译器/系统库支持尚待实现。最新只构建/安装本地模型UI大模型通过/独立18项通过，小模型因第二次计算猜测答案且缺JSON/报告而失败；34份实际输入审计不替代质量。完整其余门槛见STATUS；搜索继续用户暂缓。下文1.18及更早为历史。
+
 ## 1.18：精确公开源码获取
 
 在既有acquire_dependencies中使用source_packages，例如`[{"name":"sampleproject","version":"4.0.0","filename":"sampleproject-4.0.0.tar.gz"}]`；源码单独请求时可省略wheels。wheels只接受.whl，source_packages只接受.tar.gz/.zip；每次所有文件总计1–32项/128 MiB，包名与文件名不得重复。私密任务核对完整精确载荷后审批，用相同参数和此approval_id重调；获取核对官方JSON里的sdist类型、名字/版本、未撤回状态、文件名、大小及SHA，下载只保存不可变字节。[PyPI发行JSON](https://docs.pypi.org/api/json/)、[源码发行格式](https://packaging.python.org/en/latest/specifications/source-distribution-format/)
