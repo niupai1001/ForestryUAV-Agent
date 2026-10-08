@@ -1,4 +1,8 @@
-# 修订后的实施基线 · 1.19
+# 修订后的实施基线 · 1.20
+
+1.20 将公开源码候选接入既有 resolvelib：输入原 PEP508 需求和实际目标，解析器依据版本约束、extra/marker、Requires-Python 与兼容标签选择候选；同版本兼容 wheel 优先。没有可用 wheel 而选中源码时，只读取索引，不下载归档、不执行后端，返回 source_candidates 和 resolution_complete=false。原 resolution-lock.json 使用 python_source_candidate 用途，记录实际索引、目标与精确源码 SHA；它仅锁定一个候选，不证明完整依赖闭包。source_packages 与该锁交 acquire_dependencies，仍须独立精确下载审批。生成 wheel 的名称/PEP440 版本必须与已确认获取的源码身份相符；已有 wheel 解析锁仍不能授权源码。之后复用既有断网 build_only、实际元数据解析原运行需求和完整安装链。没有新增库、能力、迁移、执行器、工具参数或产品 UI。
+
+最终 328 项完整回归通过（59.50 秒），Ruff/diff 通过。真实 docopt==0.6.2 仅提供包名和版本，由实际官方索引选出源码；五次独立审批、六个实际终态 Jobs（含一个预期缺构建依赖失败），源码成功构建一次，最终环境只含 docopt，两次真实 docopt.docopt 调用及 JSON 读回正确。21 项工具检查和 25 项独立记录/字节/容器来源核对通过。本轮直接工具试次不调用模型，也未新增模型 UI 试次；1.19 大模型通过、小模型缺第二个 JSON/报告的失败保留。脚本仍显式列出构建工具，静态/动态构建依赖自动发现与审批获取、跨源码构建的自动回退、编译器/系统库、其他运行时/元数据回退及完整恢复/角色/通用/领域/评估/规模/发布仍待完成。阶段 1 未通过，Agent 联网搜索继续暂缓。下文 1.19 及更早为历史。
 
 1.19把源码构建与最终安装分开：prepare_environment(build_only=true)仍由原断网Jobs和原生pip PEP517构建，返回prepared_wheels而非已安装环境。生成wheel及其实际Core Metadata作为有生产者/大小/SHA的独立产物，source-build-lock.json记录源码和构建配方。resolve_dependencies(built_wheel_artifact_ids=...)沿用resolvelib，用这些元数据解析完整运行依赖；只对远程wheel另行审批获取，已有构建wheel不被公开下载替换。缺依赖安装失败后可复用同一构建产物，无需重新执行源码后端。最终安装仍完整哈希/依赖核验；构建用途写入Jobs并拒绝将后端伪造的environment.zip认作可运行环境。没有新增库、能力、迁移、执行器或前端产品改动。
 

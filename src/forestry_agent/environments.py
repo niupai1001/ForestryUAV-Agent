@@ -162,7 +162,7 @@ class Environments:
                 if artifact_id in built['wheel_artifact_ids']:
                     return artifact
             raise Failure("PERMISSION_DENIED", "发行文件类型/产物须匹配本任务当前修订已确认的依赖获取动作", 403)
-        return artifact
+        return {**artifact, **({'package_name':record['name'], 'package_version':record['version']} if source else {})}
 
     def prepare(self, task_id, revision, action_id, wheel_refs, seconds=300, *, wheel_artifact_ids=None, source_refs=None,
                 source_artifact_ids=None, build_only=False):
@@ -228,6 +228,7 @@ class Environments:
         the complete dependency closure. No wheel is opened on the host.
         """
         from packaging.utils import InvalidWheelFilename, parse_wheel_filename
+        from packaging.version import Version
 
         from .resolution import core_metadata, requirement
 
@@ -265,6 +266,11 @@ class Environments:
                     record['metadata_size_bytes'] != metadata.get('size_bytes') or not 0 < metadata['size_bytes'] <= 2*1024*1024):
                     raise ValueError('built products/provenance')
                 name, version_value, _, _ = parse_wheel_filename(record['filename'])
+                if source.get('source_kind') == 'acquired_artifact':
+                    acquired = self.acquired_source(task_id,revision,source['resource_id'])
+                    if (name != acquired['package_name'] or version_value != Version(acquired['package_version']) or
+                        acquired['sha256'] != source['sha256']):
+                        raise ValueError('built wheel differs from acquired source project/version')
                 dependencies = core_metadata(native_path(metadata['locator']).read_bytes(), name, version_value, manifest['python'])
                 # A source backend cannot add a private/direct URL by returning it
                 # in generated metadata; the existing public requirement contract applies.
@@ -319,5 +325,16 @@ class Environments:
                     record.get("source_sha256") != source["sha256"] or record.get("sha256") != product["sha256"] or
                     record.get("size_bytes") != product["size_bytes"]):
                     raise Failure("VERIFICATION_FAILED", "构建wheel与实际登记产物不一致", 422)
+                if source.get('source_kind') == 'acquired_artifact':
+                    from packaging.utils import InvalidWheelFilename, parse_wheel_filename
+                    from packaging.version import Version
+
+                    acquired = self.acquired_source(task_id,revision,source['resource_id'])
+                    try:
+                        name, v, _, _ = parse_wheel_filename(record['filename'])
+                        if name != acquired['package_name'] or v != Version(acquired['package_version']):
+                            raise ValueError('acquired source identity')
+                    except (ValueError, InvalidWheelFilename) as error:
+                        raise Failure('VERIFICATION_FAILED', '生成wheel的项目/版本须匹配实际获取的源码',422) from error
         return {"artifact_id": artifact_id, "sha256": artifact["sha256"], "source": artifact["locator"],
             "image_id": job["image_id"], "manifest": manifest, "lock_artifact_id": lock["artifact_id"]}

@@ -1,5 +1,15 @@
 # 范围依赖准备与复用
 
+## 1.20：自动源码候选与用途明确的解析锁
+
+resolve_dependencies 使用原 requirements、target_artifact_id、source 和可选 built_wheel_artifact_ids。依赖元数据读取仍采用原精确审批，原 64 请求/32 项目/32 MiB/100 解析轮/180 秒与目标/授权检查保持。官方索引里的 .tar.gz/.zip 须匹配项目、版本、Requires-Python、未撤回状态、SHA 和文件主机/路径；兼容 wheel 在同版本优先。若原生解析选中源码，返回 wheels=[]、source_candidates（name/version/filename）、source_candidate_sha256 和 resolution_complete=false；此时没有下载或解包源码，也没有执行后端。
+
+python_source_candidate 锁将该候选绑定到不可变实际索引、目标/镜像、原需求、extra 和 SHA，不能当作完整运行依赖闭包。将 source_candidates 作为 source_packages，与同一 resolution_lock_artifact_id 传给 acquire_dependencies；源码下载须另行精确审批，官方发行 SHA 必须同时匹配候选锁，不能混入 wheel 或换选文件。python_wheel_resolution 锁继续只授权完整远程 wheel 子集，不能授权源码。当前工具参数/能力、动作记录和确认来源机制复用，不另建流程调度器。H1/H2 已确认候选事实也明确标记闭包未完成，不证明安装或当前可复用性。
+
+取得 source_artifact_ids 后，沿用下文 build_only 和实际元数据流程；构建依赖目前仍须提供已核验 wheel。构建生成的项目名与 PEP440 版本必须匹配当前已确认源码的获取身份（等价版本如 1.17/1.17.0 可通过）。随后以原运行 requirements 和生成 built_wheel_artifact_ids 重新解析，只有完整 wheel 解析锁才表示该轮依赖闭包完成；有远程项另批下载，否则直接用已有 wheel 完整安装。当前候选选择会在构建前停止，尚未自动跨未构建源码版本回溯处理后续冲突；需要显式收窄需求重新选择，不宣称完整源码自动修复。
+
+真实验证：`scripts/smoke_public_source.py --config config/app.wsl.example.yaml --source pypi --source-candidate` 只给 docopt==0.6.2 根需求，不指定源码文件名，实际索引选出 docopt-0.6.2.tar.gz。五次独立审批、六个终态 Jobs、一次成功构建、独立最终安装及两次实际函数调用/JSON 读回，21 项工具检查和 25 项独立来源检查通过。固定 Python3.12.15/pip25.0.1 的实际日志显示 PEP517 构建，即使该版本源码为 setup.py 项目。脚本仍预列 setuptools/wheel 构建工具，未证明构建依赖自动发现。328 项最终完整回归通过；本轮无模型/UI 或科学验收，1.19 模型试次原失败保留。静态/动态构建依赖发现与审批获取、编译器/系统库、其他运行时/缺哈希元数据回退及完整阶段门槛保持。搜索继续用户暂缓；下文 1.19 及更早为历史。
+
 ## 1.19：构建wheel复用与实际元数据运行依赖解析
 
 需要先取得构建产物或避免缺运行依赖时重复构建，可以沿用prepare_environment的源码/wheel参数并传build_only=true。必须有源码，仍需environment.prepare和code.execute，源码后端只在原断网受限Jobs执行。wait_job成功返回prepared_wheels.wheel_artifact_ids、built_wheels里的metadata_artifact_id及lock_artifact_id；它没有prepared_environment，不能直接给code_execute。source-build-lock.json和独立.metadata记录实际生产者、源码/生成wheel/元数据SHA、pip原生隔离与runtime_installation=false。元数据只在容器读取wheel，宿主只核验有界纯文本/字节。

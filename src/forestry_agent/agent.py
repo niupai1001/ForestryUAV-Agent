@@ -575,7 +575,9 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
                         "environment_observation_action_id仅来自匹配确认回执；锁文件不是环境，不读二进制归档。") + (
                         recovery_note if recovery else "") + (
                             "\nconfirmed_dependency_receipts仅是当前修订已确认解析/下载的来源回执，不证明当前完整性/安装/任务验收；实际复用仍由工具核验。"
-                            "不要重复已完成的解析/下载；按完整目标继续安装、计算、读回及报告。审批不可跨请求混用；scope_is_summary的终态记录不能授权。" if dependency_receipts else "")
+                            "不要重复已完成的解析/下载；按完整目标继续安装、计算、读回及报告。审批不可跨请求混用；scope_is_summary的终态记录不能授权。" if dependency_receipts else "") + (
+                                "\nsource_candidate仅提出源码，resolution_complete=false；取得/构建后须用生成wheel IDs再解析原运行需求，不能将候选锁当完整闭包或已安装环境。"
+                                if any(r['operation']=='source_candidate' for r in dependency_receipts) else "")
 
         def execute(ctx, kind, args, operation):
             return self.perform(ctx.deps, ctx.tool_call_id or f"{ctx.run_step}:{kind}", kind, args, operation)
@@ -728,7 +730,7 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
         async def resolve_dependencies(ctx: RunContext[Deps], requirements: list[str],
                 target_artifact_id: UUID | None = None, approval_id: str | None = None,
                 built_wheel_artifact_ids: list[str] | None = None) -> dict:
-            """PEP508解析wheel闭包；无target先断网无输入探测(需code.execute)，wait_job后传目标ID。
+            """PEP508解析wheel闭包或源码候选；无target先断网无输入探测(需code.execute)，wait_job后传目标ID。
             built_wheel_artifact_ids复用源码元数据；私密审批后带approval_id。下载wheels/锁后与built IDs合并安装。
             """
             target = str(target_artifact_id) if target_artifact_id is not None else None
@@ -746,7 +748,7 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
                 resolution_lock_artifact_id: str | None = None, source_packages: list[PackageRequest] | None = None) -> dict:
             """精确name/version/filename下载1–32文件/128MiB，核对PyPI大小/SHA；不执行包。
             wheels只收.whl；source_packages收.tar.gz/.zip。私密任务审批后带approval_id重调。
-            wheel解析锁仅绑定wheels；下载的wheel_artifact_ids/source_artifact_ids交prepare_environment。
+            解析锁按用途绑定wheels或源码候选；下载的*_artifact_ids交prepare_environment。
             """
             payload = [w.model_dump() for w in (wheels or [])]
             args = {"wheels": payload, "source": source, "approval_id": approval_id}

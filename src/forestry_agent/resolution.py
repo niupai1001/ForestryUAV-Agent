@@ -17,12 +17,19 @@ from urllib.parse import unquote, urlsplit
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.tags import compatible_tags, cpython_tags
-from packaging.utils import InvalidWheelFilename, canonicalize_name, parse_wheel_filename
+from packaging.utils import (
+    InvalidSdistFilename,
+    InvalidWheelFilename,
+    canonicalize_name,
+    parse_sdist_filename,
+    parse_wheel_filename,
+)
 from packaging.version import InvalidVersion, Version
 from resolvelib import AbstractProvider, BaseReporter, Resolver
 from resolvelib.resolvers import ResolutionImpossible, ResolutionTooDeep
 
 from .contracts import Failure
+from .environments import SOURCE_NAME
 from .network import MAX_BYTES, url_parts
 from .resources import native_path, version
 from .store import encode
@@ -108,6 +115,18 @@ class Candidate:
     extras: frozenset[str] = frozenset()
     artifact_id: str | None = None
     metadata_artifact_id: str | None = None
+    source_distribution: bool = False
+
+
+class SourceRequired(Exception):
+    """Native resolver selected a source whose runtime metadata needs a build.
+
+    This ends metadata-only work before archive download or backend execution;
+    the candidate is a hypothesis, never a complete installed dependency graph.
+    """
+    def __init__(self, candidate):
+        self.candidate = candidate
+        super().__init__(candidate.filename)
 
 
 class WheelProvider(AbstractProvider):
@@ -152,14 +171,23 @@ class WheelProvider(AbstractProvider):
             if canonicalize_name(index['name']) != name or str(index['meta']['api-version']).split('.')[0] != '1':
                 raise ValueError('index identity/version')
             for entry in index['files']:
-                if not entry['filename'].endswith('.whl') or entry.get('yanked', False) is not False:
+                source_distribution = entry['filename'].endswith(('.tar.gz', '.zip'))
+                if (not source_distribution and not entry['filename'].endswith('.whl')) or entry.get('yanked', False) is not False:
+                    continue
+                if source_distribution and not SOURCE_NAME.fullmatch(entry['filename']):
                     continue
                 try:
-                    package, v, _, tags = parse_wheel_filename(entry['filename'])
-                    supported = tags & self.tags.keys()
+                    if source_distribution:
+                        package, v = parse_sdist_filename(entry['filename'])
+                        if len(str(v)) > 100:
+                            continue
+                        supported = self.tags.keys()
+                    else:
+                        package, v, _, tags = parse_wheel_filename(entry['filename'])
+                        supported = tags & self.tags.keys()
                     if package != name or not supported or not SpecifierSet(entry.get('requires-python') or '').contains(self.target['python_full_version']):
                         continue
-                except (InvalidWheelFilename, InvalidSpecifier):
+                except (InvalidSdistFilename, InvalidWheelFilename, InvalidSpecifier):
                     continue
                 url, _, _, origin = url_parts(entry['url'])
                 parts = urlsplit(entry['url'])
@@ -168,10 +196,12 @@ class WheelProvider(AbstractProvider):
                 metadata_hash = core.get('sha256', '') if isinstance(core, dict) else ''
                 if (origin != 'https://files.pythonhosted.org' or not parts.path.startswith('/packages/') or
                     parts.query or parts.fragment or unquote(parts.path.rsplit('/', 1)[-1]) != entry['filename'] or
-                    not re.fullmatch('[0-9a-f]{64}', wheel_hash) or not re.fullmatch('[0-9a-f]{64}', metadata_hash)):
+                    not re.fullmatch('[0-9a-f]{64}', wheel_hash) or
+                    (not source_distribution and not re.fullmatch('[0-9a-f]{64}', metadata_hash))):
                     continue
                 self.indices[name].append(Candidate(name, v, entry['filename'], url, wheel_hash, metadata_hash,
-                    entry.get('requires-python') or '', min(self.tags[t] for t in supported)))
+                    entry.get('requires-python') or '', len(self.tags) if source_distribution else min(self.tags[t] for t in supported),
+                    source_distribution=source_distribution))
         except (ValueError, KeyError, TypeError) as error:
             raise Failure('VERIFICATION_FAILED', 'PyPI Simple索引身份、版本或结构不合法', 422) from error
         return self.indices[name]
@@ -190,6 +220,8 @@ class WheelProvider(AbstractProvider):
             frozenset(canonicalize_name(e) for e in requirement.extras) <= frozenset(canonicalize_name(e) for e in candidate.extras))
 
     def get_dependencies(self, candidate):
+        if candidate.source_distribution:
+            raise SourceRequired(candidate)
         if candidate.url not in self.metadata:
             data = self.fetch(candidate.url+'.metadata')
             if hashlib.sha256(data).hexdigest() != candidate.metadata_sha:
@@ -222,7 +254,7 @@ class DependencyResolution:
         target_tags(target)
         return target, artifact, job
 
-    def lock(self, deps, artifact_id):
+    def lock(self, deps, artifact_id, *, source_candidate=False):
         artifact = self.engine.resources.artifact(artifact_id, deps.task_id)
         with self.store.transaction() as db:
             row = db.execute("SELECT result FROM actions WHERE id=? AND task_id=? AND revision=? "
@@ -231,6 +263,8 @@ class DependencyResolution:
         if receipt.get('kind') != 'completed' or receipt.get('resolution_lock_artifact_id') != artifact_id or artifact['size_bytes'] > 512*1024:
             raise Failure('PERMISSION_DENIED', '需当前任务/修订已确认的解析锁', 403)
         lock = json.loads(native_path(artifact['locator']).read_bytes())
+        if lock.get('kind') != ('python_source_candidate' if source_candidate else 'python_wheel_resolution'):
+            raise Failure('VERSION_CONFLICT', 'wheel解析锁不授权源码；源码候选锁仅授权其精确源码，仍须独立下载审批', 409)
         _, target_artifact, job = self.target(deps, lock['target_artifact_id'])
         if target_artifact['sha256'] != lock['target_sha256'] or job['image_id'] != lock['image_id']:
             raise Failure('VERSION_CONFLICT', '解析目标身份已变化', 409)
@@ -296,7 +330,7 @@ class DependencyResolution:
             'metadata_only': True, 'package_execution': False}
         admitted = self.engine.network.admit(deps, action_id, request, hashlib.sha256(encode(request).encode()).hexdigest(), approval_id)
         if isinstance(admitted, dict):
-            return {**admitted, 'continuation': '这是元数据解析审批，尚无wheel解析结果；批准后用相同requirements/target_artifact_id及此approval_id重调resolve_dependencies。解析成功才用返回wheels/解析锁调用acquire_dependencies并提出独立下载审批。'}
+            return {**admitted, 'continuation': '这是元数据解析审批；用同requirements/target_artifact_id/built_wheel_artifact_ids（若有）及此approval_id重调resolve_dependencies。结果wheels或source_candidates/解析锁交acquire_dependencies独立下载审批，源码候选不等于完整闭包。'}
         deadline, snapshots, total, wire_total, requests_used = time.monotonic()+180, [], sum(len(data) for _,data in built), 0, 0
         def guard(url, expected):
             if url_parts(url)[0] != expected:
@@ -349,6 +383,22 @@ class DependencyResolution:
         roots = [r for r in roots if r.marker is None or r.marker.evaluate(provider.environment)]
         try:
             resolved = Resolver(provider, BaseReporter()).resolve(roots, max_rounds=100)
+        except SourceRequired as needed:
+            candidate = needed.candidate
+            guard(request['url'], request['url'])
+            selected = {'name':candidate.name, 'version':str(candidate.version), 'filename':candidate.filename,
+                'sha256':candidate.wheel_sha, 'url':candidate.url, 'requires_python':candidate.requires_python,
+                'extras':sorted(candidate.extras)}
+            lock = self.engine.resources.write(deps.task_id, action_id, f'dependencies/{action_id}/resolution-lock.json',
+                json.dumps({'schema_version':1,'kind':'python_source_candidate','requirements':requirements,
+                    'target':target,'target_artifact_id':target_artifact_id,'target_sha256':artifact['sha256'],
+                    'image_id':job['image_id'],'selected':[selected],'metadata_snapshots':snapshots,
+                    'resolver':'resolvelib','resolution_complete':False,'package_execution':False},ensure_ascii=False,indent=2))
+            return {'wheels':[], 'source_candidates':[{k:selected[k] for k in ['name','version','filename']}],
+                'source_candidate_sha256':{candidate.filename:candidate.wheel_sha},
+                'resolution_lock_artifact_id':lock['artifact_id'],'target_artifact_id':target_artifact_id,
+                'resolution_complete':False,'metadata_requests':requests_used,'package_execution':False,
+                'continuation':'此为源码候选，尚无完整依赖闭包。source_candidates作为source_packages与此解析锁交acquire_dependencies独立审批；取得源码后在原断网Jobs发现/补构建依赖并build_only，生成wheel IDs重交原requirements/目标的resolve_dependencies，再完整安装。'}
         except ResolutionImpossible as error:
             raise Failure('DEPENDENCY_CONFLICT', '没有满足全部约束的兼容wheel闭包；可能冲突、缺失文件级元数据或仅有源码包', 422) from error
         except ResolutionTooDeep as error:

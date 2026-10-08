@@ -8,8 +8,8 @@
 |---|---|---|---|---|
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
-| P2 | in_progress | 动作/attempt、去重、修订隔离、检查点；断网Jobs/WSL/恢复；目标探测、PEP508解析/获取、精确公开源码/PEP517构建及离线复用；1.19只构建/实际元数据补运行依赖/同wheel复用；回执/错误ID及审批阶段说明 | 1.19公开源码工具16项/独立21项与313项最终回归通过；1.18源码v2大模型UI/15项来源检查通过，小模型报告失败 | 自动源码候选/构建依赖回退、编译器/系统库、其他运行时/元数据回退、依赖传输持续核验、两模型稳定依赖质量、完整资源准入及恢复窗口、调试/报告质量 |
-| P3 | in_progress | 验收/清单、文档/知识/记忆、原生上下文/角色、H0/H1/H2；范围与修订、来源事实、原生计划、目标去重、有界纠正；依赖摘要及继续消息 | 完整回归313项；历史范围恢复/修订UI通过；源码v2共21份实际输入审计通过，v1/v7证据保留；v6跨轮次来源证据保留；v5测量缺失单列；历史组件/复合证据及全部失败分存 | 审批/失败恢复及完整工作保持、试次运行隔离、角色异常/冲突交互、两模型本地通用及长任务质量、报告/通用评估；搜索暂缓 |
+| P2 | in_progress | 动作/attempt、去重、修订隔离、检查点；断网 Jobs/WSL/恢复；目标探测、PEP508 解析/获取、公开源码/PEP517 构建及离线复用；1.20 自动源码候选、用途锁与生成 wheel 身份绑定；只构建/实际元数据补运行依赖/同 wheel 复用 | 最终 328 项完整回归；1.20 docopt 工具 21 项/独立来源 25 项通过；1.19 本地源码只构建 UI 大模型通过、小模型失败均保留 | 自动发现静态/动态构建依赖及审批获取、跨源码构建回退、编译器/系统库、其他运行时/元数据回退、传输核验、两模型稳定依赖质量、完整资源准入/恢复窗口及调试/报告质量 |
+| P3 | in_progress | 验收/清单、文档/知识/记忆、原生上下文/角色、H0/H1/H2；范围/修订、来源事实、原生计划、目标去重、有界纠正；候选事实明确闭包未完成 | 完整回归 328 项；1.20 无新模型/UI 试次；1.19 两模型 34 份输入审计通过，质量一通过/一失败；历史恢复/修订、用量及所有组件/复合试次和失败保留 | 审批/失败恢复及完整工作保持、运行隔离、角色异常/冲突交互、两模型本地通用/长任务质量、报告/通用评估；搜索暂缓 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -377,7 +377,7 @@ English: Dependency indexes alone negotiate bounded gzip. Wire/decoded per-respo
 
 脚本收尾后再次实际运行，试次 `26a3dc4a-0562-44a4-88db-0cb26d1b1eb7`、task `0b6e9e64-944c-44fe-936f-6c7a2904a3a3` 返回0；原15项检查再次全通过，六个作业终态均确认（预期失败3个、成功安装及复用3个），cleanup无未确认项。此成功路径不冒充观察超时或停止拒绝的实测。证据 `dependencies-real-26a3dc4a-0562-44a4-88db-0cb26d1b1eb7.json`。最终Ruff/diff及Python语法检查通过。
 
-继续P2自动源码候选/构建及运行依赖回退、编译器/系统库与其他运行时/元数据回退及剩余真实恢复窗口；继续核验原生压缩和跨轮次用量绑定，保持完整目标/权限/当前请求及原模型预算；继续核验依赖元数据传输与预算，处理小模型无响应/重复操作与报告质量，并验证新试次隔离，再闭合角色、本地UI和通用评估。单次大模型流程、工具脚本15项及历史审批下载组件通过不代表两模型稳定质量或阶段1；不通过增加预算或删除检查追求通过。Agent联网搜索暂缓。阶段1其余门槛验收前不开发领域功能。低资源硬件由用户在pilot后决定，不填入假定设备或测量。
+继续 P2 自动发现静态/动态构建依赖及独立审批获取、跨源码构建回退、编译器/系统库、其他运行时/元数据回退和剩余真实恢复窗口；保持当前来源/权限/目标及原预算，核验传输、原生续接和试次隔离，解决小模型重复操作、猜测结果与报告质量，再闭合角色、本地 UI 和通用评估。1.20 真实源码候选工具通过不代表模型自主完整回退或阶段 1；不增加预算或删除检查追求通过。Agent 联网搜索暂缓。阶段 1 其余门槛验收前不开发领域功能。低资源硬件由用户在 pilot 后决定，不填入假定设备或测量。
 
 
 ## Baseline 1.17 / 授权本地源码构建与实际来源核验（2026-10-08）
@@ -453,3 +453,25 @@ resolve_dependencies接收built_wheel_artifact_ids，共享原Core Metadata验�
 自动源码候选、静态/动态构建依赖发现与审批获取回退、编译器/系统库、其他运行时/缺哈希元数据回退、完整恢复/角色/通用评估仍待完成。阶段1出口未通过；真实ODM/PDAL/lidR、六组合重复/holdout、用户pilot选择低资源、真实≥100 GB及发布/干净安装/备份恢复完整范围不变。Agent联网搜索继续用户暂缓。
 
 English: Build-only source Jobs produce immutable wheels and actual metadata for the existing resolver. Runtime dependencies are derived from generated Requires-Dist and separately approved remote wheels; missing-runtime repair reuses the same built wheel without executing the backend again. Explicit Job purpose prevents a forged installed-environment product. All 313 final regressions, 16 final public direct-tool checks and 21 independent record/byte/container checks pass. These are not model or scientific acceptance. The full remaining source/build/compiler/runtime/recovery/role/general/domain/evaluation/scale/release scope remains pending; search stays deferred.
+
+## Baseline 1.20 / 自动公开源码候选、独立下载锁与实际 wheel 身份（2026-10-08）
+
+既有 resolvelib provider 读取官方索引时纳入有 SHA/项目版本/Requires-Python/未撤回/官方路径检查的 .tar.gz/.zip。同版本兼容 wheel 优先；原生版本约束、extra、marker 与已有回退保持。选中源码时停止于索引，返回 source_candidates、SHA、原目标/需求的 python_source_candidate 锁及 resolution_complete=false；元数据审批不下载归档或执行源码。候选不是完整依赖闭包。acquire_dependencies 的原锁参数按用途区分候选源码和完整 wheel 集合，实际官方 SHA/目标/授权在请求边界复核，源码须新精确下载审批；wheel 锁仍不能授权源码。H1/H2 来源摘要把候选与解析/下载事实分别保留，重复同字节候选不被当作进展；历史事实不替代当前字节/版本/权限核验。
+
+已确认获取的源码名称/版本与实际生成 wheel 身份绑定，使用 PEP440 等价版本比较；错误项目/版本硬拒绝。build_only 与普通源码安装均核验，授权本地归档路径仍兼容。原 source_build.py/生成 Worker 代码未变，1.19 生成产品的可信代码校验保持兼容。源码取得、只构建、实际元数据运行解析、最终安装和代码执行沿用原工具、Jobs、权限/角色输入交集、固定镜像、断网/非 root/只读输入及预算；无新库、能力、迁移、执行器、工具参数或产品 UI 构建。
+
+验证过程保留：207/212 因驱动传错测试文件名而零测试，不能记作通过；208 原有解析/源码/上下文 71 项通过。209 新候选定向 50 通过/2 夹具失败，分别为审批 request_id 重用及 Windows 长路径写入；修正夹具后 210 定向 66 项通过。211 中间完整 328 项通过（57.32 秒）；补齐继续回合/候选来源提示后 213 定向 44 项通过。214 最终完整 **328 passed（59.50 秒）**，Ruff/diff 通过。新增 15 项候选测试覆盖原生选择/同版本 wheel 优先/传递 extra-marker/七类不合法源码拒绝、独立精确审批、SHA 漂移/锁篡改、无进展摘要及四种源码-wheel 身份结果。没有提高原预算或删除检查。
+
+真实命令：`scripts/smoke_public_source.py --config config/app.wsl.example.yaml --source pypi --source-candidate`。试次 **6d7ccd70-0ba6-4835-a315-f958160d6c11**，任务 **446cb8a7-396d-4fc3-b554-76d116fd0179**。输入仅 docopt==0.6.2，不给源码文件名；实际官方索引没有 wheel，解析选出 docopt-0.6.2.tar.gz，25901 字节，SHA49b3a825280bd66b3aa83585ef59c4a8c82f2c8a522dbe754a8bc8d08c85c491。候选锁3e100413-1825-42cb-930a-b3ef585eb092/实际目标814b9f00-7364-43a3-b5bc-b77b0840fb90明确闭包未完成；取得源码产物2eb5c1ef-37ec-4d16-b48b-1cbe7be8432c的 SHA 与实际索引和官方发行一致。
+
+五项独立单次消费审批分别为源码元数据、精确源码下载、构建工具元数据、构建 wheel 下载与实际运行元数据。六个真实 Jobs：目标探测a1e09b09-c7c7-4cf9-b463-85ab7adad963；缺构建依赖预期失败9fa2ec36-69ff-49ec-bd16-50a38f46c7b9；成功只构建95331a50-fe2d-410f-aafa-524340d11213；最终安装7f2147d8-176d-452d-801e-ed5e98dbb9b9；两次计算c14d97f4-1f34-4161-95d7-a797ffefc9f5/ba04a881-bcf6-41e7-8252-1fa33342743a。原日志包含 Getting requirements to build wheel、Preparing metadata (pyproject.toml)、Building wheel for docopt (pyproject.toml)，固定 Python3.12.15/pip25.0.1 实际使用原生 PEP517。脚本仍显式列 setuptools80.9.0/wheel0.45.1，不是构建依赖自动发现证据。
+
+生成 docopt-0.6.2-py2.py3-none-any.whl（13783 字节，SHAd9b9a99dc7eb52fd38eac68a52b8d1a32e98157274e5d2c359accf2ab747bf5d），产物4322264a-be10-4bfb-9151-8a4b3fb2b240及实际元数据均有真实生产者。以原 docopt==0.6.2 需求和该 wheel 重新解析，实际元数据无运行依赖，元数据外部请求为0，完整 python_wheel_resolution 锁56798094-58fd-4932-b6c9-ec617d719ebd仅含 docopt，不提出空远程获取。最终安装只使用同一生成 wheel，没有再次源码构建，环境只含 docopt0.6.2。两次 docopt.docopt('Usage: example [--flag] <value>', argv=['--flag','hello']) 实际返回 --flag=true/<value>=hello，并产生及读回正确 JSON、UID65534/network_blocked=true。
+
+证据 `workspace/evidence/public-source-real-6d7ccd70-0ba6-4835-a315-f958160d6c11.json` 的 **21 项工具检查全部通过**。独立只读 SQLite、实际产物字节/大小/SHA、原日志和实际容器检查的 **25 项全部通过**，文件 `public-source-metadata-audit-446cb8a7-396d-4fc3-b554-76d116fd0179-v2.json`。核对选源输入/实际索引/不完整候选锁、精确审批消费、源码和实际 wheel/元数据身份、最终完整锁、唯一源码成功构建、只用该 wheel 安装、两次真实结果/读回、只读挂载及原资源/断网/非 root。实际模型上下文为0：本轮不调用模型，不宣称 Agent 自主源码完整回退或科学验收；没有新增模型 UI 试次。1.19 的大模型通过、小模型第二次猜测答案/缺 JSON 和报告失败、34份输入审计及全部历史失败保留。
+
+专用8769旧服务PID32744/create1791428983.9158776经精确 cwd/cmd与任务/Jobs/动作/assignment闲置核验后正常停止，加载1.20的新PID59320/create1791431602.3590336（exec会话39690），application/database ready、domain not_implemented；历史暂停任务未自动继续。证据 source-candidate-service-reload-20261008-v2.json/source-candidate-service-ready-20261008-v1.json。未知8768服务未操作。
+
+静态/动态构建依赖自动发现、独立审批解析获取、跨源码构建/冲突后的自动回退、编译器/系统库、其他运行时/缺哈希 Core Metadata 回退、完整恢复/角色/通用评估仍待完成；选源回退不能代表所有源码后端和运行冲突均已解决。阶段1出口未通过；真实 ODM/PDAL/lidR、两模型×H0/H1/H2重复/holdout、用户pilot选择低资源、真实≥100 GB及发布/干净安装/备份恢复完整范围保留。Agent联网搜索继续用户暂缓。
+
+English: The existing resolver now selects a public source candidate from original requirements and the actual index, with wheel preference at the same version. A typed incomplete candidate lock permits only the separately approved exact source download. Generated wheel identity must match acquired source. Existing offline building, actual metadata resolution and complete installation remain. All 328 final regressions, 21 real docopt driver checks and 25 independent provenance checks pass. The trial invokes no model; build requirements are still explicitly supplied, and complete automatic source repair and Stage 1 remain pending. Historical model failures and the full later scope remain; Agent search is deferred.

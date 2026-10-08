@@ -62,10 +62,13 @@ class Acquisition:
                 "AND json_type(result,'$.wheels')='array' ORDER BY rowid DESC LIMIT 64", (task_id, revision))
             for row in rows:
                 result = json.loads(row['result'])
-                operation = 'download' if 'wheel_artifact_ids' in result else 'resolve'
+                candidates = result.get('source_candidates', [])
+                operation = 'source_candidate' if candidates else 'download' if 'wheel_artifact_ids' in result else 'resolve'
                 source_packages = result.get('source_packages', [])
                 built_packages = result.get('built_wheels', [])
-                if operation in seen or not 1 <= len(result['wheels']) + len(source_packages) + len(built_packages) <= 32:
+                if operation in seen or not 1 <= len(result['wheels']) + len(source_packages) + len(built_packages) + len(candidates) <= 32:
+                    continue
+                if candidates and (result.get('resolution_complete') is not False or result['wheels'] or source_packages or built_packages):
                     continue
                 if built_packages and (operation != 'resolve' or
                     result.get('built_wheel_artifact_ids') != [p.get('artifact_id') for p in built_packages]):
@@ -101,21 +104,32 @@ class Acquisition:
                 else:
                     receipts.append({'operation': operation, 'source_action_id': row['id'],
                         'lock_artifact_id': lock_id, 'wheels': wheels,
+                        **({'source_candidates':candidates,'source_candidate_sha256':result.get('source_candidate_sha256',{}),
+                            'resolution_complete':False} if candidates else {}),
                         **({'source_packages':sources} if sources else {}),
                         **({'built_wheels':built_packages} if built_packages else {}),
-                        **({'target_artifact_id': result['target_artifact_id']} if operation == 'resolve' and 'target_artifact_id' in result else {})})
+                        **({'target_artifact_id': result['target_artifact_id']} if operation != 'download' and 'target_artifact_id' in result else {})})
                     seen.add(operation)
         # Resource validation opens its own transactions. Never nest it inside
         # the action-snapshot transaction (SQLite BEGIN IMMEDIATE would deadlock).
         confirmed = []
         for receipt in receipts:
             try:
+                if receipt['operation'] == 'source_candidate':
+                    artifact = self.engine.resources.artifact(receipt['lock_artifact_id'],task_id)
+                    if artifact['size_bytes'] > 512*1024:
+                        continue
+                    manifest = json.loads(native_path(artifact['locator']).read_bytes())
+                    if (manifest.get('kind') != 'python_source_candidate' or manifest.get('resolution_complete') is not False or
+                        [{k:p[k] for k in ['name','version','filename']} for p in manifest['selected']] != receipt['source_candidates'] or
+                        {p['filename']:p['sha256'] for p in manifest['selected']} != receipt['source_candidate_sha256']):
+                        continue
                 for package in receipt.get('built_wheels', []):
                     artifact = self.engine.environments.acquired_wheel(task_id, revision, package['artifact_id'])
                     built = self.engine.environments.built(task_id, revision, artifact['producer_action_id'])
                     if not any(all(record.get(k) == package.get(k) for k in ['name','version','filename','artifact_id']) for record in built['built_wheels']):
                         raise Failure('VERIFICATION_FAILED', '构建摘要不匹配真实生产作业', 422)
-            except (Failure, KeyError):
+            except (Failure, KeyError, ValueError, TypeError):
                 continue
             confirmed.append(receipt)
         return confirmed
@@ -135,12 +149,23 @@ class Acquisition:
         resolution = None
         if resolution_lock_artifact_id is not None:
             if source_packages:
-                raise Failure('VERSION_CONFLICT', 'wheel解析锁不授权源码获取；须独立精确源码审批', 409)
-            resolution, lock_artifact = self.engine.resolution.lock(deps, resolution_lock_artifact_id)
-            requested = {encode(w) for w in wheels}
+                # A wheel lock still cannot authorize source bytes. A source
+                # candidate uses the same immutable lock/target verifier, with
+                # a distinct purpose and a fresh exact download approval.
+                try:
+                    resolution, lock_artifact = self.engine.resolution.lock(deps, resolution_lock_artifact_id, source_candidate=True)
+                except Failure as error:
+                    if error.code in {'NOT_FOUND', 'PERMISSION_DENIED'}:
+                        raise Failure('VERSION_CONFLICT', 'wheel解析锁不授权源码；需当前修订真实源码候选锁及独立精确审批', 409) from error
+                    raise
+                if wheels:
+                    raise Failure('VERSION_CONFLICT', '源码候选锁只授权所选源码，不包含wheel下载', 409)
+            else:
+                resolution, lock_artifact = self.engine.resolution.lock(deps, resolution_lock_artifact_id)
+            requested = {encode(w) for w in packages}
             selected = {encode({k: w[k] for k in ['name', 'version', 'filename']}) for w in resolution['selected'] if not w.get('artifact_id')}
             if requested != selected:
-                raise Failure('VERSION_CONFLICT', '获取集合须与已确认解析锁的完整wheel集合相同', 409)
+                raise Failure('VERSION_CONFLICT', '获取集合须与已确认解析锁的完整远程发行文件集合相同', 409)
             resolved = {w['filename']: w['sha256'] for w in resolution['selected'] if not w.get('artifact_id')}
         state = self.store.task(deps.task_id)
         sources = [{"resource_id": ref, "version": version(self.engine.resources.resolve(ref, task_id=deps.task_id))}
@@ -181,8 +206,7 @@ class Acquisition:
                 if version(self.engine.resources.resolve(item["resource_id"], task_id=deps.task_id)) != item["version"]:
                     raise Failure("VERSION_CONFLICT", "获取前输入版本变化", 409)
             if resolution:
-                self.engine.resources.artifact(resolution_lock_artifact_id, deps.task_id)
-                self.engine.resources.artifact(resolution['target_artifact_id'], deps.task_id)
+                self.engine.resolution.lock(deps, resolution_lock_artifact_id, source_candidate=bool(source_packages))
         for index, (wheel, url) in enumerate(zip(packages, urls, strict=True)):
             package_type = 'bdist_wheel' if index < len(wheels) else 'sdist'
             metadata = self.http.get(url, guard=lambda value, url=url: guard(value, url),
@@ -206,7 +230,7 @@ class Acquisition:
             except (ValueError, KeyError, TypeError, StopIteration) as error:
                 raise Failure("PRECONDITION_MISSING", "官方元数据缺少匹配类型的未撤回发行文件、大小或SHA-256", 422) from error
             if resolved and resolved[wheel['filename']] != expected:
-                raise Failure('VERSION_CONFLICT', '官方wheel哈希已偏离解析锁，须重新解析/审批', 409)
+                raise Failure('VERSION_CONFLICT', '官方发行文件哈希已偏离解析锁，须重新解析/审批', 409)
             total += size
             if total > MAX_WHEEL_BYTES or shutil.disk_usage(self.engine.config.workspace_root).free < total + 2**30:
                 raise Failure("RESOURCE_EXHAUSTED", "依赖总量超128 MiB或磁盘预留不足", 422)
