@@ -85,6 +85,7 @@ class Jobs:
         self.cancel_assignments = None
         self.environment_resolver = None
         self.source_build_resolver = None
+        self.source_requirements_resolver = None
         self.input_artifact_validator = None
 
     def read(self, job_id: str, task_id: str | None = None):
@@ -122,6 +123,8 @@ class Jobs:
         This projection also applies to replayed historical tool receipts.
         """
         result = dict(receipt)
+        if isinstance(result.get('build_requirements'),dict):
+            result['build_requirements'] = {k:v for k,v in result['build_requirements'].items() if k != 'projects'}
         if isinstance(result.get('job'), dict):
             job = dict(result['job'])
             job.pop('environment_recipe', None)
@@ -134,13 +137,16 @@ class Jobs:
     def submit(self, task_id: str, revision: int, action_id: str, code: str,
                input_refs: list[str], seconds: int = 300, *, environment_artifact_id=None,
                job_kind="code.execute", environment_recipe=None, input_artifact_ids=None, source_recipe=None,
-               source_build_only=False):
+               source_build_only=False, source_inspection=None):
         if job_kind not in {"code.execute", "environment.prepare"}:
             raise Failure("SCHEMA_INVALID", "未知受限作业类型")
         if source_recipe and job_kind != "environment.prepare":
             raise Failure("SCHEMA_INVALID", "源码构建仅用于依赖准备作业")
         if type(source_build_only) is not bool or (source_build_only and not source_recipe):
             raise Failure('SCHEMA_INVALID', '仅构建用途需实际源码配方')
+        if source_inspection is not None and (source_inspection not in ('static','dynamic') or
+            not source_recipe or source_build_only or job_kind != 'environment.prepare'):
+            raise Failure('SCHEMA_INVALID','源码检查用途需源码准备作业且与仅构建互斥')
         if not code or len(code.encode()) > 65536:
             raise Failure("SCHEMA_INVALID", "代码须为 1–65536 字节的 Python 文本")
         if seconds < 1 or seconds > self.config.max_code_seconds:
@@ -199,6 +205,8 @@ class Jobs:
                 job["build_tmpfs_bytes"] = 1024*1024*1024
                 if source_build_only:
                     job['source_build_only'] = True
+                if source_inspection:
+                    job['source_inspection'] = source_inspection
             db.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?)",
                 (job_id, task_id, action_id, revision, "queued", encode(job), now()))
             self.store.event(db, task_id, "job.queued", self.public(job))
@@ -430,6 +438,11 @@ class Jobs:
             # Keep the same job ownership and container identity checks as the UI.
             result["logs"] = self.logs(job_id, task_id)
         if job["status"] == "succeeded" and job.get("kind") == "environment.prepare" and self.environment_resolver:
+            if job.get('source_inspection'):
+                if not self.source_requirements_resolver:
+                    raise Failure('VERIFICATION_FAILED','源码检查缺少生产者核验',422)
+                result['build_requirements'] = self.source_requirements_resolver(task_id,job['spec_revision'],job['action_id'])
+                return result
             if job.get('source_build_only'):
                 if not self.source_build_resolver:
                     raise Failure('VERIFICATION_FAILED', '源码构建缺少生产者核验', 422)

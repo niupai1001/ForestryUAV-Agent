@@ -1,5 +1,17 @@
 # 范围依赖准备与复用
 
+## 1.21：静态声明与标准后端 hook 发现构建依赖
+
+沿用原 prepare_environment 的源码输入，传 inspect_build="static"，不提供 wheel；它与 build_only 互斥。提交后 wait_job 返回 build_requirements：inspection、requirements、frontend_requirements、实际清单 artifact_id/image_id 和 runtime_installation=false。静态检查在原受限容器内复用源码构建的有界解包，pyproject.toml 最多 1 MiB；读取 build-system.requires/backend/backend-path，缺声明的 setup.py 项目按标准使用 setuptools>=40.8.0 与 setuptools.build_meta:__legacy__。缺 required 字段、坏 TOML、越界 backend-path 或不合法 PEP508 需求如实失败，不执行 setup.py。返回清单只是有来源的构建需求，不是完整运行依赖闭包或环境。
+
+将 requirements + frontend_requirements 交原 resolve_dependencies，目标仍由同一固定镜像实际探测；元数据和精确下载仍分别审批。检查前端固定 pyproject-hooks==1.2.0/packaging==25.0，不属于应用宿主安装。取得完整已核验 wheel 后，对同一源码传 inspect_build="dynamic"。临时隔离 venv 先从只读输入核验 SHA 并离线完整安装 wheel，再由原生 pip 核对静态版本/extra/marker；标准 BuildBackendHookCaller/get_requires_for_build_wheel 只在容器内执行源码后端，无静默联网或禁用最终原生构建隔离。[PyPA hook API](https://pyproject-hooks.readthedocs.io/en/latest/pyproject_hooks.html)、[pip 构建依赖与 legacy 回退](https://pip.pypa.io/en/stable/reference/build-system/)
+
+动态结果同时保留静态与附加需求。每组最多 32 个有界字符串，合并去重后最多 32 个 PEP508 根，不接受 URL/路径/私有索引；清单最多 256 KiB。返回完整 requirements + frontend_requirements，仍通过原解析和独立获取审批补齐。然后 build_only 生成源码 wheel，重新解析原运行 requirements，最后只安装完整运行 wheel 集合；检查用前端及构建工具不必进入最终环境。动态检查不是 wheel 构建，返回 build_requirements，不返回 prepared_wheels 或 prepared_environment。即使后端额外写环境归档，也不能由该用途授权。应用核验当前任务/修订的确认作业、精确 Worker 代码、源码实际字节、镜像、清单 SHA/生产者/用途及公开需求格式；排队输入、权限撤销、角色输入交集、原 CPU/内存/时限和断网/非 root 不变。模型回执省略重复项目明细，完整 API/锁/动作记录保留，可按 artifact_id 读回。
+
+`smoke_public_source.py --source pypi --discover-build` 的实际 docopt 静态根是 setuptools>=40.8.0，既有解析器实际选 setuptools84.0.0；标准动态 hook 返回空附加需求，最后只安装 docopt 并两次真实调用。24 项工具及 30 项独立核对通过。`smoke_source_build.py --source pypi --discover-build` 的 in-tree 夹具从实际 TOML 得到 setuptools==80.9.0，从真实 hook 得到 wheel==0.45.1，独立审批解析/获取后 tar/zip 均构建成功，最终仅运行 wheel 安装，两次 answer()=42 与 JSON 读回正确。保留 12 类归档拒绝、静态/动态依赖缺失与实际缺 gcc，19 项工具及 20 项独立核对通过。两命令使用 config/app.wsl.example.yaml；本轮无模型或科学验收。
+
+冻结旧版本模板只用于精确核验已登记源码 wheel，新的 Jobs 总是用现行共享 Worker；旧实际产品字节/代码核对通过。完整回归 346 项通过。当前没有自动跨未构建源码版本回退，也未完成互不兼容的多项目构建工具链、编译器/系统库、其他运行时/缺哈希元数据回退或模型自主完整源码流程；原要求保留。搜索继续暂缓；下文 1.20 及更早为历史。
+
 ## 1.20：自动源码候选与用途明确的解析锁
 
 resolve_dependencies 使用原 requirements、target_artifact_id、source 和可选 built_wheel_artifact_ids。依赖元数据读取仍采用原精确审批，原 64 请求/32 项目/32 MiB/100 解析轮/180 秒与目标/授权检查保持。官方索引里的 .tar.gz/.zip 须匹配项目、版本、Requires-Python、未撤回状态、SHA 和文件主机/路径；兼容 wheel 在同版本优先。若原生解析选中源码，返回 wheels=[]、source_candidates（name/version/filename）、source_candidate_sha256 和 resolution_complete=false；此时没有下载或解包源码，也没有执行后端。

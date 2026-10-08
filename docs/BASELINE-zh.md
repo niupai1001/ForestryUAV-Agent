@@ -1,4 +1,8 @@
-# 修订后的实施基线 · 1.20
+# 修订后的实施基线 · 1.21
+
+1.21 补齐源码构建依赖发现接口：prepare_environment(inspect_build="static"/"dynamic") 沿用原断网 Jobs、源码/已核验 wheel 输入及 code.execute 权限。静态检查复用唯一的现行有界解包逻辑，读取 pyproject.toml 的 build-system，或按标准采用 legacy setuptools>=40.8.0；不调用源码后端。动态检查在临时隔离环境中安装已核验 wheel，使用 PyPA pyproject-hooks 的公开 get_requires_for_build_wheel 接口取得附加需求。frontend_requirements 固定 pyproject-hooks==1.2.0/packaging==25.0，须由原独立审批获取，不在宿主安装。build_requirements 返回实际源码/生产者/镜像绑定的清单和 PEP508 需求；它不能授权环境或构建 wheel。需求仍经既有解析/审批/获取链补齐，随后原生 pip PEP517 完整构建、解析运行元数据及安装。检查用途持久登记，权限撤销/排队/恢复沿用原控制。现行解包与构建共享代码；冻结旧代码仅核验已登记历史产物，不用于新 Job。
+
+最终 346 项完整回归通过（59.70 秒），Ruff/diff 通过。真实 docopt 从 legacy 静态声明推导构建根，实际 hook 返回空附加依赖，5 项审批/8 个终态 Jobs，24 项工具与 30 项独立来源核对通过。in-tree backend 夹具实际发现 wheel==0.45.1，再审批解析/获取；24 Jobs 覆盖 12 类归档拒绝、缺静态/动态依赖和缺 gcc 失败、tar/zip 构建、仅运行 wheel 的最终安装及两次实际计算/读回，19 项工具及 20 项独立来源核对通过。本轮未调用模型、未新增 UI 试次；旧模型成功/失败保留。跨未构建源码版本回退、多项目不兼容构建工具链、编译器/系统库、其他运行时/元数据回退与完整恢复/角色/通用/领域/评估/规模/发布仍待完成。阶段 1 未通过，Agent 联网搜索继续暂缓；下文 1.20 及更早为历史。
 
 1.20 将公开源码候选接入既有 resolvelib：输入原 PEP508 需求和实际目标，解析器依据版本约束、extra/marker、Requires-Python 与兼容标签选择候选；同版本兼容 wheel 优先。没有可用 wheel 而选中源码时，只读取索引，不下载归档、不执行后端，返回 source_candidates 和 resolution_complete=false。原 resolution-lock.json 使用 python_source_candidate 用途，记录实际索引、目标与精确源码 SHA；它仅锁定一个候选，不证明完整依赖闭包。source_packages 与该锁交 acquire_dependencies，仍须独立精确下载审批。生成 wheel 的名称/PEP440 版本必须与已确认获取的源码身份相符；已有 wheel 解析锁仍不能授权源码。之后复用既有断网 build_only、实际元数据解析原运行需求和完整安装链。没有新增库、能力、迁移、执行器、工具参数或产品 UI。
 

@@ -10,9 +10,12 @@ import json
 import re
 from pathlib import Path
 
+from .build_inspection import FRONTEND_REQUIREMENTS, HOOK_CALLER
+from .build_inspection import WORKER as INSPECTION_WORKER
 from .contracts import Failure
 from .resources import file_hash, native_path, version
 from .source_build import BUILD_ONLY, WORKER
+from .source_build_legacy import preparation_code as legacy_preparation_code
 from .store import encode
 
 MAX_WHEEL_BYTES = 128 * 1024 * 1024
@@ -24,7 +27,9 @@ WHEEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+\-]{0,240}\.whl\Z")
 SOURCE_NAME = re.compile(r"[^/\\:\x00-\x1f\x7f]{1,230}\.(?:tar\.gz|zip)\Z")
 
 
-def preparation_code(wheels, image_reference, sources=None, *, build_only=False):
+def preparation_code(wheels, image_reference, sources=None, *, build_only=False, inspect_build=None, _legacy=False):
+    if _legacy:
+        return legacy_preparation_code(wheels, image_reference, sources, build_only=build_only)
     # All filenames come from verified single-file resources; interpolate JSON,
     # never shell commands or package-controlled Python syntax.
     return f'''import hashlib, importlib.metadata, json, os, platform, shutil, subprocess, sys, tempfile, zipfile
@@ -34,6 +39,7 @@ sources = {encode(sources or [])}
 image_reference = {json.dumps(image_reference)}
 {WORKER if sources else ''}
 {BUILD_ONLY if build_only else ''}
+{('HOOK_CALLER = '+repr(HOOK_CALLER)+chr(10)+INSPECTION_WORKER) if inspect_build else ''}
 if sys.version_info[:2] != (3, 12) or sys.platform != 'linux':
     raise RuntimeError('Environment requires Linux Python 3.12; no silent runtime change')
 with tempfile.TemporaryDirectory(prefix='environment-build-', dir={'"/build"' if sources else '"/tmp"'}) as temporary:
@@ -53,6 +59,7 @@ with tempfile.TemporaryDirectory(prefix='environment-build-', dir={'"/build"' if
         requirements.append(str(destination)+' --hash=sha256:'+wheel['sha256'])
     clean_env = {{'PATH':'/usr/local/bin:/usr/bin:/bin', 'HOME':str(root),
         'TMPDIR':str(scratch), 'PYTHONDONTWRITEBYTECODE':'1'}}
+    {('inspect_build_sources(root,wheelhouse,sources,wheels,clean_env,image_reference,'+repr(inspect_build)+'); raise SystemExit(0)') if inspect_build else ''}
     built_wheels = []
     {'built_requirements, built_wheels = build_sources(root, wheelhouse, sources, clean_env); requirements.extend(built_requirements)' if sources else ''}
     {'export_build_result(wheelhouse, sources, wheels, built_wheels, image_reference); raise SystemExit(0)' if build_only else ''}
@@ -165,12 +172,15 @@ class Environments:
         return {**artifact, **({'package_name':record['name'], 'package_version':record['version']} if source else {})}
 
     def prepare(self, task_id, revision, action_id, wheel_refs, seconds=300, *, wheel_artifact_ids=None, source_refs=None,
-                source_artifact_ids=None, build_only=False):
+                source_artifact_ids=None, build_only=False, inspect_build=None):
         wheel_artifact_ids = wheel_artifact_ids or []
         source_refs = source_refs or []
         source_artifact_ids = source_artifact_ids or []
         if type(build_only) is not bool or (build_only and not (source_refs or source_artifact_ids)):
             raise Failure('SCHEMA_INVALID', 'build_only须为布尔值且仅用于有授权源码的构建')
+        if inspect_build is not None and (inspect_build not in ('static','dynamic') or build_only or
+            not (source_refs or source_artifact_ids) or (inspect_build == 'static' and (wheel_refs or wheel_artifact_ids))):
+            raise Failure('SCHEMA_INVALID', 'inspect_build仅为static/dynamic；需源码，与build_only互斥；static不安装wheel')
         artifact_ids = wheel_artifact_ids + source_artifact_ids
         if (not 1 <= len(wheel_refs) + len(source_refs) + len(artifact_ids) <= 32 or
             len(wheel_refs + source_refs) != len(set(wheel_refs + source_refs)) or
@@ -217,9 +227,68 @@ class Environments:
             sources.append({"resource_id":ref, "filename":source.name, "sha256":sha,
                 "size_bytes":size, "source_version":before, **({'source_kind':'acquired_artifact'} if acquired else {})})
         return self.jobs.submit(task_id, revision, action_id,
-            preparation_code(wheels, self.config.code_image, sources, build_only=build_only), wheel_refs + source_refs, seconds,
+            preparation_code(wheels, self.config.code_image, sources, build_only=build_only, inspect_build=inspect_build), wheel_refs + source_refs, seconds,
             job_kind="environment.prepare", environment_recipe=wheels, input_artifact_ids=artifact_ids,
-            source_recipe=sources or None, source_build_only=build_only)
+            source_recipe=sources or None, source_build_only=build_only, source_inspection=inspect_build)
+
+    def requirements(self, task_id, revision, action_id):
+        """Validate an actual inspection result; it never authorizes installation."""
+        from .resolution import requirement
+
+        with self.store.transaction() as db:
+            row = db.execute("SELECT j.payload FROM jobs j JOIN actions a ON a.id=j.action_id WHERE "
+                "j.task_id=? AND j.revision=? AND j.action_id=? AND j.status='succeeded' "
+                "AND a.kind='environment.prepare' AND a.status='confirmed'", (task_id,revision,action_id)).fetchone()
+        job = json.loads(row[0]) if row else {}
+        mode = job.get('source_inspection')
+        if (mode not in ('static','dynamic') or not job.get('source_recipe') or job.get('source_build_only') or
+            job.get('exit_code') != 0 or job.get('image_reference') != self.config.code_image or not job.get('image_id') or
+            job.get('code') != preparation_code(job.get('environment_recipe',[]),self.config.code_image,
+                job['source_recipe'],inspect_build=mode)):
+            raise Failure('PERMISSION_DENIED','需当前修订已确认且成功的源码构建依赖检查作业',403)
+        products = [self.resources.artifact(ref,task_id) for ref in job['artifact_ids']]
+        lock = next((a for a in products if a['name']=='build-requirements.json'),None)
+        if not lock or lock['producer_action_id'] != action_id or lock['size_bytes'] > 256*1024:
+            raise Failure('VERIFICATION_FAILED','构建依赖检查缺少有界实际清单',422)
+        try:
+            manifest = json.loads(native_path(lock['locator']).read_bytes())
+            if (manifest.get('schema_version') != 1 or manifest.get('kind') != 'source_build_requirements' or
+                manifest.get('inspection') != mode or manifest.get('image_reference') != job['image_reference'] or
+                manifest.get('sources') != job['source_recipe'] or manifest.get('wheels') != job['environment_recipe'] or
+                manifest.get('runtime_installation') is not False or manifest.get('network') != 'none' or
+                len(manifest.get('projects',[])) != len(job['source_recipe'])):
+                raise ValueError('inspection identity/purpose')
+            requirements = []
+            for project,source in zip(manifest['projects'],job['source_recipe'],strict=True):
+                if (project['source_resource_id'] != source['resource_id'] or project['source_sha256'] != source['sha256'] or
+                    not isinstance(project['build_backend'],str) or not 0 < len(project['build_backend']) <= 1024 or
+                    not isinstance(project['backend_path'],list) or len(project['backend_path']) > 32 or
+                    any(not isinstance(path,str) or len(path)>1024 for path in project['backend_path'])):
+                    raise ValueError('inspection source identity')
+                if mode == 'static' and (project['dynamic_requires'] or project.get('frontend') is not None):
+                    raise ValueError('static inspection must not claim backend execution')
+                if mode == 'dynamic' and project.get('frontend') != {
+                    'name':'pyproject-hooks','version':'1.2.0','hook':'get_requires_for_build_wheel'}:
+                    raise ValueError('frontend identity')
+                for values in (project['static_requires'],project['dynamic_requires']):
+                    if not isinstance(values,list) or len(values) > 32:
+                        raise ValueError('requirements limit')
+                    for value in values:
+                        requirement(value)
+                        if value not in requirements:requirements.append(value)
+                if source.get('source_kind') == 'acquired_artifact':
+                    self.acquired_source(task_id,revision,source['resource_id'])
+                else:
+                    path=self.resources.resolve(source['resource_id'],task_id=task_id)
+                    if version(path) != source['source_version'] or file_hash(path) != source['sha256']:
+                        raise ValueError('source changed')
+            if len(requirements) > 32:
+                raise ValueError('aggregate requirements limit')
+        except (ValueError,KeyError,TypeError,OSError) as error:
+            raise Failure('VERIFICATION_FAILED','构建依赖清单与真实作业/源码不一致',422) from error
+        return {'inspection':mode,'requirements':requirements,'projects':manifest['projects'],
+            'frontend_requirements':FRONTEND_REQUIREMENTS,'artifact_id':lock['artifact_id'],
+            'image_id':job['image_id'],'runtime_installation':False}
 
     def built(self, task_id, revision, action_id):
         """Accept only source wheels and metadata produced by this exact Job.
@@ -239,8 +308,9 @@ class Environments:
         job = json.loads(row[0]) if row else {}
         if (not job.get('source_recipe') or job.get('kind') != 'environment.prepare' or job.get('exit_code') != 0 or
             job.get('image_reference') != self.config.code_image or not job.get('image_id') or
-            job.get('code') != preparation_code(job.get('environment_recipe', []), self.config.code_image,
-                job.get('source_recipe'), build_only=True)):
+            job.get('source_inspection') or not any(job.get('code') == preparation_code(
+                job.get('environment_recipe', []), self.config.code_image, job.get('source_recipe'),
+                build_only=True, _legacy=legacy) for legacy in (False, True))):
             raise Failure('PERMISSION_DENIED', 'wheel须来自当前修订已确认且真实成功的仅源码构建作业或依赖获取动作', 403)
         products = [self.resources.artifact(ref, task_id) for ref in job['artifact_ids']]
         lock = next((a for a in products if a['name'] == 'source-build-lock.json'), None)
@@ -295,8 +365,11 @@ class Environments:
         job = json.loads(row["payload"]) if row else None
         if not job or job.get("kind") != "environment.prepare" or job["spec_revision"] != revision:
             raise Failure("PERMISSION_DENIED", "环境须由本任务当前修订的依赖准备作业产生", 403)
-        if job.get('source_build_only') or (job.get('source_recipe') and job.get('code') ==
-            preparation_code(job.get('environment_recipe', []), job['image_reference'],job['source_recipe'],build_only=True)):
+        if job.get('source_inspection'):
+            raise Failure('PERMISSION_DENIED', '构建依赖检查不能提供已安装环境归档',403)
+        if job.get('source_build_only') or (job.get('source_recipe') and any(job.get('code') ==
+            preparation_code(job.get('environment_recipe', []), job['image_reference'],job['source_recipe'],build_only=True,
+                _legacy=legacy) for legacy in (False, True))):
             raise Failure('PERMISSION_DENIED', '仅构建作业不能提供已安装的环境归档', 403)
         if artifact_id not in job["artifact_ids"]:
             raise Failure("PERMISSION_DENIED", "环境产物未被准备作业登记", 403)

@@ -80,6 +80,7 @@ class Engine:
         self.environments = Environments(config, store, resources, self.jobs)
         self.jobs.environment_resolver = self.environments.resolve
         self.jobs.source_build_resolver = self.environments.built
+        self.jobs.source_requirements_resolver = self.environments.requirements
         self.jobs.input_artifact_validator = self.environments.acquired_package
         self.documents = Documents(resources)
         self.knowledge = Knowledge(store, self.documents)
@@ -764,14 +765,16 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
         @agent.tool
         async def prepare_environment(ctx: RunContext[Deps], wheel_refs: list[str] | None = None, seconds: int = 300,
                 wheel_artifact_ids: list[str] | None = None, source_refs: list[str] | None = None,
-                source_artifact_ids: list[str] | None = None, build_only: bool = False) -> dict:
-            """断网核对1–32项的SHA/完整依赖，不宿主安装。
-            *_refs授权资源；*_artifact_ids确认获取/构建产物；源码另需code.execute。
-            build_only仅构建，wait_job返回prepared_wheels；补依赖后安装。正常返回prepared_environment.artifact_id复用。
+                source_artifact_ids: list[str] | None = None, build_only: bool = False,
+                inspect_build: Literal['static','dynamic'] | None = None) -> dict:
+            """离线依赖准备，源码需code.execute。inspect_build检查构建依赖，dynamic需静态+frontend_requirements wheel。
+            build_only只产wheel；默认安装环境。提交后wait_job，不重复提交。
             """
             args = {"input_refs": [*(wheel_refs or []), *(source_refs or [])], "seconds": seconds}
             if build_only:
                 args['build_only'] = True
+            if inspect_build:
+                args['inspect_build'] = inspect_build
             if source_refs is not None:
                 args["source_refs"] = source_refs
             if source_artifact_ids is not None:
@@ -781,7 +784,7 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
             receipt = await asyncio.to_thread(execute, ctx, "environment.prepare", args,
                 lambda action_id: self.environments.prepare(ctx.deps.task_id, ctx.deps.revision, action_id, wheel_refs or [], seconds,
                     wheel_artifact_ids=wheel_artifact_ids, source_refs=source_refs, source_artifact_ids=source_artifact_ids,
-                    build_only=build_only))
+                    build_only=build_only, inspect_build=inspect_build))
             return self.jobs.model_receipt(receipt)
 
         @agent.tool

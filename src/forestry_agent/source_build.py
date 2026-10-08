@@ -4,7 +4,7 @@ This code is never executed by the host. pip retains native PEP 517 isolation.
 """
 
 WORKER = r'''
-def build_sources(root, wheelhouse, sources, clean_env):
+def build_sources(root, wheelhouse, sources, clean_env, inspector=None):
     import gzip, re, stat, tarfile
     from pathlib import PurePosixPath
     records, requirements = [], []
@@ -93,6 +93,9 @@ def build_sources(root, wheelhouse, sources, clean_env):
             path for path in destination_root.iterdir() if path.is_dir() and is_project(path)]
         if len(candidates) != 1:
             raise RuntimeError('Source archive must contain one unambiguous Python project root')
+        if inspector is not None:
+            records.append(inspector(candidates[0], source, index))
+            continue
         built = root/('built-'+str(index))
         built.mkdir()
         command = [sys.executable, '-I', '-B', '-m', 'pip', '--isolated',

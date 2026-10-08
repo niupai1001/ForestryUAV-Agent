@@ -75,12 +75,14 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config/app.wsl.example.yaml")
     parser.add_argument("--source", choices=["pypi", "tuna"], default="tuna")
+    parser.add_argument('--discover-build',action='store_true',help='Derive fixture static/dynamic build roots from actual offline inspections')
     args = parser.parse_args()
     trial = str(uuid4())
     directory = ROOT/"workspace"/"source-build-trials"/trial
     directory.mkdir(parents=True)
     config = load_config(args.config).model_copy(update={"workspace_root":directory/"runtime"})
     evidence = {"trial_id":trial, "model_used":False, "autonomous_model_source_build":False,
+        'automatic_build_requirement_discovery':args.discover_build,
         "scientific_accuracy":"not_assessed", "general_stage_acceptance":"incomplete", "all_passed":False, "cases":[]}
     output = ROOT/"workspace"/"evidence"/("source-build-real-"+trial+".json")
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -180,10 +182,11 @@ def main():
             assert job["status"] == expected, case["logs"]
             return case
 
-        def prepare(name, wheel_ids, scenario, expected="succeeded"):
+        def prepare(name, wheel_ids, scenario, expected="succeeded", *,inspect_build=None,build_only=False):
             ref = refs[name]
             reply = engine.perform(deps, scenario, "environment.prepare", {"input_refs":[ref], "source_refs":[ref], "wheel_artifact_ids":wheel_ids},
-                lambda action:engine.environments.prepare(task_id, 1, action, [], source_refs=[ref], wheel_artifact_ids=wheel_ids))
+                lambda action:engine.environments.prepare(task_id, 1, action, [], source_refs=[ref], wheel_artifact_ids=wheel_ids,
+                    inspect_build=inspect_build,build_only=build_only))
             return observe(reply, scenario, expected)
 
         try:
@@ -200,18 +203,58 @@ Path('/output/build-target.json').write_text(json.dumps(dict(python=sys.version,
             failed = prepare(source.name, [], "missing_build_dependencies", "failed")
             assert "setuptools" in json.dumps(failed["logs"]) and not failed["job"]["artifact_ids"]
             for name in [*invalid, corrupt.name, duplicate_zip.name, excessive_zip.name, oversized_zip.name, nul_zip.name, link_zip.name]:
-                prepare(name, [], "reject_"+name, "failed")
+                prepare(name, [], "reject_"+name, "failed",inspect_build='static' if args.discover_build else None)
+
+            def approve(reply):
+                assert reply['kind']=='approval_required',reply
+                grant=engine.network.list(task_id)[-1]
+                client.post(f"/tasks/{task_id}/approvals/{grant['approval_id']}",json={'request_id':str(uuid4()),
+                    'expected_spec_revision':1,'request_sha256':grant['request_sha256'],'verdict':'approve'}).raise_for_status()
+                return grant['approval_id']
+
+            def discover(mode,wheel_ids):
+                case=prepare(source.name,wheel_ids,'inspect_'+mode,inspect_build=mode)
+                result=engine.perform(deps,'observe_'+mode,'job.observe',{'job_id':case['job']['job_id']},
+                    lambda _:jobs.observation(case['job']['job_id'],task_id))
+                found=result['build_requirements']
+                ref=found['artifact_id']
+                readback=engine.perform(deps,'read_'+mode,'artifact.read',{'artifact_id':ref},
+                    lambda _:engine.resources.read_artifact(task_id,ref))
+                evidence['inspection_'+mode]={'case':case,'result':found,'readback':readback}
+                return found
+
+            def resolved_download(call,roots,target):
+                def resolve(name,approval=None):
+                    return engine.perform(deps,name,'environment.acquire',{'requirements':roots,'target_artifact_id':target},
+                        lambda action:engine.resolution.resolve(deps,action,roots,target,approval))
+                proposal=resolve(call+'-metadata-proposal')
+                result=resolve(call+'-resolve',approve(proposal))
+                assert result['kind']=='completed' and not result.get('source_candidates'),result
+                def download(name,approval=None):
+                    return engine.perform(deps,name,'environment.acquire',{'wheels':result['wheels'],'source':args.source},
+                        lambda action:engine.acquisition.acquire(deps,action,result['wheels'],args.source,approval,result['resolution_lock_artifact_id']))
+                proposed=download(call+'-download-proposal')
+                acquired=download(call+'-download',approve(proposed))
+                evidence[call]={'requirements':roots,'resolution':result,'acquisition':acquired}
+                assert acquired['kind']=='completed',acquired
+                return acquired
 
             def acquire(call, approval=None):
                 return engine.perform(deps, call, "environment.acquire", {"wheels":BUILD_WHEELS, "source":args.source, "approval_id":approval},
                     lambda action:engine.acquisition.acquire(deps, action, BUILD_WHEELS, args.source, approval))
-            proposal = acquire("build-dependency-proposal")
-            evidence["proposal"] = proposal
-            assert proposal["kind"] == "approval_required", proposal
-            grant = engine.network.list(task_id)[-1]
-            client.post(f"/tasks/{task_id}/approvals/{grant['approval_id']}", json={"request_id":str(uuid4()),
-                "expected_spec_revision":1, "request_sha256":grant["request_sha256"], "verdict":"approve"}).raise_for_status()
-            acquired = acquire("approved-build-dependencies", grant["approval_id"])
+            if args.discover_build:
+                static=discover('static',[])
+                probe_reply=engine.perform(deps,'target-probe','environment.acquire',{},
+                    lambda action:engine.resolution.resolve(deps,action,static['requirements']))
+                target_case=observe(probe_reply,'actual_target_probe')
+                target=next(ref for ref in target_case['job']['artifact_ids'] if engine.resources.artifact(ref)['name']=='execution-target.json')
+                first=resolved_download('static-build',static['requirements']+static['frontend_requirements'],target)
+                dynamic=discover('dynamic',first['wheel_artifact_ids'])
+                acquired=resolved_download('complete-build',dynamic['requirements']+dynamic['frontend_requirements'],target)
+            else:
+                proposal = acquire("build-dependency-proposal")
+                evidence["proposal"] = proposal
+                acquired = acquire("approved-build-dependencies", approve(proposal))
             evidence["acquisition"] = acquired
             assert acquired["kind"] == "completed", acquired
             setuptools = [w["artifact_id"] for w in acquired["wheels"] if w["name"] == "setuptools"]
@@ -221,8 +264,16 @@ Path('/output/build-target.json').write_text(json.dumps(dict(python=sys.version,
                 "succeeded" if evidence["target"]["gcc"] else "failed")
             if not evidence["target"]["gcc"]:
                 assert "gcc" in json.dumps(native["logs"])
-            zipped = prepare(zip_source.name, acquired["wheel_artifact_ids"], "build_zip_source_and_install")
-            ready = prepare(source.name, acquired["wheel_artifact_ids"], "build_tar_source_and_install")
+            zipped = prepare(zip_source.name, acquired["wheel_artifact_ids"], "build_zip_source_and_install",build_only=args.discover_build)
+            ready = prepare(source.name, acquired["wheel_artifact_ids"], "build_tar_source_and_install",build_only=args.discover_build)
+            source_ready=ready
+            if args.discover_build:
+                built_observed=engine.perform(deps,'observe-built-wheels','job.observe',{'job_id':ready['job']['job_id']},
+                    lambda _:jobs.observation(ready['job']['job_id'],task_id))
+                evidence['source_build']=built_observed['prepared_wheels']
+                ready=observe(engine.perform(deps,'install-runtime-wheel','environment.prepare',{'wheel_artifact_ids':evidence['source_build']['wheel_artifact_ids']},
+                    lambda action:engine.environments.prepare(task_id,1,action,[],wheel_artifact_ids=evidence['source_build']['wheel_artifact_ids'])),
+                    'install_runtime_wheel')
             observed = engine.perform(deps, "observe-build", "job.observe", {"job_id":ready["job"]["job_id"]},
                 lambda _:jobs.observation(ready["job"]["job_id"], task_id))
             archive = observed["prepared_environment"]["artifact_id"]
@@ -246,16 +297,19 @@ Path('/output/answer-{index}.json').write_text(json.dumps(dict(answer=fixture.an
                     lambda _, case=computed:engine.resources.read_artifact(task_id, case["job"]["artifact_ids"][0]))
                 computed["readback"], computed["numbers"] = readback, json.loads(readback["text"])
                 results.append(computed)
-            built = environment["manifest"]["built_wheels"]
+            built = evidence['source_build']['built_wheels'] if args.discover_build else environment["manifest"]["built_wheels"]
             checks = {
                 "missing_dependency_failure_preserved":failed["job"]["status"] == "failed",
                 "missing_dynamic_dependency_failure_preserved":dynamic_failure["job"]["status"] == "failed",
                 "compiler_condition_is_explicit":native["job"]["status"] == ("succeeded" if evidence["target"]["gcc"] else "failed"),
                 "zip_source_build_succeeded":zipped["job"]["status"] == "succeeded",
                 "archive_faults_rejected_before_pip":all(c["job"]["status"] == "failed" and "Processing " not in json.dumps(c["logs"]) for c in evidence["cases"] if c["scenario"].startswith("reject_")),
-                "approved_hashed_build_dependencies":len(acquired["wheels"]) == 2 and all(g["status"] == "consumed" for g in engine.network.list(task_id)),
-                "built_wheel_and_source_provenance":len(built) == 1 and built[0]["source_sha256"] == hashes[source.name] and environment["manifest"]["sources"] == ready["job"]["source_recipe"],
-                "native_pep517_isolation":environment["manifest"]["build_frontend"]["isolation"] == "native_pep517",
+                "approved_hashed_build_dependencies":len(acquired["wheels"]) == (4 if args.discover_build else 2) and all(g["status"] == "consumed" for g in engine.network.list(task_id)),
+                "built_wheel_and_source_provenance":len(built) == 1 and built[0]["source_sha256"] == hashes[source.name] and
+                    (not args.discover_build or built[0]['artifact_id'] in [w['resource_id'] for w in ready['job']['environment_recipe']]) and
+                    (args.discover_build or environment["manifest"]["sources"] == source_ready["job"]["source_recipe"]),
+                "native_pep517_isolation":(engine.environments.built(task_id,1,source_ready['job']['action_id'])['runtime_installation'] is False
+                    if args.discover_build else environment["manifest"]["build_frontend"]["isolation"] == "native_pep517"),
                 "two_exact_real_readbacks":all(c["numbers"] == {"answer":42, "version":"1.0", "uid":65534, "network_blocked":True} for c in results),
                 "same_environment_and_image":all(c["job"]["environment"]["artifact_id"] == archive and c["container"]["Image"] == environment["image_id"] for c in results),
                 "no_private_inputs_for_diagnostics":probe["job"]["mounts"] == [],
@@ -263,6 +317,15 @@ Path('/output/answer-{index}.json').write_text(json.dumps(dict(answer=fixture.an
                 "readonly_source_archives_unchanged":all(file_hash(path) == hashes[path.name] for path in paths),
                 "host_packages_unchanged":host_packages() == before_host,
             }
+            if args.discover_build:
+                checks.update(
+                    actual_static_requirements_not_prelisted=static['requirements']==['setuptools==80.9.0'] and
+                        evidence['static-build']['requirements']==static['requirements']+static['frontend_requirements'],
+                    actual_dynamic_hook_discovers_extra_dependency=dynamic['projects'][0]['dynamic_requires']==['wheel==0.45.1'] and
+                        evidence['complete-build']['requirements']==dynamic['requirements']+dynamic['frontend_requirements'],
+                    four_separate_exact_scopes_consumed=len(engine.network.list(task_id))==4,
+                    final_environment_contains_only_runtime_wheel=environment['manifest']['installed']==[{'name':'forestry-build-fixture','version':'1.0'}],
+                    inspection_products_read_back=all(evidence['inspection_'+mode]['readback']['kind']=='completed' for mode in ('static','dynamic')))
             evidence.update(checks=checks, all_passed=all(checks.values()))
         except Exception as error:
             logger.exception("Real source trial failed; original evidence retained")

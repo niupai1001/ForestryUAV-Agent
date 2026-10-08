@@ -8,8 +8,8 @@
 |---|---|---|---|---|
 | P0 | in_progress | 独立应用、修订双语基线、uv/package 锁、实测 doctor | workspace/deployment.lock.json | 领域数据许可/格式、兼容地形、≥100 GB 数据、低资源选择 |
 | P1 | in_progress | 真实模型与只读文件工具、持久任务、产物版本、本地 React 工作台 | small / large 数值烟测全部核对通过；2 项浏览器检查通过 | 语义验收、完整 UI 交互 |
-| P2 | in_progress | 动作/attempt、去重、修订隔离、检查点；断网 Jobs/WSL/恢复；目标探测、PEP508 解析/获取、公开源码/PEP517 构建及离线复用；1.20 自动源码候选、用途锁与生成 wheel 身份绑定；只构建/实际元数据补运行依赖/同 wheel 复用 | 最终 328 项完整回归；1.20 docopt 工具 21 项/独立来源 25 项通过；1.19 本地源码只构建 UI 大模型通过、小模型失败均保留 | 自动发现静态/动态构建依赖及审批获取、跨源码构建回退、编译器/系统库、其他运行时/元数据回退、传输核验、两模型稳定依赖质量、完整资源准入/恢复窗口及调试/报告质量 |
-| P3 | in_progress | 验收/清单、文档/知识/记忆、原生上下文/角色、H0/H1/H2；范围/修订、来源事实、原生计划、目标去重、有界纠正；候选事实明确闭包未完成 | 完整回归 328 项；1.20 无新模型/UI 试次；1.19 两模型 34 份输入审计通过，质量一通过/一失败；历史恢复/修订、用量及所有组件/复合试次和失败保留 | 审批/失败恢复及完整工作保持、运行隔离、角色异常/冲突交互、两模型本地通用/长任务质量、报告/通用评估；搜索暂缓 |
+| P2 | in_progress | 原动作/Jobs/WSL/恢复、目标/PEP508 解析获取、源码候选/用途锁/实际 wheel 身份、只构建与元数据/运行复用；1.21 静态/动态构建依赖检查及标准 hook | 最终 346 项完整回归；docopt 工具24/独立30、动态夹具工具19/独立20通过；旧源码模型 UI 成功与失败保留 | 跨源码版本自动回退、不兼容多项目构建工具链、编译器/系统库、其他运行时/元数据回退、传输核验、两模型稳定完整依赖质量、资源准入/恢复窗口及调试/报告质量 |
+| P3 | in_progress | 原验收/清单、文档/知识/记忆、原生上下文/角色及 H0/H1/H2、来源/计划/有界纠正；检查回执只保留需求与来源 ID | 完整回归346项；1.21无新模型/UI试次；1.19两模型34份输入核验通过、质量一通过/一失败；全部历史结果保留 | 审批/失败恢复、完整工作保持、运行隔离、角色异常/冲突交互、两模型本地通用/长任务质量、报告/通用评估；搜索暂缓 |
 | P4 | not_started | — | — | 真实 ODM 航片流程与冠层分支 |
 | P5 | not_started | — | — | 真实 PDAL/lidR、边界实例、指标 |
 | P6 | not_started | — | — | 六组合冻结实验、低资源/规模实测、发布门槛和证据包 |
@@ -377,7 +377,7 @@ English: Dependency indexes alone negotiate bounded gzip. Wire/decoded per-respo
 
 脚本收尾后再次实际运行，试次 `26a3dc4a-0562-44a4-88db-0cb26d1b1eb7`、task `0b6e9e64-944c-44fe-936f-6c7a2904a3a3` 返回0；原15项检查再次全通过，六个作业终态均确认（预期失败3个、成功安装及复用3个），cleanup无未确认项。此成功路径不冒充观察超时或停止拒绝的实测。证据 `dependencies-real-26a3dc4a-0562-44a4-88db-0cb26d1b1eb7.json`。最终Ruff/diff及Python语法检查通过。
 
-继续 P2 自动发现静态/动态构建依赖及独立审批获取、跨源码构建回退、编译器/系统库、其他运行时/元数据回退和剩余真实恢复窗口；保持当前来源/权限/目标及原预算，核验传输、原生续接和试次隔离，解决小模型重复操作、猜测结果与报告质量，再闭合角色、本地 UI 和通用评估。1.20 真实源码候选工具通过不代表模型自主完整回退或阶段 1；不增加预算或删除检查追求通过。Agent 联网搜索暂缓。阶段 1 其余门槛验收前不开发领域功能。低资源硬件由用户在 pilot 后决定，不填入假定设备或测量。
+继续 P2 验证模型经静态/动态构建依赖检查完成原源码流程，补跨源码版本自动回退、多项目不兼容构建工具链、编译器/系统库、其他运行时/元数据回退和剩余真实恢复窗口；保持原预算、来源/权限/目标及单次审批，解决小模型重复操作/猜测/报告质量，再闭合角色、本地 UI 和通用评估。有限工具通过不等于阶段1或模型稳定质量，不增预算或删检查追求通过。Agent联网搜索暂缓；阶段1其余门槛前不开发领域功能。低资源目标由用户在pilot后决定。
 
 
 ## Baseline 1.17 / 授权本地源码构建与实际来源核验（2026-10-08）
@@ -475,3 +475,23 @@ English: Build-only source Jobs produce immutable wheels and actual metadata for
 静态/动态构建依赖自动发现、独立审批解析获取、跨源码构建/冲突后的自动回退、编译器/系统库、其他运行时/缺哈希 Core Metadata 回退、完整恢复/角色/通用评估仍待完成；选源回退不能代表所有源码后端和运行冲突均已解决。阶段1出口未通过；真实 ODM/PDAL/lidR、两模型×H0/H1/H2重复/holdout、用户pilot选择低资源、真实≥100 GB及发布/干净安装/备份恢复完整范围保留。Agent联网搜索继续用户暂缓。
 
 English: The existing resolver now selects a public source candidate from original requirements and the actual index, with wheel preference at the same version. A typed incomplete candidate lock permits only the separately approved exact source download. Generated wheel identity must match acquired source. Existing offline building, actual metadata resolution and complete installation remain. All 328 final regressions, 21 real docopt driver checks and 25 independent provenance checks pass. The trial invokes no model; build requirements are still explicitly supplied, and complete automatic source repair and Stage 1 remain pending. Historical model failures and the full later scope remain; Agent search is deferred.
+
+## Baseline 1.21 / 实际静态和动态构建依赖发现（2026-10-08）
+
+源码准备新增 inspect_build="static"/"dynamic"，与 build_only 互斥，静态不提供 wheel。现行 build_sources 的同一归档检查/提取支持检查回调，不另建解包器或执行器。静态读取最多1 MiB TOML/标准 legacy 配方；动态在临时隔离 venv 用已核验 wheel 和 PyPA 公开 hook 发现附加需求，前端固定 pyproject-hooks1.2.0/packaging25.0，同样精确审批获取，不在宿主安装或执行。每组最多32个需求、合并32根/清单256 KiB，宿主只验证有界 JSON/PEP508，拒绝URL/私有来源。Jobs 持久 source_inspection 用途，结果 build_requirements 明确 runtime_installation=false；构建轮/环境解析均拒绝将检查产物当成已安装环境。实际源码/生产者/任务修订/代码/镜像/产物 SHA核验，原 code.execute、角色交集、排队/恢复/撤销和预算保持。完整明细/API/锁保留，模型投影省略重复 projects。只增加一个可选工具参数；无应用运行依赖、能力、迁移、执行器或产品前端构建。
+
+历史 source_build_legacy.py 冻结1.17–1.20的 Worker/准备模板，仅允许旧 Job 精确字节校验，新作业不选它。旧导出模板字节也独立冻结，避免未来导出改动影响旧身份；220相关25项回归通过（5.91秒），只是相同历史常量独立保存，不改变现行Worker。旧实际6d7ccd70-0ba6-4835-a315-f958160d6c11构建记录的精确代码/SHA/产物字节3项只读核对通过，证据 source-inspection-legacy-real-20261008-v1.json；没有把任意旧代码当作可复用环境。
+
+215定向47项通过；216完整338通过/1失败，新增工具参数/说明使原H2夹具输入保守上界28753超过28672。精简重复工具说明后217定向22项通过，218中间339项完整通过。补齐静态/动态两类撤销/最低权限、坏backend-path及回执投影核验后219最终完整 **346 passed（59.70秒）**，Ruff/diff通过；保留pytest缓存写入权限警告，测试没有跳过。原32K/4K和资源/请求预算未改变，原失败与夹具保留；曾读取git源码遇系统默认GBK解码失败，改显式UTF-8后保存精确旧模板，不执行包。
+
+公开试次 **fb9a30be-2518-4b9e-9b07-4ea294388903**，任务 **997cdbef-ed29-4544-becf-f97d7596bc3a**，命令 `scripts/smoke_public_source.py --config config/app.wsl.example.yaml --source pypi --discover-build`。仅 docopt==0.6.2，经实际索引选源、独立下载；同一实际源码 static 检查得到 setuptools>=40.8.0，原解析器选 setuptools84.0.0，加经核验前端两 wheel，dynamic 标准 hook 实际返回空附加需求。5个独立精确审批、8个终态Jobs（7成功/1预期缺构建依赖失败），只构建一次、实际运行元数据重解析、只安装docopt、两次真实 docopt.docopt 与 JSON 读回成功。24项工具和30项独立只读DB/字节/实际容器检查全通过。工具证据 public-source-real-fb9a30be-2518-4b9e-9b07-4ea294388903.json，独立 public-source-metadata-audit-997cdbef-ed29-4544-becf-f97d7596bc3a-v3.json。
+
+in-tree backend 试次 **9e269f50-7587-4c53-a302-2cba5c5d6972**，任务 **7f71ff89-e9e9-48af-baac-21c2d05425ca**，命令 `scripts/smoke_source_build.py --config config/app.wsl.example.yaml --source pypi --discover-build`。实际TOML static根setuptools==80.9.0，静态解析/下载前端及后端后，标准hook实际返回wheel==0.45.1；新完整构建需求再次独立元数据/下载审批，共4次。24个终态Jobs（9成功/15预期失败）：12类不合法归档在静态检查中拒绝、缺静态/动态依赖及实际缺gcc仍失败；tar/zip源码只构建成功，最终独立安装同生成wheel、环境仅forestry-build-fixture1.0，两次实际answer()=42并读回JSON。19项工具与20项独立真实记录/字节/容器检查全通过，文件 source-build-real-9e269f50-7587-4c53-a302-2cba5c5d6972.json/source-inspection-fixture-audit-7f71ff89-e9e9-48af-baac-21c2d05425ca-v1.json。归档、hook及安装全部只在原无网/非root/根只读/6GiB/4CPU容器，源/依赖只读；宿主只构造可信夹具字节，不解包或执行来源包。
+
+两试次实际模型上下文均0，无新模型/UI试次，不能据此宣称模型自主完整源码回退或科学验收。1.19大模型通过、小模型第二次猜测答案/缺JSON和报告失败、34份输入审计及全部历史结果保留。当前公开docopt空动态结果与夹具非空动态结果分别提供证据，没有以空hook代替动态获取验证。
+
+8769服务在旧PID59320/create1791431602.3590336精确cwd/cmd及任务/Jobs/动作/assignment闲置核验后正常停止；新PID588/create1791433150.6078172（exec42248）加载1.21，application/database ready、domain not_implemented，旧暂停任务未自动继续。证据 source-inspection-service-reload-20261008-v1.json/source-inspection-service-ready-20261008-v1.json；未知8768未操作。
+
+当前构建需求发现已实现，模型驱动的完整流程仍待验收；跨未构建源码版本/运行冲突自动回退、不兼容多项目工具链、编译器/系统库、其他运行时/缺哈希元数据回退、完整恢复/角色/通用评估保持。阶段1未通过，真实ODM/PDAL/lidR、两模型×H0/H1/H2重复/holdout、用户pilot选择低资源、真实≥100 GB、发布/干净安装/备份还原全部保持。Agent联网搜索继续用户暂缓。
+
+English: Existing offline Jobs now discover static and dynamic source build requirements through the public PyPA hook API. The same active archive validator and existing approval/resolution/acquisition/build/install paths are reused. All346 final regressions, real docopt24 driver/30 independent checks and the nonempty dynamic fixture19 driver/20 independent checks pass. Historical code/products remain exactly verifiable. No model/new UI trial is run; compiler, automatic cross-source fallback and complete general/domain/evaluation/scale/release acceptance remain pending. Agent search remains deferred.

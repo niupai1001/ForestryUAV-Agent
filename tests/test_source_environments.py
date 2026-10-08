@@ -14,7 +14,7 @@ from forestry_agent.jobs import Jobs
 from forestry_agent.roles import AssignmentRequest
 
 
-def source_job(client, app, tmp_path, *, build_only=False):
+def source_job(client, app, tmp_path, *, build_only=False, inspect_build=None):
     source, ref = wheel(client, tmp_path, "fixture.tar.gz", "source")
     state, _ = task(client, input_refs=[ref])
     engine, docker = app.state.engine, ExecutorFixture()
@@ -22,15 +22,18 @@ def source_job(client, app, tmp_path, *, build_only=False):
     environments = Environments(engine.config, engine.store, engine.resources, jobs)
     jobs.environment_resolver = environments.resolve
     jobs.source_build_resolver = environments.built
+    jobs.source_requirements_resolver = environments.requirements
     jobs.input_artifact_validator = environments.acquired_package
     deps = Deps(engine, state["task_id"], "source-fixture", 1)
     reply = engine.perform(deps, "build", "environment.prepare", {"input_refs":[ref], "source_refs":[ref], 'build_only':build_only},
-        lambda action: environments.prepare(state["task_id"], 1, action, [], source_refs=[ref], build_only=build_only))
+        lambda action: environments.prepare(state["task_id"], 1, action, [], source_refs=[ref],
+            build_only=build_only, inspect_build=inspect_build))
     assert reply["kind"] == "completed"
     return source, ref, state, deps, jobs, environments, reply["job"]["job_id"]
 
 
-def test_source_build_requires_both_capabilities_before_any_action(client, app, tmp_path):
+@pytest.mark.parametrize('inspect_build',[None,'static','dynamic'])
+def test_source_build_requires_both_capabilities_before_any_action(client, app, tmp_path,inspect_build):
     _, ref = wheel(client, tmp_path, "fixture.zip", "source")
     state, _ = task(client, input_refs=[ref], constraints={"allowed_capabilities":["environment.prepare"]})
     engine = app.state.engine
@@ -38,11 +41,11 @@ def test_source_build_requires_both_capabilities_before_any_action(client, app, 
         engine.perform(Deps(engine, state["task_id"], "denied-build", 1), "build", "environment.prepare",
             {"input_refs":[ref], "source_refs":[ref]}, lambda _: pytest.fail("unauthorized source build"))
     with pytest.raises(Failure, match="允许范围"):
-        engine.environments.prepare(state["task_id"], 1, "direct-build", [], source_refs=[ref])
+        engine.environments.prepare(state["task_id"], 1, "direct-build", [], source_refs=[ref],inspect_build=inspect_build)
     # The lower Jobs boundary independently protects callers bypassing tools.
     with pytest.raises(Failure, match="允许范围"):
         engine.jobs.submit(state["task_id"], 1, "bypass-build", "print(42)", [ref],
-            job_kind="environment.prepare", source_recipe=[{"resource_id":ref}])
+            job_kind="environment.prepare", source_recipe=[{"resource_id":ref}],source_inspection=inspect_build)
     assert engine.store.task(state["task_id"])["action_count"] == 0
     with engine.store.transaction() as db:
         assert not db.execute("SELECT 1 FROM jobs").fetchone()
@@ -70,8 +73,9 @@ def test_source_build_recovery_keeps_one_container_and_bounded_exec_mount(client
 
 
 @pytest.mark.parametrize("running", [False, True])
-def test_revoked_execution_permission_cancels_source_jobs_after_restart(client, app, tmp_path, running):
-    _, _, state, _, jobs, _, job_id = source_job(client, app, tmp_path)
+@pytest.mark.parametrize('inspect_build',[None,'static','dynamic'])
+def test_revoked_execution_permission_cancels_source_jobs_after_restart(client, app, tmp_path, running,inspect_build):
+    _, _, state, _, jobs, _, job_id = source_job(client, app, tmp_path,inspect_build=inspect_build)
     if running:
         jobs.tick()
         assert jobs.read(job_id)["status"] == "running"
