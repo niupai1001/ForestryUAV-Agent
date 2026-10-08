@@ -470,7 +470,7 @@ class Network:
                 continuation = {"approval_id": approval_id, "request_sha256": record["request_sha256"], "verdict": payload["verdict"],
                     **({'requested_tool': requested_tool} if requested_tool else {})}
                 prompt = "用户已通过审批接口处理网络请求。请读取当前审批状态；仅approved且范围、版本、有效期匹配的请求可以使用approval_id执行，已消费的请求不得重发。拒绝或撤销后请说明影响并继续可完成的工作。" + (
-                    "本次依赖审批对应requested_tool；批准后使用原精确参数重调该工具，解析审批不授权下载，下载审批不授权解析。完成回执才证明该操作成功，继续完整目标。" if requested_tool else "") + "\n" + encode(continuation)
+                    "本次依赖审批对应requested_tool；先检查续执行回执。原生审批会续接原工具；尚未执行才用原精确参数与approval_id调用一次，已消费且成功的请求复用结果。解析审批不授权下载，下载审批不授权解析；失败按实际原因有界修复，继续完整目标。" if requested_tool else "") + "\n" + encode(continuation)
                 record["continuation_turn_id"] = self.store.enqueue_turn(db, state, prompt, payload["request_id"], event)
                 if not state["pause_requested"] and state["status"] != "paused" and state["status"] != "active":
                     state.update(status="created", blockers=[])

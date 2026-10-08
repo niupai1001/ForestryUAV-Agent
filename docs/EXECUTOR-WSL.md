@@ -1,5 +1,7 @@
 # 项目独立 WSL 执行环境
 
+1.23 审批暂停/续执行仍使用原 Jobs/WSL/固定镜像，没有宿主执行或新的执行器。自有8769工作台经两次空闲核验和Ctrl-C完整关闭后加载最终候选，当前83696进程的身份、源码哈希和健康状态见 workspace/evidence/native-approval-service-ready-20261008-v2.json；历史15暂停/11等待任务保持，没有自动恢复。真实同任务 UI 续执行复用既有作业；最终参数说明已加载，尚未进行真实模型效果复验。完整流程未通过，当前证据见 [STATUS](STATUS.md) 的1.23节。
+
 这是 Windows 本地部署选项。受限代码仍由已有 Jobs 管理器在非特权、断网、只读根目录的容器中执行，不在 Windows 宿主运行生成代码。原 Docker Desktop 配置继续可选；项目独立发行版不重置或注销现有发行版，不改变默认 WSL 发行版。
 
 已实测 WSL 2.6.3、Ubuntu 24.04.5、Docker 29.1.3、containerd 2.2.1、runc 1.3.4，以及固定摘要的 Linux/amd64 Python 3.12.15 镜像。完整实测包清单和镜像身份写入 `workspace/isolated-executor/runtime-lock.json`。这是部署证据，不代表完整通用阶段或科学精度验收通过。

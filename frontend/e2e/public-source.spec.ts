@@ -9,7 +9,9 @@ const evidence=(name:string)=>resolve(root,'workspace/evidence',name);
 const sha=(bytes:Buffer)=>createHash('sha256').update(bytes).digest('hex');
 const trials=new Map<string,{taskId:string;source:string;hash:string;model:string}>();
 const roots=['docopt==0.6.2'];
+const sourceNotes='# 调用数据\n\n软件包：docopt==0.6.2。\n函数：docopt.docopt(doc, argv=...)。\n\n使用说明文本：Usage: example [--flag] <value>\n\n第一次 argv=["--flag","alpha"]；第二次 argv=["beta"]。\n输出 JSON 包含 parsed（函数真实返回的对象）和 version（importlib.metadata 实际读取的版本字符串）。\n';
 const equalSet=(a:any[],b:any[])=>JSON.stringify([...a].sort())===JSON.stringify([...b].sort());
+const packageKey=(p:any)=>JSON.stringify([p.name,p.version,p.filename]);
 
 async function snapshot(page:any,taskId:string){
   const state=await(await page.request.get(`/tasks/${taskId}`)).json();
@@ -36,7 +38,9 @@ test.afterEach(async({page},info)=>{
 });
 
 async function approveScopedRequests(page:any,taskId:string,model:string){
-  const decisions:any[]=[];
+  const decisions:any[]=process.env.PUBLIC_SOURCE_CONTINUE_TASK_ID===taskId?
+    JSON.parse(readFileSync(evidence(`ui-public-source-decisions-${taskId}.json`),'utf8')):[];
+  const previousCount=decisions.length;
   for(let n=0;n<15;n++){
     let pending:any;
     await expect.poll(async()=>{
@@ -71,7 +75,7 @@ async function approveScopedRequests(page:any,taskId:string,model:string){
       }
       if(value.source_packages?.length){
         phase='source-download';
-        const candidate=results.find(r=>equalSet((r.source_candidates||[]).map((p:any)=>JSON.stringify(p)),value.source_packages.map((p:any)=>JSON.stringify(p))));
+        const candidate=results.find(r=>equalSet((r.source_candidates||[]).map(packageKey),value.source_packages.map(packageKey)));
         expect(candidate,'The exact filename must originate in the actual resolver candidate.').toBeTruthy();
         expect(candidate.source_candidate_sha256['docopt-0.6.2.tar.gz']).toBe('49b3a825280bd66b3aa83585ef59c4a8c82f2c8a522dbe754a8bc8d08c85c491');
         expect(value.wheels).toEqual([]);expect(value.source_packages).toEqual([{name:'docopt',version:'0.6.2',filename:'docopt-0.6.2.tar.gz'}]);
@@ -81,9 +85,9 @@ async function approveScopedRequests(page:any,taskId:string,model:string){
         phase=`wheel-download-${inspections.at(-1)?.inspection}-${JSON.stringify(value.wheels.map((w:any)=>w.name).sort())}`;
         if(lock){
           expect(lock.kind).toBe('python_wheel_resolution');
-          const selected=lock.selected.filter((w:any)=>!w.artifact_id).map((w:any)=>JSON.stringify({name:w.name,version:w.version,filename:w.filename}));
-          expect(equalSet(value.wheels.map((w:any)=>JSON.stringify(w)),selected)).toBe(true);
-        }else expect(value.wheels.length&&value.wheels.every((w:any)=>results.some(r=>(r.wheels||[]).some((p:any)=>equalSet([JSON.stringify(p)],[JSON.stringify(w)]))))).toBe(true);
+          const selected=lock.selected.filter((w:any)=>!w.artifact_id).map(packageKey);
+          expect(equalSet(value.wheels.map(packageKey),selected)).toBe(true);
+        }else expect(value.wheels.length&&value.wheels.every((w:any)=>results.some(r=>(r.wheels||[]).some((p:any)=>packageKey(p)===packageKey(w))))).toBe(true);
         expect(value.wheels.every((w:any)=>['setuptools','wheel','pyproject-hooks','packaging'].includes(w.name))).toBe(true);
       }
       expect(['pypi','tuna']).toContain(value.source);
@@ -100,7 +104,7 @@ async function approveScopedRequests(page:any,taskId:string,model:string){
     writeFileSync(evidence(`ui-public-source-decisions-${taskId}.json`),JSON.stringify(decisions,null,2));
     const panel=page.getByLabel('网络请求审批');
     await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
-    await page.screenshot({path:evidence(`workbench-public-source-${model}-${taskId}-approval-${n+1}.png`),fullPage:true});
+    await page.screenshot({path:evidence(`workbench-public-source-${model}-${taskId}-approval-${previousCount+n+1}.png`),fullPage:true});
     await panel.locator('.network-approval').filter({hasText:pending.request_sha256}).getByRole('button',{name:'批准这项请求',exact:true}).click();
     let consumedState:string;
     await expect.poll(async()=>{
@@ -118,10 +122,26 @@ async function approveScopedRequests(page:any,taskId:string,model:string){
 for(const model of ['small','large'])test(`${model} discovers public source build dependencies and delivers two actual calls through UI`,async({page})=>{
   test.skip(process.env.RUN_PUBLIC_SOURCE_UI!=='1','Explicit approved public package and real model trial.');
   test.setTimeout(900000);
+  const continuation=process.env.PUBLIC_SOURCE_CONTINUE_TASK_ID;
+  let source:string,hash:string,ref:string,taskId:string;
+  const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+  if(continuation){
+    const prior=JSON.parse(readFileSync(evidence(`ui-public-source-failure-${continuation}.json`),'utf8'));
+    expect(prior.model).toBe(model);
+    expect(prior.state.status).toBe('waiting_user');
+    expect(prior.state.blockers.map((b:any)=>b.code)).toContain('APPROVAL_REQUIRED');
+    taskId=continuation;ref=prior.state.input_refs[0];
+    await page.goto('/');expect((await page.request.get('/session')).ok()).toBe(true);
+    const resource=(await(await page.request.get('/resources')).json()).find((r:any)=>r.resource_id===ref);
+    expect(resource).toBeTruthy();source=resource.locator;hash=sha(Buffer.from(sourceNotes));
+    expect(sha(readFileSync(source))).toBe(hash);
+    await page.evaluate(id=>localStorage.setItem('forestry.task',id),taskId);await page.reload();
+    await expect(page.locator('.task-status')).toHaveText('待确认');
+  }else{
   const directory=resolve(root,'workspace/public-source-ui-fixtures',crypto.randomUUID());mkdirSync(directory,{recursive:true});
-  const source=resolve(directory,`docopt-call-notes-${model}.md`);
-  writeFileSync(source,'# 调用数据\n\n软件包：docopt==0.6.2。\n函数：docopt.docopt(doc, argv=...)。\n\n使用说明文本：Usage: example [--flag] <value>\n\n第一次 argv=["--flag","alpha"]；第二次 argv=["beta"]。\n输出 JSON 包含 parsed（函数真实返回的对象）和 version（importlib.metadata 实际读取的版本字符串）。\n');
-  const hash=sha(readFileSync(source)),errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+  source=resolve(directory,`docopt-call-notes-${model}.md`);
+  writeFileSync(source,sourceNotes);
+  hash=sha(readFileSync(source));
   await page.goto('/');expect((await page.request.get('/session')).ok()).toBe(true);
   await expect.poll(async()=>{
     const tasks=await(await page.request.get('/tasks')).json();
@@ -129,7 +149,7 @@ for(const model of ['small','large'])test(`${model} discovers public source buil
   },{timeout:320000,intervals:[1000,2000]}).toBe(true);
   const grant=await page.request.post('/resources/register',{headers:{origin:new URL(page.url()).origin},
     data:{request_id:crypto.randomUUID(),path:source,classification:'private',read_only:true}});
-  expect(grant.ok(),await grant.text()).toBe(true);const ref=(await grant.json()).resource_id;await page.reload();
+  expect(grant.ok(),await grant.text()).toBe(true);ref=(await grant.json()).resource_id;await page.reload();
   await page.getByRole('button',{name:'模型与环境设置',exact:true}).click();await page.locator('.settings-modal select').selectOption(model);
   await expect.poll(async()=>(await(await page.request.get('/settings')).json()).default_model).toBe(model);
   await page.locator('.settings-modal .modal-heading button').click();await page.getByRole('button',{name:'新建任务',exact:true}).click();
@@ -140,7 +160,9 @@ for(const model of ['small','large'])test(`${model} discovers public source buil
   await page.locator('.composer textarea').fill(`读取所选调用说明（资源ID=${ref}），完成docopt==0.6.2的软件集成。先由依赖解析器选择发行候选，不猜源码文件名；若需要源码，取得后真实检查静态和动态构建依赖，补齐已核验wheel，在断网作业构建一次，依据生成wheel的实际元数据补齐运行依赖并独立安装一次。复用该环境按说明的两组不同argv各调用一次docopt.docopt，计算作业分别保存public-source-result-1.json和public-source-result-2.json，字段parsed、version，实际读回两文件。写中文source-discovery-report.md，记录实际版本、两次结果、源码和环境的实际产物引用及执行边界/局限，再读回报告并引用交付文件。公开依赖的元数据/精确下载审批由用户逐项处理；私密调用说明保持本地。不联网搜索、不宿主安装、不委派，复用已成功的下载/构建产物，不猜测运行结果。`);
   const created=page.waitForResponse(r=>r.request().method()==='POST'&&new URL(r.url()).pathname==='/tasks');
   await page.locator('.send-button').click();const response=await created;expect(response.status()).toBe(202);
-  const taskId=(await response.json()).task_id;trials.set(test.info().title,{taskId,source,hash,model});
+  taskId=(await response.json()).task_id;
+  }
+  trials.set(test.info().title,{taskId,source,hash,model});
   test.info().annotations.push({type:'public_source_task_id',description:taskId});
   const decisions=await approveScopedRequests(page,taskId,model);
   const observed=await snapshot(page,taskId);

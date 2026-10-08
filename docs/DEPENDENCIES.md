@@ -1,5 +1,9 @@
 # 范围依赖准备与复用
 
+## 1.23：原生精确审批续执行
+
+approval_required 通过框架原生等待结束当前运行；用户决定后续接原工具调用并注入已绑定 approval_id，原授权/来源/单次消费继续核验。未齐的同批审批继续等待。prepare_environment 的 *_refs 仅用于授权本地 resource_id，下载产物须交 wheel_artifact_ids/source_artifact_ids；inspect_build 与 build_only 互斥。真实审批续接已有有限证据，完整依赖流程和新说明的真实效果尚未通过，详见 [STATUS](STATUS.md) 的1.23节。以下记录为历史。
+
 ## 1.22：动态检查前置条件及实际模型失败边界
 
 动态检查需已授权、字节核验的pyproject-hooks==1.2.0和packaging==25.0 wheel；缺少或版本不符时返回PRECONDITION_MISSING，尚无Job，不得猜job_id或调用wait_job。依照同源码static结果，将实际requirements及frontend_requirements交既有解析/独立审批/获取，可分批补齐后dynamic；实际内容和后端约束仍在容器核验。源码解析锁在现有精确下载接口中是可选项，提供时必须核验；未提供时仍须独立精确审批及实际官方元数据/哈希校验。测试审批还要求候选/文件名来自真实解析结果，禁止猜测。没有强制重写成新工作流。

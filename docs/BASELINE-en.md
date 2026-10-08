@@ -1,4 +1,6 @@
-# Revised implementation baseline · 1.22
+# Revised implementation baseline · 1.23
+
+Version1.23 uses native deferred approval/resume in the same Harness checkpoint store, with exact original-call/proposal/grant binding and existing authorization checks. Partial decisions wait without model requests. Seven real UI bindings are correct and six grants are consumed; both complete workflows still fail. Updated parameter guidance has no real-model revalidation yet. Validation now follows the user's request to reduce repetition. Current evidence and remaining scope are in [STATUS](STATUS.md); the records below are historical.
 
 Version 1.22 adds a real two-model public-source UI trial and corrects an overdefined test gate that incorrectly required an optional source-candidate lock. Exact filenames still need actual resolver provenance; a supplied lock is checked by purpose and bytes. Build roots may be acquired in valid subsets derived from actual inspection. Dynamic inspection now returns actionable PRECONDITION_MISSING before Job submission when verified pyproject-hooks==1.2.0 or packaging==25.0 wheel inputs are missing or incompatible. Filename validation is only a necessary precondition; the existing offline container and pip still validate wheel contents and backend requirements. Native loop, permissions, Job/product identities and original budgets remain unchanged.
 
