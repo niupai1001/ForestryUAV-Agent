@@ -7,6 +7,7 @@ import pytest
 from pydantic_ai.messages import ModelResponse, RetryPromptPart, ToolCallPart, ToolReturnPart
 from pydantic_ai.models.test import TestModel
 from test_acquisition import WHEEL, ReleaseFixture, acquire, public_task
+from test_build_inspection import inspection_fixture
 from test_network import resolve as approve
 from test_resolution import IndexFixture, prepared_target, run_resolution
 from test_roles import FixtureFunctionModel, stream_adapter
@@ -15,6 +16,36 @@ from forestry_agent.agent import Deps
 from forestry_agent.contracts import Failure
 from forestry_agent.jobs import Jobs
 from forestry_agent.store import encode, uid
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('changed_source',[False,True])
+async def test_observed_inspection_requirements_survive_new_native_turn_only_while_source_matches(client,app,tmp_path,changed_source):
+    source,state,jobs,_,job_id = inspection_fixture(client,app,tmp_path)
+    engine = app.state.engine
+    deps = Deps(engine,state['task_id'],'observe-inspection',1)
+    observed = engine.perform(deps,'observe','job.observe',{'job_id':job_id},lambda _:jobs.observation(job_id,state['task_id']))
+    assert observed['kind'] == 'completed' and observed['build_requirements']['inspection'] == 'static'
+    if changed_source:
+        source.write_bytes(b'changed after inspection')
+    turn = 'native-inspection-handoff'
+    agent,connection = engine.make_agent('small',turn,state['config_snapshot'],state['task_id'])
+    try:
+        with agent.override(model=TestModel(call_tools=[],custom_output_args={'summary':'检查来源衔接','artifact_ids':[],'limitations':[]})):
+            await agent.run('从当前成功检查继续',deps=Deps(engine,state['task_id'],turn,1))
+        with engine.store.transaction() as db:
+            manifest = json.loads(db.execute('SELECT payload FROM contexts WHERE turn_id=?',(turn,)).fetchone()[0])
+        body = json.loads(Path(manifest['prepared_input_ref']).read_text(encoding='utf-8'))
+        instructions = '\n'.join(body['instructions'])
+        if changed_source:
+            assert '"build_requirements":' not in instructions
+        else:
+            assert '"requirements":["setuptools>=40.8.0"]' in instructions
+            assert '"frontend_requirements":["pyproject-hooks==1.2.0","packaging==25.0"]' in instructions
+            assert observed['action_id'] in instructions
+            assert observed['build_requirements']['artifact_id'] in instructions
+    finally:
+        await connection.aclose()
 
 
 @pytest.mark.parametrize('phase', ['resolve', 'download'])

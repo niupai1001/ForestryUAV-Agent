@@ -1,4 +1,5 @@
 """Source acquisition authority/protocol only; fixture bytes are never executed."""
+import hashlib
 import json
 from pathlib import Path
 
@@ -36,6 +37,8 @@ def acquire(engine, state, call='source-download', approval=None, sources=None, 
 def test_source_approval_is_exact_typed_replayed_and_separate_from_wheel_lock(client, app):
     state, _ = task(client, objective='PRIVATE_SOURCE_MARKER')
     engine, fake = app.state.engine, SourceFixture()
+    fake.data = b'PK\x00\x80source protocol fixture never extracted'
+    fake.entry.update(size=len(fake.data),digests={'sha256':hashlib.sha256(fake.data).hexdigest()})
     engine.acquisition.http = fake
     proposal = acquire(engine, state)
     assert proposal['kind'] == 'approval_required' and not fake.calls
@@ -51,10 +54,38 @@ def test_source_approval_is_exact_typed_replayed_and_separate_from_wheel_lock(cl
     assert result['kind'] == 'completed' and len(fake.calls) == 2
     assert result['wheels'] == [] and result['wheel_artifact_ids'] == [] and len(result['source_artifact_ids']) == 1
     assert acquire(engine, state, 'approved-source', grant['approval_id']) == result and len(fake.calls) == 2
+    reused = acquire(engine,state,'reuse-source')
+    assert reused['source_artifact_ids'] == result['source_artifact_ids'] and reused['reused_from_action_id'] == result['action_id']
+    assert len(fake.calls) == 2 and len(engine.network.list(state['task_id'])) == 1
+    ref = result['source_artifact_ids'][0]
+    with pytest.raises(Failure) as error:
+        engine.resources.read_artifact(state['task_id'],ref)
+    assert error.value.code == 'PRECONDITION_MISSING'
+    assert 'source_artifact_ids' in str(error.value) and ref in str(error.value)
+    assert 'frontend_requirements' in str(error.value)
     lock = json.loads(engine.resources.read_artifact(state['task_id'], result['lock_artifact_id'])['text'])
     assert lock['kind'] == 'public_package_acquisition' and lock['source_packages'] == result['source_packages']
     denied = acquire(engine, state, 'source-with-wheel-lock', lock='foreign-wheel-lock')
     assert denied['error']['code'] == 'VERSION_CONFLICT' and len(fake.calls) == 2
+
+
+def test_source_download_receipt_remains_visible_after_wheel_download(client,app):
+    from test_acquisition import acquire as acquire_wheel
+    state = public_task(client)
+    engine = app.state.engine
+    engine.acquisition.http = SourceFixture()
+    source = acquire(engine,state)
+    engine.acquisition.http = ReleaseFixture()
+    downloaded = acquire_wheel(engine,state,'wheel-after-source')
+    receipts = engine.acquisition.confirmed_receipts(state['task_id'],1)
+    assert len(receipts) == 2 and all(r['operation']=='download' for r in receipts)
+    source_receipt = next(r for r in receipts if r.get('source_packages'))
+    wheel_receipt = next(r for r in receipts if r.get('wheels'))
+    assert source_receipt['source_action_id']==source['action_id']
+    assert source_receipt['source_packages'][0]['artifact_id']==source['source_artifact_ids'][0]
+    assert source_receipt['lock_artifact_id']==source['lock_artifact_id']
+    assert wheel_receipt['source_action_id']==downloaded['action_id']
+    assert wheel_receipt['lock_artifact_id']==downloaded['lock_artifact_id']
 
 
 @pytest.mark.parametrize('condition', ['wrong_type','wrong_sha','wrong_size','yanked','private_url','query','unsafe_name','wheel_in_source'])

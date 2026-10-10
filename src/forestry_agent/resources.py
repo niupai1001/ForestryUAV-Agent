@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import mimetypes
 import os
 import shutil
@@ -185,6 +186,21 @@ class Resources:
     def read_artifact(self, task_id: str, artifact_id: str, offset: int = 0):
         """Read a bounded window from verified immutable task output."""
         artifact = self.artifact(artifact_id, task_id)
+        def binary_failure():
+            message = f"产物 {artifact['name']} 不是UTF-8文本，不能用文本窗口读取。"
+            with self.store.transaction() as db:
+                row = db.execute("SELECT result FROM actions WHERE id=? AND task_id=? AND kind='environment.acquire' "
+                    "AND status='confirmed' AND json_extract(result,'$.kind')='completed'",
+                    (artifact['producer_action_id'],task_id)).fetchone()
+            receipt = json.loads(row['result']) if row else {}
+            if artifact_id in receipt.get('source_artifact_ids',[]):
+                message += f'已下载源码：source_artifact_ids=["{artifact_id}"]交prepare_environment(inspect_build="static")并wait_job；'
+                message += '依据requirements与frontend_requirements补齐wheel后再dynamic。不要宿主解包或重复下载。'
+            elif artifact_id in receipt.get('wheel_artifact_ids',[]):
+                message += f'已下载wheel：wheel_artifact_ids=["{artifact_id}"]交prepare_environment，不重复下载；实际作业成功后再验证安装。'
+            else:
+                message += '需有授权且适用的格式工具或受限计算作业，文本读取不能验证该格式。'
+            return Failure('PRECONDITION_MISSING',message,422)
         if offset < 0:
             raise Failure("SCHEMA_INVALID", "分页游标不能为负")
         limit = 4000
@@ -200,9 +216,9 @@ class Resources:
                 chunk = chunk[:error.start]
                 text = chunk.decode("utf-8-sig")
             else:
-                raise Failure("PRECONDITION_MISSING", "产物不是 UTF-8 文本，请使用对应格式读取器", 422) from error
+                raise binary_failure() from error
         if "\x00" in text:
-            raise Failure("PRECONDITION_MISSING", "二进制产物需要对应格式读取器", 422)
+            raise binary_failure()
         return {"artifact_id": artifact_id, "sha256": artifact["sha256"], "offset": offset,
                 "next": offset + len(chunk), "has_more": len(raw) > len(chunk), "text": text}
 

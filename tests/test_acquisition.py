@@ -35,12 +35,12 @@ class ReleaseFixture:
         return {"body": body, "url": url, "hops": [{"url": url, "address": "8.8.8.8", "status": 200}], "observed_at": now()}
 
 
-def acquire(engine, state, call="download", wheels=None, source="pypi", approval=None, source_packages=None):
+def acquire(engine, state, call="download", wheels=None, source="pypi", approval=None, source_packages=None, refresh=False):
     deps = Deps(engine, state["task_id"], "acquisition-test", state["spec_revision"])
     selected = [] if source_packages else wheels or [WHEEL]
     return engine.perform(deps, call, "environment.acquire", {"wheels": selected, "source": source, "approval_id": approval,
-        **({'source_packages':source_packages} if source_packages else {})},
-        lambda action: engine.acquisition.acquire(deps, action, selected, source, approval, source_packages=source_packages))
+        **({'source_packages':source_packages} if source_packages else {}), **({'refresh':True} if refresh else {})},
+        lambda action: engine.acquisition.acquire(deps, action, selected, source, approval, source_packages=source_packages, refresh=refresh))
 
 
 def public_task(client, **kwargs):
@@ -173,8 +173,67 @@ def test_repeat_downloads_do_not_become_progress_through_new_artifact_ids(client
     engine = app.state.engine
     engine.acquisition.http = ReleaseFixture()
     first, repeated = acquire(engine, state), acquire(engine, state, "repeat")
-    assert first["wheel_artifact_ids"] != repeated["wheel_artifact_ids"]
+    assert first["wheel_artifact_ids"] == repeated["wheel_artifact_ids"]
+    assert repeated['reused_from_action_id'] == first['action_id']
+    assert len(engine.acquisition.http.calls) == 2
     assert observation("acquire_dependencies", first) == observation("acquire_dependencies", repeated)
+
+
+def test_private_download_reuses_verified_files_after_restart_without_spending_grant(client,app):
+    state,_ = task(client)
+    engine,fake = app.state.engine,ReleaseFixture()
+    engine.acquisition.http = fake
+    acquire(engine,state)
+    grant = engine.network.list(state['task_id'])[0]
+    resolve(client,state,grant).raise_for_status()
+    original = acquire(engine,state,'approved',approval=grant['approval_id'])
+    restarted = engine.__class__(engine.config,engine.store,engine.resources)
+    restarted.acquisition.http = fake
+    reused = acquire(restarted,state,'resume')
+    assert reused['wheel_artifact_ids'] == original['wheel_artifact_ids']
+    assert reused['lock_artifact_id'] == original['lock_artifact_id']
+    assert reused['reused_from_action_id'] == original['action_id'] and reused['metadata_requests'] == 0
+    assert len(fake.calls) == 2 and len(engine.network.list(state['task_id'])) == 1
+    assert restarted.resources.artifact(reused['wheel_artifact_ids'][0])['producer_action_id'] == original['action_id']
+    assert acquire(restarted,state,'explicit-consumed',approval=grant['approval_id'])['error']['code'] == 'PERMISSION_DENIED'
+    foreign,_ = task(client,request_id='foreign-download')
+    assert acquire(restarted,foreign,'foreign')['kind'] == 'approval_required' and len(fake.calls) == 2
+    proposal = acquire(restarted,state,'refresh',refresh=True)
+    assert proposal['kind'] == 'approval_required' and len(fake.calls) == 2
+    fresh = engine.network.list(state['task_id'])[-1]
+    assert fresh['approval_id'] != grant['approval_id'] and fresh['request_sha256'] == grant['request_sha256']
+    resolve(client,state,fresh,request_id='approve-refresh').raise_for_status()
+    completed = acquire(restarted,state,'approved-refresh',approval=fresh['approval_id'],refresh=True)
+    assert completed['wheel_artifact_ids'] != original['wheel_artifact_ids'] and len(fake.calls) == 4
+
+
+@pytest.mark.parametrize('artifact_kind',['wheel','metadata','lock'])
+def test_download_reuse_rejects_tampered_actual_bytes_without_network(client,app,artifact_kind):
+    state = public_task(client)
+    engine,fake = app.state.engine,ReleaseFixture()
+    engine.acquisition.http = fake
+    original = acquire(engine,state)
+    artifact_id = {'wheel':original['wheel_artifact_ids'][0],
+        'metadata':original['wheels'][0]['metadata_artifact_id'],'lock':original['lock_artifact_id']}[artifact_kind]
+    artifact = engine.resources.artifact(artifact_id)
+    Path(artifact['locator']).write_bytes(b'tampered')
+    failed = acquire(engine,state,'tampered-reuse')
+    assert failed['error']['code'] == 'VERIFICATION_FAILED' and len(fake.calls) == 2
+
+
+def test_binary_acquired_wheel_guides_existing_verified_artifact_handoff(client,app):
+    state = public_task(client)
+    engine,fake = app.state.engine,ReleaseFixture()
+    fake.data = b'PK\x00\x80binary fixture never executed'
+    fake.entry.update(size=len(fake.data),digests={'sha256':hashlib.sha256(fake.data).hexdigest()})
+    engine.acquisition.http = fake
+    original = acquire(engine,state)
+    ref = original['wheel_artifact_ids'][0]
+    with pytest.raises(Failure) as error:
+        engine.resources.read_artifact(state['task_id'],ref)
+    assert error.value.code == 'PRECONDITION_MISSING'
+    assert 'wheel_artifact_ids' in str(error.value) and ref in str(error.value)
+    assert len(fake.calls) == 2
 
 
 def test_long_acquired_wheel_path_is_supported_without_executing_the_file(client, app):

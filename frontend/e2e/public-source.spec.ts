@@ -135,9 +135,10 @@ for(const model of ['small','large'])test(`${model} discovers public source buil
     const prior=JSON.parse(readFileSync(evidence(`ui-public-source-failure-${continuation}.json`),'utf8'));
     expect(prior.model).toBe(model);
     const modelRepair=prior.state.status==='paused'&&prior.state.blockers.some((b:any)=>b.code==='MODEL_UNAVAILABLE');
-    const contextRepair=process.env.PUBLIC_SOURCE_RESUME_REPAIRED_BLOCKER==='CONTEXT_EXHAUSTED'&&
-      prior.state.status==='paused'&&prior.state.blockers.some((b:any)=>b.code==='CONTEXT_EXHAUSTED');
-    const repairedPause=modelRepair||contextRepair;
+    const repairedBlocker=process.env.PUBLIC_SOURCE_RESUME_REPAIRED_BLOCKER;
+    const workflowRepair=['CONTEXT_EXHAUSTED','MODEL_REQUEST_TIMED_OUT'].includes(repairedBlocker||'')&&
+      prior.state.status==='paused'&&prior.state.blockers.some((b:any)=>b.code===repairedBlocker);
+    const repairedPause=modelRepair||workflowRepair;
     expect(prior.state.status==='waiting_user'||repairedPause).toBe(true);
     if(!repairedPause)expect(prior.state.blockers.map((b:any)=>b.code)).toContain('APPROVAL_REQUIRED');
     taskId=continuation;ref=prior.state.input_refs[0];

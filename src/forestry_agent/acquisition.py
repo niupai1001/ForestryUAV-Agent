@@ -50,7 +50,7 @@ class Acquisition:
         self.http = http or PublicHTTP()
 
     def confirmed_receipts(self, task_id, revision):
-        """At most one sourced resolution and acquisition, with no copied body.
+        """One sourced receipt per operation and source/wheel download group.
 
         These are historical tool facts, not a workflow state or freshness check.
         Actual reuse still validates immutable bytes, grants and current inputs.
@@ -65,8 +65,9 @@ class Acquisition:
                 candidates = result.get('source_candidates', [])
                 operation = 'source_candidate' if candidates else 'download' if 'wheel_artifact_ids' in result else 'resolve'
                 source_packages = result.get('source_packages', [])
+                receipt_group = (operation, bool(source_packages))
                 built_packages = result.get('built_wheels', [])
-                if operation in seen or not 1 <= len(result['wheels']) + len(source_packages) + len(built_packages) + len(candidates) <= 32:
+                if receipt_group in seen or not 1 <= len(result['wheels']) + len(source_packages) + len(built_packages) + len(candidates) <= 32:
                     continue
                 if candidates and (result.get('resolution_complete') is not False or result['wheels'] or source_packages or built_packages):
                     continue
@@ -109,7 +110,7 @@ class Acquisition:
                         **({'source_packages':sources} if sources else {}),
                         **({'built_wheels':built_packages} if built_packages else {}),
                         **({'target_artifact_id': result['target_artifact_id']} if operation != 'download' and 'target_artifact_id' in result else {})})
-                    seen.add(operation)
+                    seen.add(receipt_group)
         # Resource validation opens its own transactions. Never nest it inside
         # the action-snapshot transaction (SQLite BEGIN IMMEDIATE would deadlock).
         confirmed = []
@@ -134,8 +135,61 @@ class Acquisition:
             confirmed.append(receipt)
         return confirmed
 
+    def reuse(self, deps, request):
+        """Read exact verified acquired bytes; never turn a receipt into egress."""
+        digest = hashlib.sha256(encode(request).encode()).hexdigest()
+        with self.store.transaction() as db:
+            rows = list(db.execute("SELECT id,args,result FROM actions WHERE task_id=? AND revision=? "
+                "AND kind='environment.acquire' AND status='confirmed' AND json_extract(result,'$.kind')='completed' "
+                "AND json_type(result,'$.lock_artifact_id')='text' AND json_type(result,'$.reused_from_action_id') IS NULL "
+                "ORDER BY rowid DESC LIMIT 64", (deps.task_id,deps.revision)))
+            grants = {r['id']:json.loads(r['payload']) for r in db.execute(
+                'SELECT id,payload FROM approvals WHERE task_id=? AND revision=?', (deps.task_id,deps.revision))}
+        value = json.loads(request['value'])
+        for row in rows:
+            args, result = json.loads(row['args']), json.loads(row['result'])
+            if (args.get('wheels',[]) != value['wheels'] or args.get('source','pypi') != value['source'] or
+                args.get('source_packages',[]) != value.get('source_packages',[]) or
+                args.get('resolution_lock_artifact_id') != request.get('resolution_lock_artifact_id')):
+                continue
+            grant = grants.get(args.get('approval_id'))
+            if grant and (grant.get('status') != 'consumed' or grant.get('consumed_action_id') != row['id'] or
+                grant.get('request_sha256') != digest or grant.get('request') != request):
+                continue
+            if not grant and args.get('approval_id'):
+                continue
+            artifact = self.engine.resources.artifact(result['lock_artifact_id'],deps.task_id)
+            if artifact['producer_action_id'] != row['id'] or artifact['size_bytes'] > 512*1024:
+                raise Failure('VERIFICATION_FAILED','历史下载锁生产者或大小不匹配',422)
+            lock = json.loads(native_path(artifact['locator']).read_bytes())
+            if (not grant and lock.get('request_sha256') != digest) or lock.get('request_sha256',digest) != digest:
+                continue
+            if (lock.get('package_execution') is not False or lock.get('wheels') != result['wheels'] or
+                lock.get('source_packages',[]) != result.get('source_packages',[]) or
+                lock.get('kind') != ('public_package_acquisition' if value.get('source_packages') else 'public_wheel_acquisition')):
+                raise Failure('VERIFICATION_FAILED','历史下载锁与确认回执不匹配',422)
+            for group, ids, is_source in [('wheels','wheel_artifact_ids',False),('source_packages','source_artifact_ids',True)]:
+                records = result.get(group,[])
+                if [r['artifact_id'] for r in records] != result.get(ids,[]):
+                    raise Failure('VERIFICATION_FAILED','历史发行文件集合不匹配',422)
+                for record in records:
+                    package = self.engine.environments.acquired_package(deps.task_id,deps.revision,record['artifact_id'],source=is_source)
+                    metadata = self.engine.resources.artifact(record['metadata_artifact_id'],deps.task_id)
+                    if (package['producer_action_id'] != row['id'] or metadata['producer_action_id'] != row['id'] or
+                        metadata['sha256'] != record['metadata_sha256'] or metadata['size_bytes'] > MAX_BYTES):
+                        raise Failure('VERIFICATION_FAILED','历史发行文件/元数据与原生产者不匹配',422)
+            return {k:v for k,v in result.items() if k not in {'kind','action_id','attempt_id','continuation'}} | {
+                'reused_from_action_id':row['id'],'metadata_requests':0,
+                'continuation':'已核验并复用同一请求的实际下载文件，未联网、未新增审批或重新下载。'
+                    'wheel_artifact_ids/source_artifact_ids交prepare_environment；源码先static并wait_job，'
+                    '补齐requirements和frontend_requirements的wheel再dynamic，不用read_artifact解码二进制。'
+                    '这些文件不证明当前远程状态、安装或任务完成；refresh=true重新走原精确网络授权。'}
+        return None
+
     def acquire(self, deps, action_id, wheels, source: Literal["pypi", "tuna"] = "pypi", approval_id=None,
-                resolution_lock_artifact_id=None, *, source_packages=None):
+                resolution_lock_artifact_id=None, *, source_packages=None, refresh=False):
+        if type(refresh) is not bool:
+            raise Failure('SCHEMA_INVALID','refresh须为布尔值',422)
         wheels = [WheelRequest.model_validate(w).model_dump() for w in (wheels or [])]
         source_packages = [PackageRequest.model_validate(w).model_dump() for w in (source_packages or [])]
         if any(not SOURCE_NAME.fullmatch(w['filename']) for w in source_packages):
@@ -183,6 +237,10 @@ class Acquisition:
         if resolution:
             request['resolution_lock_artifact_id'] = resolution_lock_artifact_id
             request['resolution_lock_sha256'] = lock_artifact['sha256']
+        if not approval_id and not refresh:
+            reused = self.reuse(deps,request)
+            if reused is not None:
+                return reused
         admission = self.engine.network.admit(deps, action_id, request, hashlib.sha256(encode(request).encode()).hexdigest(), approval_id)
         if isinstance(admission, dict):
             return {**admission, 'continuation': '这是精确发行文件下载审批，尚未下载；批准后用相同wheels/source/source_packages（若有）/解析锁（若有）及此approval_id重调acquire_dependencies。成功的wheel_artifact_ids/source_artifact_ids交prepare_environment；构建/安装须观察真实作业。'}
@@ -255,6 +313,7 @@ class Acquisition:
         guard(urls[0], urls[0])
         wheel_records, source_records = records[:len(wheels)], records[len(wheels):]
         lock_body = {"schema_version": 1, "kind": "public_package_acquisition" if source_packages else "public_wheel_acquisition", "wheels": wheel_records,
+                "request_sha256": hashlib.sha256(encode(request).encode()).hexdigest(),
                 "package_execution": False, "hash_authority": "official_pypi_metadata_not_independent_signature",
                 "scientific_accuracy": "not_assessed"}
         if source_packages:

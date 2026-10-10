@@ -1,4 +1,6 @@
-# Revised implementation baseline · 1.25
+# Revised implementation baseline · 1.26
+
+1.26 reuses verified acquired files, preserves observed build requirements and separate source/wheel provenance, and accounts from verified prior usage when native history no longer retains a response. Full objectives and budgets remain unchanged. Targeted checks, copied real-history checks and all 22 actual request measurements passed. The large task produced a real build/install and two correct calculations, but omitted dynamic inspection and made unsupported report claims/references. The complete flow and Stage 1 still fail. The final provenance-summary fix has no new model-quality evidence. See [STATUS](STATUS.md), section 1.26, for evidence and remaining scope; following notes are historical. No full regression was repeated; Agent web search remains deferred.
 
 1.25 verifies the actual paid request receipt and matches tool definitions and instruction occurrences individually. Changed components pay their full cost; provider usage and the original 32K/4K limits remain intact. All 35 targeted context/approval checks and copied real-history budget checks passed. The same large task has resumed actual model requests. Complete-flow results and remaining scope are recorded in [STATUS](STATUS.md), section 1.25; subsequent version notes are historical. No full regression was repeated. Agent web search remains deferred.
 

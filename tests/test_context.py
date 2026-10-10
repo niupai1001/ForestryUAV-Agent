@@ -22,7 +22,7 @@ from test_core import task
 
 from forestry_agent.agent import Deps
 from forestry_agent.client import collect_events
-from forestry_agent.context import deduplicate_objective, input_bound, utf8_window
+from forestry_agent.context import TASK_FACT_PREFIX, deduplicate_objective, input_bound, utf8_window
 from forestry_agent.contracts import Failure
 from forestry_agent.store import encode, now
 
@@ -250,6 +250,29 @@ def test_changed_request_components_keep_paid_usage_and_charge_full_new_occurren
     assert without_receipt > base + 4000
 
 
+def test_canonical_task_fact_accounting_keeps_complete_objective_and_pays_changed_or_duplicate_fields():
+    objective = '完整目标及所有验收要求'*5000
+    paid = TASK_FACT_PREFIX+encode({'objective':objective,'counter':1})+'\n固定指导\n'
+    current = TASK_FACT_PREFIX+encode({'objective':objective,'counter':2})+'\n固定指导\n新增指导\n'
+    history = [ModelRequest(parts=[UserPromptPart('continue')],instructions=paid),
+        ModelResponse(parts=[],usage=RequestUsage(input_tokens=5000,output_tokens=30)),ModelRequest(parts=[])]
+    params = SimpleNamespace(instruction_parts=[SimpleNamespace(content=current)],tool_defs={})
+    bound,_ = input_bound(history,params,[],measured_instructions=[paid])
+    assert 5030 < bound < 6000
+    assert params.instruction_parts[0].content == current and history[0].instructions == paid
+    changed = TASK_FACT_PREFIX+encode({'objective':objective+'增加要求','counter':2})+'\n固定指导\n'
+    params.instruction_parts = [SimpleNamespace(content=changed)]
+    new_objective,_ = input_bound(history,params,[],measured_instructions=[paid])
+    assert new_objective > len((objective+'增加要求').encode())+5030
+    params.instruction_parts = [SimpleNamespace(content=current),SimpleNamespace(content=current)]
+    duplicate,_ = input_bound(history,params,[],measured_instructions=[paid])
+    assert duplicate > len(objective.encode())+5030
+    # Similar source-like text is not a canonical facts envelope.
+    params.instruction_parts = [SimpleNamespace(content=TASK_FACT_PREFIX+json.dumps({'objective':objective,'counter':2},ensure_ascii=False))]
+    noncanonical,_ = input_bound(history,params,[],measured_instructions=[paid])
+    assert noncanonical > len(objective.encode())+5030
+
+
 def test_changed_schema_and_dynamic_instructions_fit_original_budget_with_verified_receipt(client, app):
     state, _ = task(client)
     engine = app.state.engine
@@ -291,6 +314,46 @@ def test_changed_schema_and_dynamic_instructions_fit_original_budget_with_verifi
             engine.contexts.compile(deps, request, profile)
     finally:
         snapshot.write_bytes(data)
+
+
+def test_compacted_history_without_response_retains_verified_prior_usage_and_pays_all_current_messages(client,app):
+    state,_ = task(client)
+    engine = app.state.engine
+    deps = Deps(engine,state['task_id'],'response-free-budget',1)
+    profile = engine.config.models['small'].model_copy(update={'context_limit':18000,'output_limit':2000})
+    tool = SimpleNamespace(name='fixture',description='stable definition',parameters_json_schema={'description':'定义'*1000})
+    params = SimpleNamespace(instruction_parts=[SimpleNamespace(content='完整固定约束'*350,dynamic=False)],
+        function_tools=[tool],output_tools=[],tool_defs={})
+    request = SimpleNamespace(messages=[ModelRequest(parts=[UserPromptPart('first')])],
+        model_request_parameters=params,model_settings={})
+    receipt = engine.contexts.compile(deps,request,profile)
+    response = ModelResponse(parts=[],usage=RequestUsage(input_tokens=4500,output_tokens=30))
+    engine.contexts.measured(receipt,response.usage,response=response)
+    request.messages = [ModelRequest(parts=[UserPromptPart('new message '*650)])]
+    tools = [{'name':tool.name,'description':tool.description,'schema':tool.parameters_json_schema}]
+    raw,_ = input_bound(request.messages,params,tools)
+    assert raw > profile.context_limit-profile.output_limit
+    ref = engine.contexts.compile(deps,request,profile)
+    with engine.store.transaction() as db:
+        manifest = json.loads(db.execute('SELECT payload FROM contexts WHERE id=?',(ref,)).fetchone()[0])
+        original = json.loads(db.execute('SELECT payload FROM contexts WHERE id=?',(receipt,)).fetchone()[0])
+    assert manifest['uses_provider_usage_anchor'] is False
+    assert manifest['usage_baseline_mode'] == 'verified_prior_request'
+    assert manifest['usage_baseline_tokens'] == [4500,30]
+    assert manifest['estimated_tokens_upper_bound'] > 4530+len(('new message '*650).encode())
+    assert manifest['estimated_tokens_upper_bound'] < profile.context_limit-profile.output_limit
+    assert manifest['schema_receipt_context_ref'] == receipt
+    foreign,_ = task(client,request_id='foreign-response-free')
+    with pytest.raises(Failure,match='编译输入保守估算'):
+        engine.contexts.compile(Deps(engine,foreign['task_id'],deps.turn_id,1),request,profile)
+    snapshot = Path(original['prepared_input_ref'])
+    saved = snapshot.read_bytes()
+    try:
+        snapshot.write_bytes(saved+b' ')
+        with pytest.raises(Failure,match='编译输入保守估算'):
+            engine.contexts.compile(deps,request,profile)
+    finally:
+        snapshot.write_bytes(saved)
 
 
 def test_approval_continuation_keeps_budget_without_charging_paid_schema_twice(client, app):
