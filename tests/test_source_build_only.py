@@ -140,6 +140,10 @@ def test_actual_built_metadata_drives_runtime_closure_and_only_remote_wheels_are
     assert local['sha256']==built['built_wheels'][0]['sha256']
     summary=engine.acquisition.confirmed_receipts(state['task_id'],1)[0]
     assert summary['built_wheels']==result['built_wheels'] and summary['source_action_id']==result['action_id']
+    reused=run('reuse-source-runtime')
+    assert reused['reused_from_action_id']==result['action_id'] and reused['built_wheel_artifact_ids']==refs
+    assert reused['wheels']==result['wheels'] and reused['metadata_requests']==0 and len(fake.calls)==2
+    assert len(engine.network.list(state['task_id']))==1
     download=engine.perform(deps,'remote-download-proposal','environment.acquire',{'wheels':result['wheels']},lambda action:
         engine.acquisition.acquire(deps,action,result['wheels'],resolution_lock_artifact_id=result['resolution_lock_artifact_id']))
     assert download['kind']=='approval_required'

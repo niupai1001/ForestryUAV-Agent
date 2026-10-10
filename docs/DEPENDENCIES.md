@@ -1,5 +1,9 @@
 # 范围依赖准备与复用
 
+## 1.24：精确解析快照复用
+
+resolve_dependencies默认复用原确认动作及不可变解析锁中能够证明相同请求的结果，核验当前源版本/目标/镜像/构建元数据及全部快照字节。返回reused_from_action_id及metadata_requests=0，原产物生产者保持；不当作远程新探测或新执行证据。refresh=true绕过读取复用并走既有网络授权；显式已消费approval_id仍不能执行新请求。原真实锁的只读核验通过，模型完整流程仍被上下文预算挡住，详见[STATUS](STATUS.md)的1.24节。下文为历史。
+
 ## 1.23：原生精确审批续执行
 
 approval_required 通过框架原生等待结束当前运行；用户决定后续接原工具调用并注入已绑定 approval_id，原授权/来源/单次消费继续核验。未齐的同批审批继续等待。prepare_environment 的 *_refs 仅用于授权本地 resource_id，下载产物须交 wheel_artifact_ids/source_artifact_ids；inspect_build 与 build_only 互斥。真实审批续接已有有限证据，完整依赖流程和新说明的真实效果尚未通过，详见 [STATUS](STATUS.md) 的1.23节。以下记录为历史。

@@ -1,6 +1,7 @@
 """Metadata/protocol fault fixtures; these do not prove real pip execution."""
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 from resolvelib import BaseReporter, Resolver
@@ -9,7 +10,7 @@ from test_acquisition import WHEEL, ReleaseFixture, public_task
 from test_jobs import ExecutorFixture
 from test_network import resolve as approve
 
-from forestry_agent.agent import Deps
+from forestry_agent.agent import Deps, Engine
 from forestry_agent.contracts import Failure
 from forestry_agent.progress import observation
 from forestry_agent.resolution import PROBE_CODE, WheelProvider, requirement, target_tags
@@ -133,10 +134,106 @@ def prepared_target(engine, state):
     return deps, artifact
 
 
-def run_resolution(engine, deps, call, target, roots=None, approval=None):
+def run_resolution(engine, deps, call, target, roots=None, approval=None, *, refresh=False):
     args = {'requirements': roots or ['six==1.17.0'], 'target_artifact_id': target['artifact_id'], 'approval_id': approval}
+    if refresh:
+        args['refresh'] = True
     return engine.perform(deps, call, 'environment.acquire', args,
-        lambda action: engine.resolution.resolve(deps, action, args['requirements'], args['target_artifact_id'], approval))
+        lambda action: engine.resolution.resolve(deps, action, args['requirements'], args['target_artifact_id'], approval,
+            refresh=refresh))
+
+
+def test_successful_private_resolution_reuses_original_snapshot_across_calls_and_restart(client, app):
+    from test_core import task
+    state = task(client)[0]
+    engine, fake = app.state.engine, IndexFixture()
+    fake.add('six', '1.17.0', tag='py2.py3-none-any'); engine.acquisition.http = fake
+    deps, target = prepared_target(engine, state)
+    run_resolution(engine, deps, 'proposal', target)
+    grant = engine.network.list(state['task_id'])[0]; approve(client, state, grant)
+    original = run_resolution(engine, deps, 'approved', target, approval=grant['approval_id'])
+    assert original['kind'] == 'completed'
+    restarted = Engine(engine.config, engine.store, engine.resources)
+    restarted.jobs.docker = engine.jobs.docker; restarted.acquisition.http = fake
+    continued = Deps(restarted, deps.task_id, 'next-logical-turn', deps.revision)
+    reused = run_resolution(restarted, continued, 'different-call', target)
+    assert reused['kind'] == 'completed' and reused['reused_from_action_id'] == original['action_id']
+    assert reused['action_id'] != original['action_id'] and reused['attempt_id'] != original['attempt_id']
+    assert reused['resolution_lock_artifact_id'] == original['resolution_lock_artifact_id']
+    assert reused['metadata_requests'] == 0 and reused['recorded_metadata_requests'] == len(fake.calls) == 2
+    assert len(restarted.network.list(state['task_id'])) == 1
+    assert observation('resolve_dependencies', original) == observation('resolve_dependencies', reused)
+    assert restarted.acquisition.confirmed_receipts(deps.task_id, deps.revision)[0]['source_action_id'] == original['action_id']
+    denied = run_resolution(restarted, continued, 'spent-grant', target, approval=grant['approval_id'])
+    assert denied['error']['code'] == 'PERMISSION_DENIED' and len(fake.calls) == 2
+
+
+def test_explicit_refresh_requires_new_private_approval_and_new_snapshot(client, app):
+    from test_core import task
+    engine, state, fake = app.state.engine, task(client)[0], IndexFixture()
+    fake.add('six', '1.17.0', tag='py2.py3-none-any'); engine.acquisition.http = fake
+    deps, target = prepared_target(engine, state)
+    run_resolution(engine, deps, 'proposal', target); grant = engine.network.list(deps.task_id)[0]
+    approve(client, state, grant)
+    original = run_resolution(engine, deps, 'approved', target, approval=grant['approval_id'])
+    pending = run_resolution(engine, deps, 'refresh-proposal', target, refresh=True)
+    assert pending['kind'] == 'approval_required' and pending['approval_id'] != grant['approval_id'] and len(fake.calls) == 2
+    fresh_grant = next(g for g in engine.network.list(deps.task_id) if g['approval_id'] == pending['approval_id'])
+    assert approve(client, state, fresh_grant, request_id='approve-refresh').status_code == 200
+    fresh = run_resolution(engine, deps, 'refresh-approved', target, approval=fresh_grant['approval_id'], refresh=True)
+    assert fresh['kind'] == 'completed' and fresh['resolution_lock_artifact_id'] != original['resolution_lock_artifact_id']
+    assert 'reused_from_action_id' not in fresh and len(fake.calls) == 4
+    assert run_resolution(engine, deps, 'reuse-fresh', target)['reused_from_action_id'] == fresh['action_id']
+    changed = run_resolution(engine, deps, 'changed-roots', target, ['six>=1'])
+    assert changed['kind'] == 'approval_required' and len(fake.calls) == 4
+
+
+@pytest.mark.parametrize('tamper', ['lock','metadata'])
+def test_resolution_reuse_rejects_tampered_snapshot_without_network_or_new_approval(client, app, tamper):
+    state = public_task(client); engine, fake = app.state.engine, IndexFixture()
+    fake.add('six', '1.17.0', tag='py2.py3-none-any'); engine.acquisition.http = fake
+    deps, target = prepared_target(engine, state)
+    original = run_resolution(engine, deps, 'original', target)
+    lock = engine.resources.artifact(original['resolution_lock_artifact_id'], deps.task_id)
+    manifest = json.loads(Path(lock['locator']).read_bytes())
+    corrupted = lock if tamper == 'lock' else engine.resources.artifact(manifest['metadata_snapshots'][0]['artifact_id'], deps.task_id)
+    Path(corrupted['locator']).write_bytes(b'changed-snapshot')
+    failed = run_resolution(engine, deps, 'reuse', target)
+    assert failed['kind'] == 'failed' and failed['error']['code'] == 'VERIFICATION_FAILED'
+    assert len(fake.calls) == 2 and engine.network.list(deps.task_id) == []
+
+
+def test_resolution_reuse_cannot_mask_changed_private_source_version(client, app, tmp_path):
+    from test_core import task
+    source = tmp_path/'private-notes.txt'; source.write_text('original', encoding='utf-8')
+    ref = client.post('/resources/register', json={'request_id':'reuse-source','path':str(source),
+        'classification':'private','read_only':True}).json()['resource_id']
+    engine, state, fake = app.state.engine, task(client, input_refs=[ref])[0], IndexFixture()
+    fake.add('six', '1.17.0', tag='py2.py3-none-any'); engine.acquisition.http = fake
+    deps, target = prepared_target(engine, state)
+    run_resolution(engine, deps, 'proposal', target); grant = engine.network.list(deps.task_id)[0]
+    approve(client, state, grant)
+    original = run_resolution(engine, deps, 'approved', target, approval=grant['approval_id'])
+    assert original['kind'] == 'completed'
+    source.write_text('changed source version', encoding='utf-8')
+    pending = run_resolution(engine, deps, 'reuse', target)
+    assert pending['kind'] == 'approval_required' and pending['approval_id'] != grant['approval_id']
+    fresh_grant = next(g for g in engine.network.list(deps.task_id) if g['approval_id'] == pending['approval_id'])
+    assert fresh_grant['request_sha256'] != grant['request_sha256']
+    assert fresh_grant['request']['sources'][0]['version'] != grant['request']['sources'][0]['version']
+    assert len(fake.calls) == 2 and len(engine.network.list(deps.task_id)) == 2
+
+
+def test_public_resolution_reuses_snapshot_and_keeps_remote_freshness_explicit(client, app):
+    engine, state, fake = app.state.engine, public_task(client), IndexFixture()
+    fake.add('six', '1.17.0', tag='py2.py3-none-any'); engine.acquisition.http = fake
+    deps, target = prepared_target(engine, state)
+    original = run_resolution(engine, deps, 'original', target)
+    reused = run_resolution(engine, deps, 'same-request', target)
+    assert reused['reused_from_action_id'] == original['action_id'] and reused['metadata_requests'] == 0
+    assert len(fake.calls) == 2 and engine.network.list(deps.task_id) == []
+    fresh = run_resolution(engine, deps, 'refresh', target, refresh=True)
+    assert fresh['kind'] == 'completed' and 'reused_from_action_id' not in fresh and len(fake.calls) == 4
 
 
 def test_private_resolution_approval_locks_exact_roots_and_target(client, app):

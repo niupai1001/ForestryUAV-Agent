@@ -93,27 +93,33 @@ async function approveScopedRequests(page:any,taskId:string,model:string){
       expect(['pypi','tuna']).toContain(value.source);
     }
     const previous=decisions.filter(d=>d.phase===phase);expect(previous.length,'At most two retries per observed phase.').toBeLessThan(3);
+    let verdict:'approve'|'reject'|'revoke'='approve',duplicateOf:string|undefined;
     if(previous.length){
-      const prior=previous.at(-1);
+      const prior=[...previous].reverse().find(d=>!d.verdict||d.verdict==='approve');expect(prior).toBeTruthy();
       const grant=observed.approvals.find((g:any)=>g.approval_id===prior.approval_id);
       const outcome=observed.events.find(e=>e.type==='action.observed'&&e.payload.result.action_id===grant.consumed_action_id)?.payload.result;
-      expect(outcome?.kind,'Repeat approval requires an actual failed operation.').toBe('failed');
       expect(pending.request_sha256).toBe(prior.request_sha256);
+      if(outcome?.kind==='completed'){
+        verdict=Date.parse(pending.expires_at)<=Date.now()?'revoke':'reject';duplicateOf=outcome.action_id;
+      }else expect(outcome?.kind,'Repeat approval requires an actual failed operation.').toBe('failed');
     }
-    decisions.push({phase,approval_id:pending.approval_id,request_sha256:pending.request_sha256});
+    decisions.push({phase,approval_id:pending.approval_id,request_sha256:pending.request_sha256,verdict,
+      ...(duplicateOf?{duplicate_of_action_id:duplicateOf}:{})});
     writeFileSync(evidence(`ui-public-source-decisions-${taskId}.json`),JSON.stringify(decisions,null,2));
     const panel=page.getByLabel('网络请求审批');
     await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
     await page.screenshot({path:evidence(`workbench-public-source-${model}-${taskId}-approval-${previousCount+n+1}.png`),fullPage:true});
-    await panel.locator('.network-approval').filter({hasText:pending.request_sha256}).getByRole('button',{name:'批准这项请求',exact:true}).click();
+    const button=verdict==='approve'?'批准这项请求':verdict==='reject'?'拒绝':'撤销授权';
+    await panel.locator('.network-approval').filter({hasText:pending.request_sha256}).filter({has:page.getByRole('button',{name:button,exact:true})}).last().getByRole('button',{name:button,exact:true}).click();
     let consumedState:string;
     await expect.poll(async()=>{
       const grant=(await(await page.request.get(`/tasks/${taskId}/approvals`)).json()).find((g:any)=>g.approval_id===pending.approval_id);
       const state=await(await page.request.get(`/tasks/${taskId}`)).json();
-      consumedState=grant.status==='consumed'?'consumed':['paused','failed','cancelled'].includes(state.status)?state.status:'working';
+      const decided=verdict==='reject'?'rejected':verdict==='revoke'?'revoked':'consumed';
+      consumedState=grant.status===decided?decided:['paused','failed','cancelled'].includes(state.status)?state.status:'working';
       return consumedState;
-    },{timeout:320000,intervals:[1000,2000]}).toMatch(/^(consumed|paused|failed|cancelled)$/);
-    expect(consumedState!,'Approval continuation must consume its exact grant before proceeding.').toBe('consumed');
+    },{timeout:320000,intervals:[1000,2000]}).toMatch(/^(consumed|rejected|revoked|paused|failed|cancelled)$/);
+    expect(consumedState!,'Each exact decision must be recorded before proceeding.').toBe(verdict==='approve'?'consumed':verdict==='reject'?'rejected':'revoked');
     await page.setViewportSize({width:1440,height:960});
   }
   return decisions;
@@ -128,15 +134,17 @@ for(const model of ['small','large'])test(`${model} discovers public source buil
   if(continuation){
     const prior=JSON.parse(readFileSync(evidence(`ui-public-source-failure-${continuation}.json`),'utf8'));
     expect(prior.model).toBe(model);
-    expect(prior.state.status).toBe('waiting_user');
-    expect(prior.state.blockers.map((b:any)=>b.code)).toContain('APPROVAL_REQUIRED');
+    const modelRepair=prior.state.status==='paused'&&prior.state.blockers.some((b:any)=>b.code==='MODEL_UNAVAILABLE');
+    expect(prior.state.status==='waiting_user'||modelRepair).toBe(true);
+    if(!modelRepair)expect(prior.state.blockers.map((b:any)=>b.code)).toContain('APPROVAL_REQUIRED');
     taskId=continuation;ref=prior.state.input_refs[0];
     await page.goto('/');expect((await page.request.get('/session')).ok()).toBe(true);
     const resource=(await(await page.request.get('/resources')).json()).find((r:any)=>r.resource_id===ref);
     expect(resource).toBeTruthy();source=resource.locator;hash=sha(Buffer.from(sourceNotes));
     expect(sha(readFileSync(source))).toBe(hash);
     await page.evaluate(id=>localStorage.setItem('forestry.task',id),taskId);await page.reload();
-    await expect(page.locator('.task-status')).toHaveText('待确认');
+    await expect(page.locator('.task-status')).toHaveText(modelRepair?'已暂停':'待确认');
+    if(modelRepair)await page.getByRole('button',{name:'恢复',exact:true}).click();
   }else{
   const directory=resolve(root,'workspace/public-source-ui-fixtures',crypto.randomUUID());mkdirSync(directory,{recursive:true});
   source=resolve(directory,`docopt-call-notes-${model}.md`);
@@ -171,7 +179,7 @@ for(const model of ['small','large'])test(`${model} discovers public source buil
     scientific_accuracy:'not_assessed',general_stage_acceptance:'incomplete'};
   writeFileSync(path,JSON.stringify(record,null,2));
   expect(observed.state.status).toBe('waiting_user');expect(observed.state.input_refs).toEqual([ref]);
-  expect(observed.approvals.every((g:any)=>g.status==='consumed')).toBe(true);
+  expect(observed.approvals.every((g:any)=>g.status==='consumed'||['rejected','revoked'].includes(g.status)&&decisions.some(d=>d.approval_id===g.approval_id&&['reject','revoke'].includes(d.verdict)&&d.duplicate_of_action_id))).toBe(true);
   expect(observed.jobs.every(j=>['succeeded','failed'].includes(j.status))).toBe(true);
   const successful=observed.jobs.filter(j=>j.status==='succeeded');
   const inspections=successful.filter(j=>j.source_inspection);expect(new Set(inspections.map(j=>j.source_inspection))).toEqual(new Set(['static','dynamic']));

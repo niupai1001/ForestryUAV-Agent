@@ -93,6 +93,10 @@ def test_private_source_candidate_and_download_have_separate_exact_approvals(cli
     summary=engine.acquisition.confirmed_receipts(state['task_id'],1)[0]
     assert summary['operation']=='source_candidate' and summary['resolution_complete'] is False
     assert summary['source_candidates']==[SOURCE] and summary['source_action_id']==result['action_id']
+    reused=run_resolution(engine,deps,'reuse-candidate',target)
+    assert reused['reused_from_action_id']==result['action_id'] and reused['resolution_complete'] is False
+    assert reused['source_candidates']==[SOURCE] and reused['metadata_requests']==0 and len(fake.calls)==1
+    assert len(engine.network.list(state['task_id']))==1
     def download(call,approval=None,sources=None):
         args={'source_packages':sources or [SOURCE],'resolution_lock_artifact_id':lock,'approval_id':approval}
         return engine.perform(deps,call,'environment.acquire',args,lambda a:

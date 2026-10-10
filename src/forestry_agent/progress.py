@@ -47,6 +47,8 @@ def observation(tool, result):
         value.pop("resolution_lock_artifact_id", None)
         value.pop("target_artifact_id", None)
         value.pop("metadata_requests", None)
+        value.pop("reused_from_action_id", None)
+        value.pop("recorded_metadata_requests", None)
         for group in ['wheels', 'source_packages', 'built_wheels']:
             if group in value:
                 value[group] = [{k: v for k, v in package.items() if k not in

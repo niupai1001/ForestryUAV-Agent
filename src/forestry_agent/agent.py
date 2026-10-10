@@ -822,17 +822,19 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
         @agent.tool
         async def resolve_dependencies(ctx: RunContext[Deps], requirements: list[str],
                 target_artifact_id: UUID | None = None, approval_id: str | None = None,
-                built_wheel_artifact_ids: list[str] | None = None) -> dict:
+                built_wheel_artifact_ids: list[str] | None = None, refresh: bool = False) -> dict:
             """PEP508解析wheel闭包或源码候选；无target先断网无输入探测(需code.execute)，wait_job后传目标ID。
-            built_wheel_artifact_ids复用源码元数据；私密审批后带approval_id。下载wheels/锁后与built IDs合并安装。
+            built_wheel_artifact_ids复用源码元数据；同请求复用核验快照，refresh=true重新联网须审批。下载IDs合并安装。
             """
             target = str(target_artifact_id) if target_artifact_id is not None else None
             args = {"requirements": requirements, "target_artifact_id": target, "approval_id": approval_id}
             if built_wheel_artifact_ids is not None:
                 args['built_wheel_artifact_ids'] = built_wheel_artifact_ids
+            if refresh:
+                args['refresh'] = True
             receipt = await asyncio.to_thread(execute, ctx, "environment.acquire", args,
                 lambda action: self.resolution.resolve(ctx.deps, action, requirements, target, approval_id,
-                    built_wheel_artifact_ids=built_wheel_artifact_ids))
+                    built_wheel_artifact_ids=built_wheel_artifact_ids, refresh=refresh))
             return self.jobs.model_receipt(receipt)
 
         @agent.tool

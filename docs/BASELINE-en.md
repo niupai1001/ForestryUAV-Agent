@@ -1,4 +1,6 @@
-# Revised implementation baseline · 1.23
+# Revised implementation baseline · 1.24
+
+Version1.24 reuses exact verified resolution snapshots from the existing action journal and immutable locks, with current scope, producer and byte checks. It performs no network I/O or new approval, and makes no remote-freshness claim; refresh=true uses the original authorization path. Related checks and a read-only validation of the real historical lock pass. The same large-model task remains incomplete after restoring an identical local model alias: the original context budget rejects the resumed request before model invocation. Current evidence and remaining scope are in [STATUS](STATUS.md); the version records below are historical.
 
 Version1.23 uses native deferred approval/resume in the same Harness checkpoint store, with exact original-call/proposal/grant binding and existing authorization checks. Partial decisions wait without model requests. Seven real UI bindings are correct and six grants are consumed; both complete workflows still fail. Updated parameter guidance has no real-model revalidation yet. Validation now follows the user's request to reduce repetition. Current evidence and remaining scope are in [STATUS](STATUS.md); the records below are historical.
 

@@ -289,11 +289,67 @@ class DependencyResolution:
         metadata = self.engine.resources.artifact(record['metadata_artifact_id'], deps.task_id)
         return record, native_path(metadata['locator']).read_bytes()
 
-    def resolve(self, deps, action_id, requirements, target_artifact_id=None, approval_id=None, *, built_wheel_artifact_ids=None):
+    def reuse(self, deps, request):
+        """Read an exact, verified prior resolution; this grants no network I/O."""
+        digest = hashlib.sha256(encode(request).encode()).hexdigest()
+        with self.store.transaction() as db:
+            rows = list(db.execute("SELECT id,args,result FROM actions WHERE task_id=? AND revision=? "
+                "AND kind='environment.acquire' AND status='confirmed' "
+                "AND json_extract(result,'$.kind')='completed' "
+                "AND json_type(result,'$.resolution_lock_artifact_id')='text' "
+                "AND json_type(result,'$.reused_from_action_id') IS NULL ORDER BY rowid DESC LIMIT 64",
+                (deps.task_id, deps.revision)))
+            grants = {r['id']: json.loads(r['payload']) for r in db.execute(
+                'SELECT id,payload FROM approvals WHERE task_id=? AND revision=?', (deps.task_id, deps.revision))}
+        for row in rows:
+            result, args = json.loads(row['result']), json.loads(row['args'])
+            grant = grants.get(args.get('approval_id'))
+            # Historical private resolutions already record the complete request
+            # in their consumed grant. New public resolutions record its digest
+            # in the immutable lock, rather than adding a separate cache/store.
+            if grant and (grant.get('status') != 'consumed' or grant.get('consumed_action_id') != row['id'] or
+                grant.get('request_sha256') != digest or grant.get('request') != request):
+                continue
+            if not grant and args.get('approval_id'):
+                continue
+            value = json.loads(request['value'])
+            if args.get('requirements') != value['requirements'] or args.get('target_artifact_id') != value['target_artifact_id']:
+                continue
+            artifact = self.engine.resources.artifact(result['resolution_lock_artifact_id'], deps.task_id)
+            if artifact['producer_action_id'] != row['id'] or artifact['size_bytes'] > 512*1024:
+                raise Failure('VERIFICATION_FAILED', '历史解析锁生产者或大小不匹配', 422)
+            manifest = json.loads(native_path(artifact['locator']).read_bytes())
+            if not grant and manifest.get('request_sha256') != digest:
+                continue
+            if manifest.get('request_sha256', digest) != digest:
+                continue
+            lock, _ = self.lock(deps, artifact['artifact_id'], source_candidate=bool(result.get('source_candidates')))
+            if (lock['requirements'] != value['requirements'] or lock['target_artifact_id'] != value['target_artifact_id'] or
+                lock['target_sha256'] != value['target_sha256'] or lock['image_id'] != value['image_id']):
+                raise Failure('VERIFICATION_FAILED', '历史解析锁与精确请求不匹配', 422)
+            for snapshot in lock['metadata_snapshots']:
+                saved = self.engine.resources.artifact(snapshot['artifact_id'], deps.task_id)
+                if (saved['producer_action_id'] != row['id'] or saved['sha256'] != snapshot['sha256'] or
+                    saved['size_bytes'] != snapshot['size_bytes']):
+                    raise Failure('VERIFICATION_FAILED', '历史解析元数据与原生产者不匹配', 422)
+            selected = [{k:p[k] for k in ['name','version','filename']} for p in lock['selected'] if not p.get('artifact_id')]
+            if selected != result.get('source_candidates', result['wheels']):
+                raise Failure('VERIFICATION_FAILED', '历史解析回执与锁中发行文件不匹配', 422)
+            return {k:v for k,v in result.items() if k not in {'kind','action_id','attempt_id','continuation'}} | {
+                'reused_from_action_id':row['id'], 'recorded_metadata_requests':result['metadata_requests'],
+                'metadata_requests':0, 'continuation':'已复用同一请求的核验解析快照，未联网、未新增审批；'
+                    '这不是当前远程索引的新探测。使用现有解析锁/文件继续下载或复用已下载产物；'
+                    '需要重新读取远程索引时明确refresh=true，私密任务仍需新的精确审批。'}
+        return None
+
+    def resolve(self, deps, action_id, requirements, target_artifact_id=None, approval_id=None, *, built_wheel_artifact_ids=None,
+                refresh=False):
         if deps.assignment_id:
             raise Failure('PERMISSION_DENIED', '当前依赖解析/目标探测仅开放给根协调者', 403)
         if not isinstance(requirements, list) or not 1 <= len(requirements) <= 32:
             raise Failure('SCHEMA_INVALID', '解析需1–32个PEP508需求', 422)
+        if type(refresh) is not bool:
+            raise Failure('SCHEMA_INVALID', 'refresh须为布尔值', 422)
         roots = [requirement(text) for text in requirements]
         built_wheel_artifact_ids = built_wheel_artifact_ids or []
         if len(built_wheel_artifact_ids) > 32 or len(set(built_wheel_artifact_ids)) != len(built_wheel_artifact_ids):
@@ -328,6 +384,10 @@ class DependencyResolution:
             'sources': sources, 'method': 'GET', 'max_bytes': MAX_TOTAL_BYTES, 'seconds': 180,
             'max_requests': MAX_REQUESTS, 'max_projects': MAX_PROJECTS, 'transitive_dependencies': True,
             'metadata_only': True, 'package_execution': False}
+        if not approval_id and not refresh:
+            reused = self.reuse(deps, request)
+            if reused:
+                return reused
         admitted = self.engine.network.admit(deps, action_id, request, hashlib.sha256(encode(request).encode()).hexdigest(), approval_id)
         if isinstance(admitted, dict):
             return {**admitted, 'continuation': '这是元数据解析审批；用同requirements/target_artifact_id/built_wheel_artifact_ids（若有）及此approval_id重调resolve_dependencies。结果wheels或source_candidates/解析锁交acquire_dependencies独立下载审批，源码候选不等于完整闭包。'}
@@ -393,7 +453,8 @@ class DependencyResolution:
                 json.dumps({'schema_version':1,'kind':'python_source_candidate','requirements':requirements,
                     'target':target,'target_artifact_id':target_artifact_id,'target_sha256':artifact['sha256'],
                     'image_id':job['image_id'],'selected':[selected],'metadata_snapshots':snapshots,
-                    'resolver':'resolvelib','resolution_complete':False,'package_execution':False},ensure_ascii=False,indent=2))
+                    'resolver':'resolvelib','resolution_complete':False,'package_execution':False,
+                    'request_sha256':hashlib.sha256(encode(request).encode()).hexdigest()},ensure_ascii=False,indent=2))
             return {'wheels':[], 'source_candidates':[{k:selected[k] for k in ['name','version','filename']}],
                 'source_candidate_sha256':{candidate.filename:candidate.wheel_sha},
                 'resolution_lock_artifact_id':lock['artifact_id'],'target_artifact_id':target_artifact_id,
@@ -414,7 +475,8 @@ class DependencyResolution:
             json.dumps({'schema_version': 1, 'kind': 'python_wheel_resolution', 'requirements': requirements,
                 'target': target, 'target_artifact_id': target_artifact_id, 'target_sha256': artifact['sha256'],
                 'image_id': job['image_id'], 'selected': selected, 'metadata_snapshots': snapshots,
-                'resolver': 'resolvelib', 'package_execution': False}, ensure_ascii=False, indent=2))
+                'resolver': 'resolvelib', 'package_execution': False,
+                'request_sha256':hashlib.sha256(encode(request).encode()).hexdigest()}, ensure_ascii=False, indent=2))
         return {'wheels': [{k: c[k] for k in ['name', 'version', 'filename']} for c in selected if not c.get('artifact_id')],
             **({'built_wheel_artifact_ids':[c['artifact_id'] for c in selected if c.get('artifact_id')]} if built else {}),
             **({'built_wheels':[{k:c[k] for k in ['name','version','filename','artifact_id']} for c in selected if c.get('artifact_id')]} if built else {}),
