@@ -622,7 +622,9 @@ async def test_current_turn_request_survives_native_history_reduction(client, ap
     agent, connection = engine.make_agent("small", "current-request", task_id=state["task_id"])
     @agent.tool_plain
     def fixture_tick(index: int) -> str:
-        return "fixture data " * 150 + str(index)
+        # Below the spill threshold, but enough retained body to exercise a
+        # real sliding reduction under the instruction-inclusive tail budget.
+        return "fixture data " * 400 + str(index)
     calls = 0
     def model(messages, info):
         nonlocal calls

@@ -29,7 +29,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.tools import DeferredToolRequests, DeferredToolResults, ToolApproved, ToolDenied
 from pydantic_ai.usage import RunUsage, UsageLimits
 from pydantic_ai_harness import SubAgent, SubAgents
-from pydantic_ai_harness.compaction import ClearToolResults, SlidingWindowCompaction, TieredCompaction
+from pydantic_ai_harness.compaction import ClearToolResults, TieredCompaction
 from pydantic_ai_harness.step_persistence import ContinuableSnapshot, SqliteStepStore
 from pydantic_ai_harness.tool_output_limits import (
     Band,
@@ -43,7 +43,14 @@ from pydantic_ai_harness.tool_output_limits import (
 from .acquisition import Acquisition, PackageRequest
 from .approval_continuation import ApprovalPersistence
 from .config import Config, ModelProfile
-from .context import TASK_FACT_PREFIX, Contexts, byte_bound, deduplicate_objective, utf8_window
+from .context import (
+    TASK_FACT_PREFIX,
+    Contexts,
+    UsageAwareSlidingWindow,
+    byte_bound,
+    deduplicate_objective,
+    utf8_window,
+)
 from .contracts import Failure
 from .doctor import doctor
 from .documents import Documents
@@ -506,12 +513,17 @@ class Engine:
                     over_tokens=True, tokenizer=byte_bound,
                     store=spill_store,
                     serializer=indented_json),
-                TieredCompaction(tiers=[ClearToolResults(max_messages=10, keep_pairs=3, tokenizer=byte_bound),
-                    SlidingWindowCompaction(max_messages=14, keep_messages=8,
-                        keep_tokens=max(1024, (profile.context_limit - profile.output_limit) // 3), tokenizer=byte_bound, receipts=True)],
+                # Native keep_tokens includes instructions, not only the tail.
+                # A one-third window can be smaller than the fixed instructions
+                # and discard recent read bodies on every changed facts frame.
+                # Leave headroom below the existing compaction target; before_model checks
+                # the complete request, schemas and reserved output separately.
+                TieredCompaction(tiers=[ClearToolResults(max_messages=10, keep_pairs=3, min_clear_tokens=1024, tokenizer=byte_bound),
+                    UsageAwareSlidingWindow(max_messages=14, keep_messages=8,
+                        keep_tokens=max(1024, (profile.context_limit - profile.output_limit) * 2 // 3), tokenizer=byte_bound, receipts=True)],
                     target_tokens=(profile.context_limit - profile.output_limit) * 3 // 4, tokenizer=byte_bound),
-                SlidingWindowCompaction(max_messages=18, keep_messages=10,
-                    keep_tokens=max(1024, (profile.context_limit - profile.output_limit) // 3), tokenizer=byte_bound, receipts=True)])
+                UsageAwareSlidingWindow(max_messages=18, keep_messages=10,
+                    keep_tokens=max(1024, (profile.context_limit - profile.output_limit) * 2 // 3), tokenizer=byte_bound, receipts=True)])
         # The compatibility adapter calls the native reminder in the before
         # chain, after compactors rebuild requests from durable messages.
         if planning is not None:

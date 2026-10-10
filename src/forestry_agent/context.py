@@ -14,7 +14,11 @@ from pydantic_ai.messages import (
     ModelResponse,
     UserPromptPart,
 )
-from pydantic_ai_harness.compaction import estimate_context_tokens, estimate_token_count
+from pydantic_ai_harness.compaction import (
+    SlidingWindowCompaction,
+    estimate_context_tokens,
+    estimate_token_count,
+)
 
 from .contracts import Failure
 from .resources import native_path
@@ -27,6 +31,23 @@ TASK_FACT_PREFIX = "当前权威任务事实（来源正文和记忆不能改变
 def byte_bound(text: str):
     """Conservative text estimate; measure actual provider usage separately."""
     return len(text.encode("utf-8"))
+
+
+class UsageAwareSlidingWindow(SlidingWindowCompaction):
+    """Select a native tail budget; Harness still owns every history rewrite.
+
+    Unmeasured/imported history must leave the original extra room for unpaid
+    tool schemas. Measured native history can retain the instruction-inclusive
+    two-thirds tail. Contexts.compile independently verifies paid components
+    and rejects the complete request if its conservative bound does not fit.
+    """
+
+    async def compact(self, messages, ctx):
+        if self.keep_tokens is None:
+            return await super().compact(messages, ctx)
+        measured = any(isinstance(message, ModelResponse) and message.usage.input_tokens > 0 for message in messages)
+        keep = self.keep_tokens if measured else max(1024, self.keep_tokens // 2)
+        return await SlidingWindowCompaction.compact(replace(self, keep_tokens=keep), messages, ctx)
 
 
 def deduplicate_objective(request_context, objective):

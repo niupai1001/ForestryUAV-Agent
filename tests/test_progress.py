@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse, ToolCallPart, ToolReturn, ToolReturnPart
+from pydantic_ai.usage import RequestUsage
 from pydantic_ai_harness.tool_output_limits import LocalFileStore
 from test_core import task
 from test_roles import FixtureFunctionModel, stream_adapter
@@ -103,6 +104,53 @@ def test_recovery_requires_actual_bound_context_loss_in_same_scope(client, app, 
     with engine.store.transaction() as db:
         event = json.loads(db.execute("SELECT payload FROM events WHERE kind='progress.observed' AND task_id=? ORDER BY seq DESC LIMIT 1", (deps.task_id,)).fetchone()[0])
     assert not event.get('context_recovered')
+
+
+@pytest.mark.asyncio
+async def test_recent_source_bodies_survive_changed_instructions_larger_than_old_tail(client, app, tmp_path):
+    sources, refs = [], []
+    for index in range(3):
+        text = f'RECENT_SOURCE_{index}: ' + 'source fact ' * 20
+        sources.append(text)
+        path = tmp_path / f'recent-{index}.txt'
+        path.write_text(text, encoding='utf-8')
+        refs.append(client.post('/resources/register', json={
+            'request_id': f'recent-{index}', 'path': str(path), 'classification': 'private', 'read_only': True}).json()['resource_id'])
+    state, _ = task(client, input_refs=refs, harness_mode='H1')
+    engine = app.state.engine
+    agent, connection = engine.make_agent('small', 'recent-source-retention', task_id=state['task_id'])
+    # Fixed instructions plus the authority frame exceed the former 9557-byte
+    # tail. Provider usage is synthetic; no model or source program runs.
+    agent.instructions(lambda ctx: 'Stable protocol instruction. ' + 'x' * 8000)
+    calls = 0
+
+    def model(messages, info):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            parts = [ToolCallPart('read_file', {'resource_id': ref}, f'recent-{i}') for i, ref in enumerate(refs)]
+        else:
+            retained = [part.content.get('text') for message in messages if isinstance(message, ModelRequest)
+                        for part in message.parts if isinstance(part, ToolReturnPart) and isinstance(part.content, dict)]
+            assert all(text in retained for text in sources)
+            assert len((info.instructions or '').encode()) > 9557
+            if calls == 2:
+                parts = [ToolCallPart('write_plan', {'items': [{'content': '据已读来源处理结果', 'status': 'in_progress',
+                                                             'active_form': '处理结果'}]}, 'plan')]
+            else:
+                parts = [ToolCallPart('final_result', {'summary': 'Recent sources remain available.',
+                                                     'artifact_ids': [], 'limitations': ['Protocol fixture only.']}, 'finish')]
+        return ModelResponse(parts=parts, usage=RequestUsage(input_tokens=9000, output_tokens=100))
+
+    try:
+        with agent.override(model=FixtureFunctionModel(model)):
+            result = await agent.run('保留刚读回的来源，不执行代码。', deps=Deps(engine, state['task_id'], 'recent-source-retention', 1))
+        assert result.output.summary == 'Recent sources remain available.' and calls == 3
+        events = [e['payload'] for e in engine.store.events(state['task_id']) if e['type'] == 'progress.observed']
+        assert not any(e.get('context_recovered') for e in events)
+        assert [e['stalled'] for e in events] == [0, 0, 0, 1]
+    finally:
+        await connection.aclose()
 
 
 @pytest.mark.asyncio
