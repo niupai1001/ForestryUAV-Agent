@@ -18,6 +18,16 @@
 
 ## 1.28 当前增量：冻结通用pilot入口与运行版本证据
 
+2026-10-10 执行恢复：沙箱日志定位到内置node_repl.exe的运行权限校验因文件被占用而返回Windows错误32；诊断保存在workspace/evidence/codex-executor-lock-diagnostic-20261010-v1.json。普通命令随后恢复。只读核验原18668进程及8769监听均已消失、27个持久任务无活跃项，按原配置恢复服务为24028（执行句柄19230）。认证/runtime与冻结运行清单完全匹配，两模型摘要及Ollama0.35.1保持；未重启共享模型服务。
+
+small-H0-r1原任务仍为waiting_user/state_version13。通过正式接口撤销过期未消费审批5a39508c-0767-4708-aca7-e37d6772808f，同一原生任务提出新审批83a443a9-44f8-4402-a52c-c6b72fab73d3。操作者只批准公开six1.17.0元数据及精确匹配发行文件范围，不证明模型所选文件存在。实际获取器拒绝six-1.17.0-py3-none-any.whl，返回PRECONDITION_MISSING；未替换发行文件或下载/执行包。随后模型复用已消费审批失败并检查原失败动作，按原三次无新增证据暂停（NO_PROGRESS/state_version26）。全部7份模型请求用量已测量；原缺six真实失败保留，无结果/报告，自动与完整评分均false，不自动恢复或重建该试次。
+
+上述试次包含基础设施中断及撤销过期授权交互，不能冒充无中断首次成功，14461.56702秒观察墙钟含中断/操作者等待，不能用于纯模型速度比较。正式汇总已更新，仍保留全部18项分母和未运行项；自动汇总failure_category仍unresolved，不伪造不存在的报告语义审查。审批恢复和精确范围决策分别保存pilot-small-H0-r1-expired-approval-recovery-20261010-v1.json与pilot-small-H0-r1-approval-2-20261010.json。large-H0-r1首次对照已创建唯一任务6cb951c5-234b-483d-90f1-dacf0ecccb64，逐项处理six1.17.0精确请求94c87090-a018-4009-9003-7a163dfac2ad，仍需实际作业/交付观察及独立评分审查。未修改产品代码、输入或清单，没有pytest/完整UI重跑；阶段1仍未通过。
+
+后续首次真实pilot：GENERAL-CSV-DEBUG-small-H0-r1沿用原清单，创建唯一任务0d55d391-86e3-4460-8444-beabfa963bbf。最后成功观察已读取三个源输入，真实断网code作业32ba3164-6f49-45d0-ba6f-71cf7ff5c75d退出1，保留ModuleNotFoundError: six；随后waiting_user/APPROVAL_REQUIRED，未有结果/报告或通过声明。执行Oracle仍未注册给任务，未补提示/新建重复试次。旧清单report的18项not_run是执行前快照，不能冒充这次实际状态。
+
+待批请求5a39508c-0767-4708-aca7-e37d6772808f选择了尚未核验的six-1.17.0-py3-none-any.whl；实际获取器仍须校验官方发行文件。操作者审批命令没有执行：自动审批审查因用量上限失败；其后执行器启动连续报helper_unknown_error: setup refresh had errors，原服务执行句柄86822也不可用。这不是下载失败或模型完整质量判定，也不能证明OS服务18668停止。2026-10-10 08:59:44 UTC账户工具已报普通用量可用，但执行器仍不能启动，当前任务/授权/进程不能重新核对；旧授权记录有效期06:11:15 UTC已过。没有绕过审查、改数据库、重启/取消或批准过期授权。恢复后先核验实时状态和精确服务身份，继续原task_id；保留基础设施/交互中断，不能当作模型失败重跑。证据为workspace/evaluation/trials/GENERAL-CSV-DEBUG-small-H0-r1.json及workspace/evidence/pilot-small-H0-r1-executor-interruption-20261010.md。
+
 新增evaluate freeze/run/review/report，复用现有认证API、请求幂等记录、原生Harness与受限Jobs，不另建Agent运行循环。GENERAL-CSV-DEBUG族提供本地说明/交易CSV/植入脚本错误及缺six的只读源码；独立oracle仅由评分器读取。固定两模型×H0/H1/H2×每组合三次，18个试次ID由冻结清单摘要确定。失联创建从原requests表恢复，观察超时/暂停/待审批只续观察原task_id，不自动重建/恢复/批准/验收。启动/runtime在认证范围返回代码/配置/角色及库版本固定快照；不把后来磁盘内容当成旧服务运行版本。
 
 自动评分核验实际产物SHA/字节、独立数值、真实成功计算生产者/环境版本、缺包失败诊断、源不变、引用及完整读回窗口；另有绑定报告SHA/任务版本的独立语义审查，不能覆盖失败计算。汇总保留未运行/失败/活跃/待交互分母、提供方已测量及缺测用量、观察墙钟时间、审批负担和待归因失败。13项新增定向检查通过（0.29秒），Ruff/diff通过；CLI帮助、默认suite及生成EvaluationSuite/Review schema核验通过。仅新增边界检查，无全量pytest、原UI用例或报告模型重跑。
