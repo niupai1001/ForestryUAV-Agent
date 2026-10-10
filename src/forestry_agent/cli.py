@@ -40,7 +40,7 @@ def main():
     schema = commands.add_parser("schema")
     schema.add_argument("--output", default="schemas")
     evaluate = commands.add_parser("evaluate")
-    evaluate.add_argument("operation", choices=["freeze", "run", "review", "report"])
+    evaluate.add_argument("operation", choices=["freeze", "run", "review", "rescore", "report"])
     evaluate.add_argument("--suite", type=Path, default=Path("fixtures/evaluation/general/suite.json"))
     evaluate.add_argument("--manifest", type=Path, default=Path("workspace/evaluation/general-pilot.json"))
     evaluate.add_argument("--directory", type=Path, default=Path("workspace/evaluation/trials"))
@@ -55,7 +55,7 @@ def main():
 
         from . import contracts
         from .acquisition import PackageRequest, WheelRequest
-        from .evaluation import EvaluationReview, EvaluationSuite
+        from .evaluation import EvaluationDiagnosticReview, EvaluationReview, EvaluationSuite
         from .roles import AssignmentRequest, AssignmentResult, RoleCatalog
         target = Path(args.output)
         target.mkdir(parents=True, exist_ok=True)
@@ -63,7 +63,8 @@ def main():
             model = getattr(contracts, name)
             (target / f"{name}.schema.json").write_text(
                 json.dumps(model.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf-8")
-        for model in [RoleCatalog, AssignmentRequest, AssignmentResult, PlanItem, WheelRequest, PackageRequest, EvaluationSuite, EvaluationReview]:
+        for model in [RoleCatalog, AssignmentRequest, AssignmentResult, PlanItem, WheelRequest, PackageRequest,
+                      EvaluationSuite, EvaluationReview, EvaluationDiagnosticReview]:
             (target / f"{model.__name__}.schema.json").write_text(
                 json.dumps(model.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf-8")
         return
@@ -71,7 +72,7 @@ def main():
     if args.command == "evaluate":
         from .client import LocalClient
         from .contracts import Failure
-        from .evaluation import freeze_suite, review_trial, run_trial, summarize, write_json
+        from .evaluation import freeze_suite, rescore_trial, review_trial, run_trial, summarize, write_json
         try:
             if args.operation == 'freeze':
                 if args.manifest.exists():
@@ -95,6 +96,17 @@ def main():
                     print(json.dumps({'trial': result['trial'], 'task_id': result['task_id'],
                         'observation': result['observation'], 'interaction_required': result['interaction_required'],
                         'score': result.get('score'), 'accepted': result['accepted']}, ensure_ascii=False))
+                elif args.operation == 'rescore':
+                    if not args.review_file or not args.output:
+                        parser.error('evaluate rescore requires --review-file and a separate --output')
+                    if args.output.resolve() == args.manifest.resolve() or args.output.resolve().parent == args.directory.resolve():
+                        raise Failure('VERSION_CONFLICT', '重新评分结果须与原清单/试次目录分开保存', 409)
+                    if args.output.exists():
+                        raise Failure('VERSION_CONFLICT', '重新评分结果已存在；使用新路径保留历史', 409)
+                    result = rescore_trial(envelope, json.loads(args.review_file.read_text(encoding='utf-8')), args.directory, config)
+                    write_json(args.output, result)
+                    print(json.dumps({'trial': result['trial'], 'score': result['score'],
+                        'output': str(args.output.resolve()), 'auto_accepted': False}, ensure_ascii=False))
                 elif args.operation == 'review':
                     if not args.review_file:
                         parser.error('evaluate review requires --review-file')

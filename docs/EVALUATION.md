@@ -26,4 +26,16 @@ forestry-agent evaluate review --config workspace/resolution-ui-config.yaml --ma
 
 审查绑定实际报告SHA及任务state_version；不能覆盖失败的数值/来源检查，不能调用应用验收接口。未变化的报告/任务及相关条件保持时，后续观察复用已有有效审查。汇总保留全部计划试次，包括未运行、创建未确认、失败、待审批和仍活跃；显示每组合分母、自动/完整通过数、实际提供方用量、观察墙钟时间、审批负担和未解决归因。样本重复不当作独立任务，当前不计算伪精确95%区间或宣称普遍排名。
 
+## 捕获原程序失败的历史重新评分
+
+成功退出的包装器可能通过 `subprocess.run` 实际运行原程序，并捕获其非零返回值和错误。不能仅因外层作业成功而漏记原程序失败，也不能仅凭打印出的错误文字认定运行已发生。这类记录需单独提供 `EvaluationDiagnosticReview`：绑定原 manifest/trial/task/job、提交代码 SHA、完整日志对象摘要、实际程序/数据 input_refs 和独立审查人；criteria 必须分别覆盖 `original_program_invoked`、`nonzero_exit_captured`、`diagnostic_from_execution` 的 passed/failed/unknown。
+
+```powershell
+forestry-agent evaluate rescore --config workspace/resolution-ui-config.yaml --manifest workspace/evaluation/general-pilot-20261010-v1.json --directory workspace/evaluation/trials --review-file workspace/evaluation/diagnostic-review-GENERAL-CSV-DEBUG-large-H1-r1-20261010-v1.json --output workspace/evaluation/rescored/GENERAL-CSV-DEBUG-large-H1-r1.json
+```
+
+`rescore` 允许评分代码演进，但原清单摘要、配置、输入/答案字节、原创建请求、模型/工作方式、任务状态、提交/实际执行文件、挂载与日志事件必须核对；只有 GET 和只读 SQLite 查询，不运行模型或 Jobs。独立审查必须阅读实际代码与日志，不能把模型解释当执行证明；非通过/未知诊断不能满足失败观察项。说明文档无需挂载到原程序作业。新记录单独保存原记录摘要、旧评分、新评分、当前评分代码摘要与审查，不覆盖原试次/清单/统计，也不自动验收任务。原报告审查仅在 task/report 版本及全部条件一致时复用，不能覆盖失败的自动检查。重新评分文件不由原 `report` 自动合并，应明确区分评分版本。
+
+2026-10-10 已对 large-H1-r1 / large-H2-r1 的原程序实际缺 six 诊断重新评分；两项均没有所需结果 JSON 或报告，因此完整任务仍未通过。v1 清单保留 18 项分母、6 项已观察与 12 项未运行。最新现状见 [当日进度](PROGRESS-20261010.md)。
+
 仍待完成：其他通用任务族/故障交互的冻结与实际六组合运行；显式生成种子控制、逐Worker峰值资源、预算匹配/消融、独立任务抽样/正式重复次数、pilot后发布阈值及留出门槛。上述项在清单中明确missing/TBD，不能默认通过。原领域、低资源、真实≥100GB和发布范围不变。阶段1出口见[STAGE-1-GATES](STAGE-1-GATES.md)。

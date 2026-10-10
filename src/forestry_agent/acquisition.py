@@ -285,7 +285,12 @@ class Acquisition:
                     parts.query or parts.fragment or unquote(parts.path.rsplit("/", 1)[-1]) != wheel["filename"] or
                     not re.fullmatch(r"[0-9a-f]{64}", expected) or type(size) is not int or size <= 0):
                     raise ValueError("unsafe release")
-            except (ValueError, KeyError, TypeError, StopIteration) as error:
+            except StopIteration as error:
+                raise Failure("PRECONDITION_MISSING",
+                    f"官方元数据中没有请求的发行文件 {wheel['name']}=={wheel['version']}: {wheel['filename']}。"
+                    "请先使用 resolve_dependencies 和实际执行目标选择官方发行文件，再申请新的精确下载审批；"
+                    "已消耗的审批不能复用。", 422) from error
+            except (ValueError, KeyError, TypeError) as error:
                 raise Failure("PRECONDITION_MISSING", "官方元数据缺少匹配类型的未撤回发行文件、大小或SHA-256", 422) from error
             if resolved and resolved[wheel['filename']] != expected:
                 raise Failure('VERSION_CONFLICT', '官方发行文件哈希已偏离解析锁，须重新解析/审批', 409)

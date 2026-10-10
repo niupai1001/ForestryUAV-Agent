@@ -1,6 +1,9 @@
 import hashlib
 import json
+import sqlite3
+from pathlib import Path
 from types import SimpleNamespace
+from uuid import NAMESPACE_URL, uuid5
 
 import httpx
 import pytest
@@ -104,6 +107,155 @@ def test_readback_with_gap_is_not_full_and_failure_must_be_actual_diagnostic(pil
     score = evaluation.score_trial(case, snapshot, contents)
     assert not score['checks']['result_readback']
     assert not score['checks']['observed_original_failure']
+
+
+@pytest.fixture
+def captured_failure(pilot, tmp_path):
+    config, case, envelope = pilot
+    original = tmp_path/'original.py'
+    original.write_text('import six\n', encoding='utf-8')
+    case['inputs'].insert(0, evaluation.file_record(original))
+    guide = tmp_path/'instructions.md'
+    guide.write_text('Execute the original program using the CSV; this guide need not be mounted.', encoding='utf-8')
+    case['inputs'].append(evaluation.file_record(guide))
+    envelope['manifest_sha256'] = evaluation.digest(envelope['manifest'])
+    trial = envelope['manifest']['trials'][0]
+    snapshot, contents = score_data(case)
+    state = snapshot['state']
+    state.update(task_id='task-one', input_refs=['ref-program', 'ref-source', 'ref-guide'], state_version=7,
+                 objective=case['objective'], spec_revision=1, status='paused',
+                 config_snapshot={'model_profile': 'small', 'harness_mode': 'H0',
+                                  'model_identity': {'digest': 'small-digest'}})
+    code = ('import subprocess, sys\n'
+            'proc = subprocess.run([sys.executable, "/inputs/ref-program"], capture_output=True, text=True)\n'
+            'print(proc.returncode, proc.stderr)\n')
+    code_sha = hashlib.sha256(code.encode()).hexdigest()
+    job = snapshot['jobs'][0]
+    job.update(status='succeeded', code_sha256=code_sha, prepared_code_sha256=code_sha,
+               container_id='container-one', image_id='image-one', action_id='capture-original', artifact_ids=[])
+    event = snapshot['events'][0]
+    event['event_id'] = 'failure-observation'
+    event['payload']['result']['logs'] = {'text': '1\nTraceback: ModuleNotFoundError: six\n', 'bounded': True}
+    directory = tmp_path/'trials'
+    record = {'manifest_sha256': envelope['manifest_sha256'], 'trial': trial, 'task_id': 'task-one',
+              'snapshot': snapshot, 'score': evaluation.score_trial(case, snapshot, contents), 'interaction_required': False}
+    evaluation.write_json(directory/f'{trial["trial_id"]}.json', record)
+    config.workspace_root.mkdir(parents=True)
+    runtime_dir = config.workspace_root/'.forestry'
+    runtime_dir.mkdir()
+    job_dir = runtime_dir/'job'
+    job_dir.mkdir()
+    (job_dir/'run.py').write_text(code, encoding='utf-8', newline='\n')
+    raw_job = {**job, 'code': code, 'directory': str(job_dir), 'mounts': [
+        {'resource_id': ref, 'source': item['path'], 'target': '/inputs/'+ref}
+        for ref, item in zip(state['input_refs'][:2], case['inputs'][:2], strict=True)]}
+    namespace = envelope['manifest_sha256']+':'+trial['trial_id']
+    with sqlite3.connect(runtime_dir/'state.sqlite') as db:
+        db.executescript('CREATE TABLE requests(id TEXT,response TEXT);'
+                         'CREATE TABLE jobs(id TEXT,task_id TEXT,payload TEXT);'
+                         'CREATE TABLE events(id TEXT,task_id TEXT,kind TEXT,payload TEXT);')
+        db.execute('INSERT INTO requests VALUES(?,?)',
+                   (str(uuid5(NAMESPACE_URL, namespace+':task')), json.dumps({'task_id': 'task-one'})))
+        for i, ref in enumerate(state['input_refs']):
+            db.execute('INSERT INTO requests VALUES(?,?)',
+                       (str(uuid5(NAMESPACE_URL, namespace+f':input:{i}')), json.dumps({'resource_id': ref})))
+        db.execute('INSERT INTO jobs VALUES(?,?,?)', (job['job_id'], 'task-one', evaluation.encode(raw_job)))
+        db.execute('INSERT INTO events VALUES(?,?,?,?)',
+                   (event['event_id'], 'task-one', event['type'], evaluation.encode(event['payload'])))
+    review = {'manifest_sha256': envelope['manifest_sha256'], 'trial_id': trial['trial_id'], 'task_id': 'task-one',
+              'job_id': job['job_id'], 'code_sha256': code_sha,
+              'logs_sha256': evaluation.digest(event['payload']['result']['logs']),
+              'input_refs': state['input_refs'][:2],
+              'reviewer': 'Independent reviewer',
+              'criteria': dict.fromkeys(['original_program_invoked', 'nonzero_exit_captured', 'diagnostic_from_execution'], 'passed'),
+              'observations': ['Reviewed submitted subprocess invocation, frozen mounts and captured nonzero result.']}
+    calls = []
+
+    class Client:
+        def request(self, method, endpoint):
+            calls.append((method, endpoint))
+            assert method == 'GET'
+            return job if '/jobs/' in endpoint else state
+
+    return config, envelope, directory, review, Client(), calls, contents, raw_job
+
+
+def test_rescore_captured_original_failure_is_read_only_and_preserves_old_grade(captured_failure, monkeypatch):
+    config, envelope, directory, review, client, calls, contents, _ = captured_failure
+    record_path = directory/f'{review["trial_id"]}.json'
+    before = record_path.read_bytes()
+    monkeypatch.setattr(evaluation, 'runtime_manifest', lambda _: {'source': {'sha256': 'new-code'}})
+    with pytest.raises(Failure, match='代码/配置'):
+        evaluation.verify_manifest(envelope, config)
+    monkeypatch.setattr(evaluation, 'artifact_bytes', lambda _, a: contents[a['artifact_id']])
+    result = evaluation.rescore_trial(envelope, review, directory, config, client=client)
+    assert not result['previous_score']['checks']['observed_original_failure']
+    assert result['score']['checks']['observed_original_failure']
+    assert not result['score']['full_task_passed'] and not result['auto_accepted']
+    assert result['source_record_sha256'] == hashlib.sha256(before).hexdigest()
+    assert record_path.read_bytes() == before and len(calls) == 2
+
+
+@pytest.mark.parametrize('changed', ['code', 'prepared', 'event', 'input', 'logs_hash', 'task_state'])
+def test_diagnostic_review_rejects_changed_provenance(captured_failure, monkeypatch, changed):
+    config, envelope, directory, review, client, _, contents, job = captured_failure
+    if changed == 'prepared':
+        Path(job['directory'], 'run.py').write_text('print("fabricated traceback")', encoding='utf-8')
+    elif changed == 'input':
+        Path(envelope['manifest']['cases'][0]['inputs'][0]['path']).write_text('print("changed")', encoding='utf-8')
+    elif changed == 'logs_hash':
+        review['logs_sha256'] = '0'*64
+    elif changed == 'task_state':
+        original = client.request
+        client.request = lambda method, endpoint: {**original(method, endpoint), 'state_version': 8}
+    else:
+        with sqlite3.connect(config.workspace_root/'.forestry/state.sqlite') as db:
+            if changed == 'code':
+                job['code'] = 'print("fabricated traceback")'
+                db.execute('UPDATE jobs SET payload=?', (evaluation.encode(job),))
+            else:
+                db.execute('UPDATE events SET payload=?', ('{}',))
+    monkeypatch.setattr(evaluation, 'artifact_bytes', lambda _, a: contents[a['artifact_id']])
+    with pytest.raises(Failure):
+        evaluation.rescore_trial(envelope, review, directory, config, client=client)
+
+
+@pytest.mark.parametrize('decision', ['failed', 'unknown'])
+def test_printed_diagnostic_without_independent_execution_proof_is_not_accepted(captured_failure, monkeypatch, decision):
+    config, envelope, directory, review, client, _, contents, _ = captured_failure
+    review['criteria']['diagnostic_from_execution'] = decision
+    monkeypatch.setattr(evaluation, 'artifact_bytes', lambda _, a: contents[a['artifact_id']])
+    result = evaluation.rescore_trial(envelope, review, directory, config, client=client)
+    assert not result['score']['checks']['observed_original_failure']
+    assert not result['score']['automatic_checks_passed']
+    assert not result['score']['full_task_passed']
+
+
+@pytest.mark.parametrize('wrong_report', [False, True])
+def test_rescore_reuses_only_exact_semantic_report_review(captured_failure, monkeypatch, wrong_report):
+    config, envelope, directory, review, client, _, contents, _ = captured_failure
+    path = directory/f'{review["trial_id"]}.json'
+    record = json.loads(path.read_text(encoding='utf-8'))
+    state = client.request('GET', '/tasks/task-one')
+    state.update(status='waiting_user', blockers=[{'code': 'ACCEPTANCE_REQUIRED'}])
+    record['snapshot']['state'] = state
+    record['semantic_review'] = {
+        'manifest_sha256': envelope['manifest_sha256'], 'trial_id': review['trial_id'], 'task_id': review['task_id'],
+        'report_artifact_id': 'report-id', 'report_sha256': '0'*64 if wrong_report else record['snapshot']['artifacts'][1]['sha256'],
+        'reviewer': 'Independent report reviewer', 'observations': ['Reviewed exact report.'],
+        'criteria': dict.fromkeys(['result_consistency', 'provenance_claims', 'language_and_limitations',
+                                  'failure_history', 'execution_boundaries'], 'passed'),
+    }
+    evaluation.write_json(path, record)
+    monkeypatch.setattr(evaluation, 'artifact_bytes', lambda _, a: contents[a['artifact_id']])
+    if wrong_report:
+        with pytest.raises(Failure, match='语义审查'):
+            evaluation.rescore_trial(envelope, review, directory, config, client=client)
+    else:
+        result = evaluation.rescore_trial(envelope, review, directory, config, client=client)
+        assert result['score']['report_semantics'] == 'passed'
+        assert not result['score']['full_task_passed']  # Report still omits other required input refs.
+        assert not result['auto_accepted']
 
 
 @pytest.mark.parametrize('status', ['active', 'paused', 'waiting_user'])

@@ -1,0 +1,83 @@
+{
+  "additionalProperties": false,
+  "description": "Independent adjudication of a captured inner failure, not model testimony.",
+  "properties": {
+    "manifest_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Sha256",
+      "type": "string"
+    },
+    "trial_id": {
+      "title": "Trial Id",
+      "type": "string"
+    },
+    "task_id": {
+      "title": "Task Id",
+      "type": "string"
+    },
+    "job_id": {
+      "title": "Job Id",
+      "type": "string"
+    },
+    "code_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Code Sha256",
+      "type": "string"
+    },
+    "logs_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Logs Sha256",
+      "type": "string"
+    },
+    "input_refs": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "title": "Input Refs",
+      "type": "array"
+    },
+    "reviewer": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Reviewer",
+      "type": "string"
+    },
+    "criteria": {
+      "additionalProperties": {
+        "enum": [
+          "passed",
+          "failed",
+          "unknown"
+        ],
+        "type": "string"
+      },
+      "title": "Criteria",
+      "type": "object"
+    },
+    "observations": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "title": "Observations",
+      "type": "array"
+    }
+  },
+  "required": [
+    "manifest_sha256",
+    "trial_id",
+    "task_id",
+    "job_id",
+    "code_sha256",
+    "logs_sha256",
+    "input_refs",
+    "reviewer",
+    "criteria",
+    "observations"
+  ],
+  "title": "EvaluationDiagnosticReview",
+  "type": "object"
+}

@@ -57,6 +57,20 @@ class EvaluationReview(Boundary):
                              'resource', 'policy_interaction', 'unresolved'] = 'unresolved'
 
 
+class EvaluationDiagnosticReview(Boundary):
+    """Independent adjudication of a captured inner failure, not model testimony."""
+    manifest_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    trial_id: str
+    task_id: str
+    job_id: str
+    code_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    logs_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    input_refs: list[str] = Field(min_length=1, max_length=20)
+    reviewer: str = Field(min_length=1, max_length=100)
+    criteria: dict[str, Literal['passed', 'failed', 'unknown']]
+    observations: list[str] = Field(min_length=1, max_length=20)
+
+
 def digest(value):
     return hashlib.sha256(encode(value).encode()).hexdigest()
 
@@ -151,12 +165,13 @@ def freeze_suite(suite_path, config, client, deployment):
     return {'manifest_sha256': digest(body), 'manifest': body}
 
 
-def verify_manifest(envelope, config):
+def verify_manifest(envelope, config, *, historical_scoring=False):
     body = envelope['manifest']
     if (envelope.get('manifest_sha256') != digest(body) or body.get('stage') != 'general-pilot' or
         type(body.get('schema_version')) is not int or body['schema_version'] != 1):
         raise Failure('VERIFICATION_FAILED', '冻结pilot清单摘要或阶段不匹配', 422)
-    if body['config'] != config.model_dump(mode='json') or body['runtime'] != runtime_manifest(config):
+    if (body['config'] != config.model_dump(mode='json') or
+        not historical_scoring and body['runtime'] != runtime_manifest(config)):
         raise Failure('VERSION_CONFLICT', '代码/配置已改变，不能混入冻结试次', 409)
     for case in body['cases']:
         for item in [*case['inputs'], case['oracle']]:
@@ -203,7 +218,7 @@ def artifact_bytes(client, artifact):
     return bytes(data)
 
 
-def score_trial(case, snapshot, contents):
+def score_trial(case, snapshot, contents, *, diagnostic_review=None):
     """Answers are read only by this scorer, never supplied to the executing task."""
     oracle = json.loads(Path(case['oracle']['path']).read_text(encoding='utf-8'))
     artifacts = {artifact['name']: artifact for artifact in sorted(snapshot['artifacts'], key=lambda a: a['created_at'])}
@@ -213,10 +228,13 @@ def score_trial(case, snapshot, contents):
     successful = [job for job in snapshot['jobs'] if job['status'] == 'succeeded']
     checks = {'result_exists': result is not None, 'report_exists': report is not None,
               'input_bytes_unchanged': all(file_record(item['path']) == item for item in case['inputs']),
-              'observed_original_failure': any(job['status'] == 'failed' and job['kind'] == 'code.execute' and
+              'observed_original_failure': any(job['kind'] == 'code.execute' and
+                  job['status'] in ['failed', 'succeeded'] and
                   any(observation.get('job', {}).get('job_id') == job['job_id'] and all(term in
                       (observation.get('logs', {}).get('text', '') + observation.get('logs', {}).get('stderr', ''))
-                      for term in oracle['diagnostic_contains']) for observation in observations)
+                      for term in oracle['diagnostic_contains']) and
+                      (job['status'] == 'failed' or diagnostic_review_matches(diagnostic_review, job, observation))
+                      for observation in observations)
                   for job in snapshot['jobs']),
               'no_search': not any(event['type'] == 'action.started' and event['payload']['tool'] in
                                   ['web.search', 'web.read'] for event in snapshot['events'])}
@@ -235,8 +253,109 @@ def score_trial(case, snapshot, contents):
         checks['report_actual_result_ref'] = bool(result and result['artifact_id'] in text)
         checks['report_readback'] = full_readback(report, observations, contents[report['artifact_id']])
     return {'checks': checks, 'automatic_checks_passed': all(checks.values()),
+            'diagnostic_verification': 'independently_reviewed' if diagnostic_review else 'outer_job_failure_only',
             'report_semantics': 'not_reviewed', 'full_task_passed': False,
             'notice': '文本字段存在不证明报告主张准确；独立语义审查前不标完整通过。'}
+
+
+def diagnostic_review_matches(review, job, observation):
+    return bool(review and review['job_id'] == job['job_id'] and
+        review['code_sha256'] == job.get('code_sha256') and
+        review['logs_sha256'] == digest(observation.get('logs', {})) and
+        set(review['criteria']) == {'original_program_invoked', 'nonzero_exit_captured', 'diagnostic_from_execution'} and
+        all(value == 'passed' for value in review['criteria'].values()))
+
+
+def rescore_trial(envelope, review, directory, config, *, client=None):
+    """Read-only historical adjudication. Return a separate result; never rewrite a trial."""
+    body = verify_manifest(envelope, config, historical_scoring=True)
+    review = EvaluationDiagnosticReview.model_validate(review).model_dump()
+    entry = next((t for t in body['trials'] if t['trial_id'] == review['trial_id']), None)
+    if review['manifest_sha256'] != envelope['manifest_sha256'] or not entry:
+        raise Failure('VERIFICATION_FAILED', '诊断审查不属于原冻结试次', 422)
+    record_path = Path(directory) / f'{entry["trial_id"]}.json'
+    record_bytes = record_path.read_bytes()
+    record = json.loads(record_bytes)
+    if (record['manifest_sha256'] != envelope['manifest_sha256'] or record['trial'] != entry or
+        record['task_id'] != review['task_id'] or record.get('interaction_required')):
+        raise Failure('VERSION_CONFLICT', '原试次身份不匹配或尚待审批', 409)
+    snapshot = record['snapshot']
+    state = snapshot['state']
+    case = next(c for c in body['cases'] if c['case_id'] == entry['case_id'])
+    namespace = envelope['manifest_sha256'] + ':' + entry['trial_id']
+    prior = request_result(config, str(uuid5(NAMESPACE_URL, namespace + ':task')))
+    references = [request_result(config, str(uuid5(NAMESPACE_URL, namespace + f':input:{i}')))
+                  for i in range(len(case['inputs']))]
+    if (not prior or prior['task_id'] != review['task_id'] or any(not ref for ref in references) or
+        state['input_refs'] != [ref['resource_id'] for ref in references] or state['spec_revision'] != 1 or
+        state['objective'] != case['objective'] or state['status'] in LIVE or
+        state['config_snapshot']['model_profile'] != entry['model'] or
+        state['config_snapshot']['harness_mode'] != entry['harness'] or
+        state['config_snapshot']['model_identity']['digest'] != body['models'][entry['model']]['digest']):
+        raise Failure('VERIFICATION_FAILED', '历史任务、原创建请求、输入或模型配置不一致', 422)
+    required = {'original_program_invoked', 'nonzero_exit_captured', 'diagnostic_from_execution'}
+    if set(review['criteria']) != required:
+        raise Failure('SCHEMA_INVALID', '诊断须分别审查原程序调用、非零返回值和实际错误来源', 422)
+    job = next((j for j in snapshot['jobs'] if j['job_id'] == review['job_id']), None)
+    event = next((e for e in snapshot['events'] if e['type'] == 'action.observed' and
+                  e['payload']['result'].get('job', {}).get('job_id') == review['job_id'] and
+                  digest(e['payload']['result'].get('logs', {})) == review['logs_sha256']), None)
+    if (not job or not event or job['kind'] != 'code.execute' or job['status'] not in ['failed', 'succeeded'] or
+        job.get('code_sha256') != review['code_sha256'] or not job.get('container_id')):
+        raise Failure('VERIFICATION_FAILED', '诊断不是原终态执行作业的代码/日志版本', 422)
+    db_path = config.workspace_root / '.forestry/state.sqlite'
+    with sqlite3.connect(f'file:{db_path.as_posix()}?mode=ro', uri=True) as db:
+        raw = db.execute('SELECT payload FROM jobs WHERE id=? AND task_id=?', (review['job_id'], review['task_id'])).fetchone()
+        stored_event = db.execute('SELECT kind,payload FROM events WHERE id=? AND task_id=?',
+                                  (event['event_id'], review['task_id'])).fetchone()
+    if not raw or not stored_event or stored_event != (event['type'], encode(event['payload'])):
+        raise Failure('VERIFICATION_FAILED', '诊断作业或原始日志事件与持久记录不同', 422)
+    raw_job = json.loads(raw[0])
+    code = raw_job.get('code', '')
+    if (hashlib.sha256(code.encode()).hexdigest() != review['code_sha256'] or
+        any(raw_job.get(k) != job.get(k) for k in ['code_sha256', 'prepared_code_sha256', 'container_id', 'image_id', 'status'])):
+        raise Failure('VERIFICATION_FAILED', '实际提交代码或执行身份与审查不同', 422)
+    prepared = file_record(Path(raw_job['directory']) / 'run.py')
+    if prepared['sha256'] != raw_job['prepared_code_sha256']:
+        raise Failure('VERIFICATION_FAILED', '实际执行代码字节已改变', 422)
+    inputs = {item['path']: item for ref, item in zip(state['input_refs'], case['inputs'], strict=True)
+              if ref in review['input_refs']}
+    mounts = [{'resource_id': m.get('resource_id'), 'target': m['target'], **file_record(m['source'])}
+              for m in raw_job['mounts'] if m['source'] in inputs]
+    if (len(set(review['input_refs'])) != len(review['input_refs']) or
+        not set(review['input_refs']) <= set(state['input_refs']) or len(mounts) != len(inputs) or
+        {m['resource_id'] for m in mounts} != set(review['input_refs']) or
+        any(m['sha256'] != inputs[m['path']]['sha256'] for m in mounts)):
+        raise Failure('VERIFICATION_FAILED', '原程序/资料未以冻结字节挂载到被审查作业', 422)
+    own_client = client is None
+    client = client or LocalClient(config)
+    try:
+        if client.request('GET', f'/tasks/{review["task_id"]}') != state:
+            raise Failure('VERSION_CONFLICT', '历史任务状态已变，不能复用此审查', 409)
+        if client.request('GET', f'/tasks/{review["task_id"]}/jobs/{review["job_id"]}') != job:
+            raise Failure('VERSION_CONFLICT', '原执行作业已变，不能复用此审查', 409)
+        selected = [a for a in snapshot['artifacts'] if a['name'] in [case['result_name'], case['report_name']]]
+        contents = {a['artifact_id']: artifact_bytes(client, a) for a in selected}
+    finally:
+        if own_client:
+            client.close()
+    score = score_trial(case, snapshot, contents, diagnostic_review=review)
+    semantic = record.get('semantic_review')
+    if semantic:
+        semantic = EvaluationReview.model_validate(semantic).model_dump()
+        criteria = {'result_consistency', 'provenance_claims', 'language_and_limitations', 'failure_history', 'execution_boundaries'}
+        if (semantic['manifest_sha256'] != envelope['manifest_sha256'] or semantic['trial_id'] != entry['trial_id'] or
+            semantic['task_id'] != review['task_id'] or set(semantic['criteria']) != criteria or
+            not any(a['name'] == case['report_name'] and a['artifact_id'] == semantic['report_artifact_id'] and
+                    a['sha256'] == semantic['report_sha256'] for a in selected)):
+            raise Failure('VERSION_CONFLICT', '原报告语义审查与此任务/报告版本不同', 409)
+        apply_semantic_score(score, semantic, state, record.get('interaction_required'))
+    return {'manifest_sha256': envelope['manifest_sha256'], 'trial': entry, 'task_id': review['task_id'],
+            'source_record_sha256': hashlib.sha256(record_bytes).hexdigest(), 'rescored_at': now(),
+            'scorer_sha256': file_record(__file__)['sha256'], 'diagnostic_review': review,
+            'execution_evidence': {'prepared_code': prepared, 'mounts': mounts},
+            'previous_score': record.get('score'), 'score': score, 'auto_accepted': False,
+            'notice': '只重新评分原证据；未运行模型/作业，未改写原试次或冻结清单。'}
 
 
 def full_readback(artifact, observations, data):

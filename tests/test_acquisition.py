@@ -70,6 +70,26 @@ def test_private_acquisition_requires_exact_approval_and_replays_without_network
     assert denied["error"]["code"] == "PERMISSION_DENIED" and len(fake.calls) == 2
 
 
+def test_missing_filename_guides_resolution_without_downloading_or_creating_artifacts(client, app):
+    state, _ = task(client)
+    engine, fake = app.state.engine, ReleaseFixture()
+    engine.acquisition.http = fake
+    requested = {**WHEEL, "filename": "six-1.17.0-py3-none-any.whl"}
+    assert acquire(engine, state, wheels=[requested])["kind"] == "approval_required"
+    record = engine.network.list(state["task_id"])[0]
+    assert resolve(client, state, record).status_code == 200
+    result = acquire(engine, state, "approved", wheels=[requested], approval=record["approval_id"])
+    assert result["kind"] == "failed" and result["error"]["code"] == "PRECONDITION_MISSING"
+    assert requested["filename"] in result["error"]["message"]
+    assert "resolve_dependencies" in result["error"]["message"]
+    assert "新的精确下载审批" in result["error"]["message"]
+    assert fake.calls == ["https://pypi.org/pypi/six/1.17.0/json"]
+    assert engine.network.list(state["task_id"])[0]["status"] == "consumed"
+    with engine.store.transaction() as db:
+        assert not db.execute("SELECT 1 FROM jobs").fetchone()
+        assert not db.execute("SELECT 1 FROM artifacts").fetchone()
+
+
 @pytest.mark.parametrize("condition", ["wrong_sha", "wrong_size", "yanked", "private_url", "query", "fragment", "sdist", "wrong_version"])
 def test_invalid_metadata_or_download_never_becomes_an_installable_wheel(client, app, condition):
     state = public_task(client)
