@@ -18,6 +18,10 @@
 
 ## 1.28 当前增量：冻结通用pilot入口与运行版本证据
 
+large-H0-r1后续实际终态：six1.17.0官方wheel取得并封存（11050字节，SHA4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274），但固定Python镜像本地缺失，12个作业均queued且started_at为空。模型重复提交环境准备，37份上下文后耗尽原回合30请求上限，paused/MODEL_PROTOCOL_ERROR；无计算结果/报告、未实际观察缺six运行失败，评分false。这是执行环境不就绪造成的受干扰试次，不能当作有效模型质量对照。仅核验了服务与模型而未及时复核镜像可用性是本次操作缺口，后续试次开始前必须核验实际固定镜像及Docker响应。
+
+恢复镜像前，正式/tasks/.../pause将原任务pause_requested设为true，保留原失败及12个未启动作业，阻止自动执行排队副作用。只拉取原冻结摘要05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f，实际image ID df18428df8a0f9189c84e7424d214b4c50092af1f9dca5842a00c41c39bda316。doctor(probe_search=False)与单独image inspect证实Docker和镜像可用；运行清单/模型摘要保持，原任务仍paused且全部作业未启动，不恢复或重建受干扰试次。证据pilot-large-H0-r1-executor-image-interruption-20261010-v1.json、pilot-executor-image-restored-20261010-v1.json及原trial记录。汇总现为两项已观察未通过、16项未运行；阶段1仍未通过，产品代码/冻结输入/预算未改，无pytest或完整UI重跑。
+
 2026-10-10 执行恢复：沙箱日志定位到内置node_repl.exe的运行权限校验因文件被占用而返回Windows错误32；诊断保存在workspace/evidence/codex-executor-lock-diagnostic-20261010-v1.json。普通命令随后恢复。只读核验原18668进程及8769监听均已消失、27个持久任务无活跃项，按原配置恢复服务为24028（执行句柄19230）。认证/runtime与冻结运行清单完全匹配，两模型摘要及Ollama0.35.1保持；未重启共享模型服务。
 
 small-H0-r1原任务仍为waiting_user/state_version13。通过正式接口撤销过期未消费审批5a39508c-0767-4708-aca7-e37d6772808f，同一原生任务提出新审批83a443a9-44f8-4402-a52c-c6b72fab73d3。操作者只批准公开six1.17.0元数据及精确匹配发行文件范围，不证明模型所选文件存在。实际获取器拒绝six-1.17.0-py3-none-any.whl，返回PRECONDITION_MISSING；未替换发行文件或下载/执行包。随后模型复用已消费审批失败并检查原失败动作，按原三次无新增证据暂停（NO_PROGRESS/state_version26）。全部7份模型请求用量已测量；原缺six真实失败保留，无结果/报告，自动与完整评分均false，不自动恢复或重建该试次。
