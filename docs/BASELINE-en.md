@@ -1,4 +1,6 @@
-# Revised implementation baseline · 1.24
+# Revised implementation baseline · 1.25
+
+1.25 verifies the actual paid request receipt and matches tool definitions and instruction occurrences individually. Changed components pay their full cost; provider usage and the original 32K/4K limits remain intact. All 35 targeted context/approval checks and copied real-history budget checks passed. The same large task has resumed actual model requests. Complete-flow results and remaining scope are recorded in [STATUS](STATUS.md), section 1.25; subsequent version notes are historical. No full regression was repeated. Agent web search remains deferred.
 
 Version1.24 reuses exact verified resolution snapshots from the existing action journal and immutable locks, with current scope, producer and byte checks. It performs no network I/O or new approval, and makes no remote-freshness claim; refresh=true uses the original authorization path. Related checks and a read-only validation of the real historical lock pass. The same large-model task remains incomplete after restoring an identical local model alias: the original context budget rejects the resumed request before model invocation. Current evidence and remaining scope are in [STATUS](STATUS.md); the version records below are historical.
 

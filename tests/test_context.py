@@ -229,6 +229,70 @@ def test_schema_discount_requires_exact_response_schema_task_revision_and_role(c
     assert compile_for()["schema_cost_accounting"] == "full_current_schema"
 
 
+def test_changed_request_components_keep_paid_usage_and_charge_full_new_occurrences():
+    first = ModelRequest(parts=[UserPromptPart("source")], instructions="paid instructions")
+    response = ModelResponse(parts=[], usage=RequestUsage(input_tokens=4000, output_tokens=30))
+    tail = ModelRequest(parts=[UserPromptPart("continue")], instructions="paid instructions")
+    old_tool = {"name":"old", "schema":{"description":"unchanged"*500}}
+    changed_tool = {"name":"new", "schema":{"description":"changed"*20}}
+    params = SimpleNamespace(instruction_parts=[SimpleNamespace(content=p) for p in ["paid instructions", "new constraint", "new constraint"]], tool_defs={})
+    tools = [old_tool, changed_tool]
+    base, _ = input_bound([first,response,tail], params, tools, measured_tools=[old_tool],
+        measured_instructions=["paid instructions", "new constraint"])
+    # A second occurrence is not free; changed schemas pay their whole current
+    # definition, without subtracting any old provider cost or compacted text.
+    duplicate, _ = input_bound([first,response,tail], params, tools, measured_tools=[old_tool],
+        measured_instructions=["paid instructions"])
+    assert duplicate-base == len(b"new constraint")
+    assert base > 4030 + len(encode([changed_tool]).encode())
+    assert tail.instructions == "paid instructions"
+    without_receipt, _ = input_bound([first,response,tail], params, tools)
+    assert without_receipt > base + 4000
+
+
+def test_changed_schema_and_dynamic_instructions_fit_original_budget_with_verified_receipt(client, app):
+    state, _ = task(client)
+    engine = app.state.engine
+    deps = Deps(engine, state["task_id"], "component-budget", 1)
+    profile = engine.config.models["small"].model_copy(update={"context_limit":18000, "output_limit":2000})
+    stable = SimpleNamespace(name="stable", description="already measured",
+        parameters_json_schema={"description":"固定定义"*500})
+    evolving = SimpleNamespace(name="evolving", description="old", parameters_json_schema={"type":"object"})
+    paid_instructions = ["固定完整约束"*400, "旧任务事实"]
+    params = SimpleNamespace(instruction_parts=[SimpleNamespace(content=p, dynamic=False) for p in paid_instructions],
+        function_tools=[stable,evolving], output_tools=[], tool_defs={})
+    first = ModelRequest(parts=[UserPromptPart("complete objective")], instructions="\n".join(paid_instructions))
+    request = SimpleNamespace(messages=[first], model_request_parameters=params, model_settings={})
+    receipt = engine.contexts.compile(deps, request, profile)
+    response = ModelResponse(parts=[], usage=RequestUsage(input_tokens=4500, output_tokens=30))
+    engine.contexts.measured(receipt, response.usage, response=response)
+    evolving.description = "new parameter guidance"
+    evolving.parameters_json_schema = {"type":"object", "properties":{"refresh":{"type":"boolean"}}}
+    params.instruction_parts[-1] = SimpleNamespace(content="新任务事实与原目标", dynamic=True)
+    request.messages = [first,response,ModelRequest(parts=[UserPromptPart("continue original task")])]
+    tools = [{"name":t.name,"description":t.description,"schema":t.parameters_json_schema} for t in params.function_tools]
+    legacy, _ = input_bound(request.messages, params, tools)
+    assert legacy > profile.context_limit-profile.output_limit
+    ref = engine.contexts.compile(deps, request, profile)
+    with engine.store.transaction() as db:
+        manifest = json.loads(db.execute("SELECT payload FROM contexts WHERE id=?", (ref,)).fetchone()[0])
+        original = json.loads(db.execute("SELECT payload FROM contexts WHERE id=?", (receipt,)).fetchone()[0])
+    assert manifest["estimated_tokens_upper_bound"] < profile.context_limit-profile.output_limit
+    assert manifest["estimated_tokens_upper_bound"] > response.usage.input_tokens+response.usage.output_tokens
+    assert manifest["schema_cost_accounting"] == "bound_measured_components"
+    assert manifest["unpaid_tool_names"] == ["evolving"]
+    assert manifest["schema_receipt_context_ref"] == receipt
+    assert request.messages[0].instructions == "\n".join(paid_instructions)
+    snapshot = Path(original["prepared_input_ref"])
+    data = snapshot.read_bytes()
+    try:
+        snapshot.write_bytes(data+b" ")  # Valid JSON, invalid byte provenance.
+        with pytest.raises(Failure, match="编译输入保守估算"):
+            engine.contexts.compile(deps, request, profile)
+    finally:
+        snapshot.write_bytes(data)
+
+
 def test_approval_continuation_keeps_budget_without_charging_paid_schema_twice(client, app):
     state, _ = task(client)
     engine = app.state.engine

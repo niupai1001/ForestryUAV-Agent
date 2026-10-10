@@ -135,16 +135,19 @@ for(const model of ['small','large'])test(`${model} discovers public source buil
     const prior=JSON.parse(readFileSync(evidence(`ui-public-source-failure-${continuation}.json`),'utf8'));
     expect(prior.model).toBe(model);
     const modelRepair=prior.state.status==='paused'&&prior.state.blockers.some((b:any)=>b.code==='MODEL_UNAVAILABLE');
-    expect(prior.state.status==='waiting_user'||modelRepair).toBe(true);
-    if(!modelRepair)expect(prior.state.blockers.map((b:any)=>b.code)).toContain('APPROVAL_REQUIRED');
+    const contextRepair=process.env.PUBLIC_SOURCE_RESUME_REPAIRED_BLOCKER==='CONTEXT_EXHAUSTED'&&
+      prior.state.status==='paused'&&prior.state.blockers.some((b:any)=>b.code==='CONTEXT_EXHAUSTED');
+    const repairedPause=modelRepair||contextRepair;
+    expect(prior.state.status==='waiting_user'||repairedPause).toBe(true);
+    if(!repairedPause)expect(prior.state.blockers.map((b:any)=>b.code)).toContain('APPROVAL_REQUIRED');
     taskId=continuation;ref=prior.state.input_refs[0];
     await page.goto('/');expect((await page.request.get('/session')).ok()).toBe(true);
     const resource=(await(await page.request.get('/resources')).json()).find((r:any)=>r.resource_id===ref);
     expect(resource).toBeTruthy();source=resource.locator;hash=sha(Buffer.from(sourceNotes));
     expect(sha(readFileSync(source))).toBe(hash);
     await page.evaluate(id=>localStorage.setItem('forestry.task',id),taskId);await page.reload();
-    await expect(page.locator('.task-status')).toHaveText(modelRepair?'已暂停':'待确认');
-    if(modelRepair)await page.getByRole('button',{name:'恢复',exact:true}).click();
+    await expect(page.locator('.task-status')).toHaveText(repairedPause?'已暂停':'待确认');
+    if(repairedPause)await page.getByRole('button',{name:'恢复',exact:true}).click();
   }else{
   const directory=resolve(root,'workspace/public-source-ui-fixtures',crypto.randomUUID());mkdirSync(directory,{recursive:true});
   source=resolve(directory,`docopt-call-notes-${model}.md`);

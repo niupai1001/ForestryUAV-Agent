@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
@@ -19,7 +20,7 @@ from .contracts import Failure
 from .resources import native_path
 from .store import Store, encode, now, uid
 
-ESTIMATOR = "native-usage-anchor-with-utf8-deltas-v5-task-bound-schema-receipt"
+ESTIMATOR = "native-usage-anchor-with-utf8-deltas-v6-verified-request-components"
 
 
 def byte_bound(text: str):
@@ -86,7 +87,20 @@ def response_anchor_hash(response):
     return hashlib.sha256(encode(value).encode()).hexdigest()
 
 
-def input_bound(messages, params, tools, *, measured_tools_sha256=None):
+def unpaid_components(current, measured):
+    """Match exact paid occurrences; changed components retain their full cost."""
+    paid = Counter(encode(value) for value in measured or [])
+    unpaid = []
+    for value in current:
+        key = encode(value)
+        if paid[key]:
+            paid[key] -= 1
+        else:
+            unpaid.append(value)
+    return unpaid
+
+
+def input_bound(messages, params, tools, *, measured_tools_sha256=None, measured_tools=None, measured_instructions=None):
     """Count a prepared request using native measured usage plus conservative deltas."""
     counted = list(messages)
     instructions = "\n".join(part.content for part in params.instruction_parts)
@@ -97,14 +111,25 @@ def input_bound(messages, params, tools, *, measured_tools_sha256=None):
     else:
         counted.append(ModelRequest(parts=[], instructions=instructions))
     anchored = any(isinstance(message, ModelResponse) and message.usage.input_tokens > 0 for message in counted)
+    instruction_delta = 0
+    if anchored and measured_instructions is not None:
+        # Provider usage already includes the previous request's instructions.
+        # Keep that entire cost (including removed/changed parts), then pay the
+        # full UTF-8 bound for every new or changed occurrence. Do not subtract
+        # heuristic compaction reclaim from measured provider usage.
+        instruction_delta = sum(byte_bound(value) for value in unpaid_components(
+            [part.content for part in params.instruction_parts], measured_instructions))
+        counted = [replace(message, instructions=None) if isinstance(message, ModelRequest) else message for message in counted]
     text_bound = estimate_context_tokens(counted, byte_bound, model_request_parameters=params) if anchored else estimate_token_count(counted, byte_bound)
     # Unknown/changed schemas pay the full conservative cost. Exact schemas bound
     # to this response's measured request have already been paid by its native
     # input usage; do not charge them twice. Framing remains conservatively added.
     schema = encode(tools)
     known_schema = anchored and measured_tools_sha256 == hashlib.sha256(schema.encode()).hexdigest()
-    margin = (0 if known_schema else byte_bound(schema)) + 256 + 16 * len(messages) + 32 * len(tools)
-    return text_bound + margin, anchored
+    unpaid_tools = unpaid_components(tools, measured_tools) if anchored and measured_tools is not None else tools
+    schema_cost = 0 if known_schema or not unpaid_tools else byte_bound(encode(unpaid_tools))
+    margin = schema_cost + 256 + 16 * len(messages) + 32 * len(tools)
+    return text_bound + instruction_delta + margin, anchored
 
 
 class Contexts:
@@ -127,6 +152,8 @@ class Contexts:
         anchor = next((message for message in reversed(request_context.messages)
             if isinstance(message, ModelResponse) and message.usage.input_tokens > 0), None)
         measured_tools_sha256 = None
+        measured_tools = None
+        measured_instructions = None
         schema_receipt = None
         if anchor:
             # Approval continuations import native history from a prior logical
@@ -136,15 +163,29 @@ class Contexts:
             with self.store.transaction() as db:
                 receipt = db.execute("SELECT id,turn_id,payload FROM contexts WHERE task_id=? "
                     "AND json_extract(payload,'$.spec_revision')=? AND json_extract(payload,'$.assignment_id') IS ? "
-                    "AND json_extract(payload,'$.response_sha256')=? AND json_extract(payload,'$.tool_schema_sha256')=? "
+                    "AND json_extract(payload,'$.response_sha256')=? "
                     "ORDER BY rowid DESC LIMIT 1",
-                    (deps.task_id, deps.revision, deps.assignment_id, response_anchor_hash(anchor), tool_schema_sha256)).fetchone()
+                    (deps.task_id, deps.revision, deps.assignment_id, response_anchor_hash(anchor))).fetchone()
             value = json.loads(receipt["payload"]) if receipt else {}
             if (value.get("usage_measurement_status") == "measured" and value.get("estimate_covers_observed_usage") is True and
                 value.get("actual_input_tokens") == anchor.usage.input_tokens and value.get("actual_output_tokens") == anchor.usage.output_tokens):
-                measured_tools_sha256 = value.get("tool_schema_sha256")
-                schema_receipt = receipt
-        bound, anchored = input_bound(request_context.messages, params, tools, measured_tools_sha256=measured_tools_sha256)
+                # The receipt must prove the actual paid definitions, not just
+                # a hash copied into the database. Corrupt/missing snapshots
+                # conservatively fall back to charging every current component.
+                try:
+                    snapshot_data = native_path(Path(value["prepared_input_ref"])).read_bytes()
+                    snapshot = json.loads(snapshot_data)
+                    if (hashlib.sha256(snapshot_data).hexdigest() == value["prepared_input_sha256"] and
+                        hashlib.sha256(encode(snapshot["tools"]).encode()).hexdigest() == value["tool_schema_sha256"] and
+                        isinstance(snapshot.get("instructions"), list) and all(isinstance(p, str) for p in snapshot["instructions"])):
+                        measured_tools_sha256 = value["tool_schema_sha256"]
+                        measured_tools = snapshot["tools"]
+                        measured_instructions = snapshot["instructions"]
+                        schema_receipt = receipt
+                except (OSError, ValueError, KeyError, TypeError):
+                    pass
+        bound, anchored = input_bound(request_context.messages, params, tools, measured_tools_sha256=measured_tools_sha256,
+            measured_tools=measured_tools, measured_instructions=measured_instructions)
         available = profile.context_limit - profile.output_limit
         if bound > available:
             raise Failure("CONTEXT_EXHAUSTED", f"编译输入保守估算 {bound} 超过预留输出后的 {available}；请使用更短目标或引用读取", 422)
@@ -176,7 +217,10 @@ class Contexts:
             "prepared_input_sha256": hashlib.sha256(data).hexdigest(), "estimated_tokens_upper_bound": bound,
             "prepared_snapshot_bytes": len(data),
             "tool_schema_sha256": tool_schema_sha256,
-            "schema_cost_accounting": "bound_measured_schema" if anchored and measured_tools_sha256 == tool_schema_sha256 else "full_current_schema",
+            "schema_cost_accounting": ("bound_measured_schema" if anchored and measured_tools_sha256 == tool_schema_sha256 else
+                "bound_measured_components" if anchored and measured_tools is not None and len(unpaid_components(tools, measured_tools)) < len(tools) else "full_current_schema"),
+            "unpaid_tool_names": [t["name"] for t in unpaid_components(tools, measured_tools) if not (anchored and measured_tools_sha256 == tool_schema_sha256)],
+            "instruction_cost_accounting": "bound_measured_components" if anchored and measured_instructions is not None else "native_full_changed_instructions",
             "schema_receipt_context_ref": schema_receipt["id"] if schema_receipt else None,
             "schema_receipt_turn_id": schema_receipt["turn_id"] if schema_receipt else None,
             "uses_provider_usage_anchor": anchored,
