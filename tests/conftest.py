@@ -6,7 +6,14 @@ from forestry_agent.config import Config, ModelProfile
 
 
 @pytest.fixture
-def app(tmp_path):
+def app(tmp_path, monkeypatch):
+    # API/unit fixtures have no real Docker worker. Deterministic measurements
+    # keep them distinct from the separately recorded real WSL admission cases.
+    monkeypatch.setattr('forestry_agent.jobs.execution_profile', lambda config: {
+        'observed_at': 'unit-fixture', 'host_ram_available': 64 * 2**30,
+        'executor_ram_available': 64 * 2**30, 'executor_ram_total': 64 * 2**30,
+        'executor_cpu_threads': 8, 'workspace_disk_free': 64 * 2**30,
+        'source': 'unit_fixture', 'vram_request_supported': 0})
     config = Config(workspace_root=tmp_path / "workspace", models={
         "small": ModelProfile(repository="Qwen/Qwen3.5-4B", served_name="qwen3.5:4b")})
     return create_app(config, enable_agent=False)

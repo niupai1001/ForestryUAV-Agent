@@ -1,0 +1,32 @@
+import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+
+test('job panel shows real frozen budgets, failure and mobile layout',async({page})=>{
+  const errors:string[]=[];
+  const record=JSON.parse(readFileSync('../workspace/evidence/admission-real-20261010-v1.json','utf8'));
+  page.on('pageerror',error=>errors.push(error.message));
+  await page.goto('/');
+  await page.evaluate(id=>localStorage.setItem('forestry.task',id),record.cases.output_stop.task_id);
+  await page.reload();
+  await page.getByRole('button',{name:'作业',exact:true}).click();
+  const panel=page.getByRole('region',{name:'作业资源与状态'});
+  await expect(panel).toContainText('失败 · 代码运行');
+  await expect(panel).toContainText('作业总输出超过预算');
+  await expect(panel).toContainText(record.cases.output_stop.job_id);
+  await expect(panel).toContainText('64 MiB');
+  await expect(panel).toContainText('1 MiB');
+  await panel.getByText('查看资源快照',{exact:true}).click();
+  await expect(panel).toContainText('host_and_wsl_kernel');
+  await page.screenshot({path:'../workspace/evidence/admission-ui-failed-20261010-v1.png',fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  await expect(panel).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:'../workspace/evidence/admission-ui-mobile-20261010-v1.png',fullPage:true});
+  await page.evaluate(id=>localStorage.setItem('forestry.task',id),record.cases.wait_recover.task_id);
+  await page.reload();
+  await page.getByRole('button',{name:'作业',exact:true}).click();
+  await expect(panel).toContainText('成功 · 代码运行');
+  await expect(panel).toContainText('4 MiB');
+  await expect(panel).toContainText('实际封存输出');
+  expect(errors).toEqual([]);
+});

@@ -223,6 +223,7 @@ def create_app(config: Config, *, enable_agent: bool = True):
             raise Failure("PRECONDITION_MISSING", "当前阶段尚未实现该指定方法", 422)
         identity = await model_identity(config, config.models[profile]) if enable_agent else {"backend": "test_fixture"}
         state = store.create_task(payload.model_dump(), {"model_profile": profile,
+            "execution_limits": config.execution_limits(),
             "harness_mode": payload.harness_mode, "role_catalog": engine.roles.catalog,
             "context_classification": payload.context_classification,
             "search": config.search_configuration(),
@@ -441,6 +442,10 @@ def create_app(config: Config, *, enable_agent: bool = True):
     @app.get("/tasks/{task_id}/assignments/{assignment_id}")
     def assignment(task_id: str, assignment_id: str):
         return engine.roles.read(assignment_id, task_id)
+
+    @app.get("/tasks/{task_id}/jobs")
+    def task_jobs(task_id: str, offset: int = Query(default=0, ge=0)):
+        return engine.jobs.list(task_id, offset)
 
     @app.get("/tasks/{task_id}/jobs/{job_id}")
     def job(task_id: str, job_id: str):

@@ -1,0 +1,2 @@
+.inspector-tabs{overflow-x:auto;justify-content:flex-start;gap:12px}.inspector-tabs>button{flex-shrink:0;white-space:nowrap}
+.jobs-panel{padding:14px;min-width:0;font-size:12px;line-height:1.7;overflow-wrap:anywhere}.jobs-panel article{padding:14px 0;border-bottom:1px solid #e5e9e4}.jobs-panel h3{font-size:13px;margin:0}.jobs-panel small{font-size:10px}.jobs-panel dl{display:grid;grid-template-columns:110px minmax(0,1fr);gap:4px 8px}.jobs-panel dt{color:var(--muted)}.jobs-panel dd{margin:0}.jobs-panel summary{cursor:pointer}.jobs-panel p{white-space:pre-wrap}

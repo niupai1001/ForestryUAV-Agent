@@ -42,6 +42,13 @@ class Config(BaseModel):
     max_code_seconds: int = Field(default=14400, ge=1)
     max_code_memory_bytes: int = Field(default=6442450944, ge=67108864)
     max_code_cpus: int = Field(default=4, ge=1)
+    max_code_output_bytes: int = Field(default=536870912, ge=1024)
+    code_memory_reserve_bytes: int = Field(default=1073741824, ge=0)
+    code_disk_reserve_bytes: int = Field(default=1073741824, ge=0)
+
+    def execution_limits(self):
+        return {"cpu_threads": self.max_code_cpus, "ram_bytes": self.max_code_memory_bytes,
+                "vram_bytes": 0, "output_bytes": self.max_code_output_bytes}
 
     def search_configuration(self):
         base = self.search_base_url or {"baidu_html": "https://www.baidu.com", "bing_rss": "https://www.bing.com"}.get(self.search_provider)

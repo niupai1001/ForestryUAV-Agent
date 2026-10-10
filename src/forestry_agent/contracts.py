@@ -157,6 +157,14 @@ class KnowledgeQuery(Boundary):
     limit: int = Field(default=8, ge=1, le=20)
 
 
+class ResourceRequest(Boundary):
+    cpu_threads: int = Field(ge=1)
+    ram_bytes: int = Field(ge=67108864)
+    vram_bytes: Literal[0] = 0
+    temporary_bytes: int = Field(default=0, ge=0)
+    output_bytes: int = Field(ge=1024)
+
+
 class ApprovalResolution(Boundary):
     request_id: str = Field(min_length=1, max_length=200)
     expected_spec_revision: int = Field(ge=1)

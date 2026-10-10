@@ -10,10 +10,9 @@ import tempfile
 from datetime import UTC, datetime
 from pathlib import Path, PureWindowsPath
 
-import psutil
-
+from .admission import assess, execution_profile, limited_code
 from .config import Config
-from .contracts import Failure
+from .contracts import Failure, ResourceRequest
 from .environments import execution_code
 from .resources import Resources, native_path, version
 from .store import Store, encode, now, uid
@@ -78,9 +77,10 @@ class Docker:
 class Jobs:
     """Durable isolated jobs. Polling is application work and never invokes a model."""
 
-    def __init__(self, config: Config, store: Store, resources: Resources, docker=None):
+    def __init__(self, config: Config, store: Store, resources: Resources, docker=None, *, resource_probe=None):
         self.config, self.store, self.resources = config, store, resources
         self.docker = docker or Docker(config)
+        self.resource_probe = resource_probe or execution_profile
         self.worker: asyncio.Task | None = None
         self.cancel_assignments = None
         self.environment_resolver = None
@@ -97,6 +97,14 @@ class Jobs:
         if task_id and job["task_id"] != task_id:
             raise Failure("PERMISSION_DENIED", "作业不属于当前任务", 403)
         return job
+
+    def list(self, task_id, offset=0):
+        self.store.task(task_id)
+        with self.store.transaction() as db:
+            rows = db.execute('SELECT payload FROM jobs WHERE task_id=? ORDER BY updated_at DESC,id LIMIT 21 OFFSET ?',
+                              (task_id, offset)).fetchall()
+        return {'jobs': [self.public(json.loads(row['payload'])) for row in rows[:20]],
+                'next': offset + min(len(rows), 20), 'has_more': len(rows) > 20}
 
     def save(self, job, kind):
         job["updated_at"] = now()
@@ -207,10 +215,62 @@ class Jobs:
                     job['source_build_only'] = True
                 if source_inspection:
                     job['source_inspection'] = source_inspection
+            job['resource_request'] = self.resource_request(job, state)
             db.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?)",
                 (job_id, task_id, action_id, revision, "queued", encode(job), now()))
             self.store.event(db, task_id, "job.queued", self.public(job))
         return {"job": self.public(job)}
+
+    def resource_request(self, job, state):
+        limits = state['config_snapshot'].get('execution_limits', self.config.execution_limits())
+        temporary = sum(job.get(key, 0) for key in ('tmpfs_bytes', 'environment_tmpfs_bytes', 'build_tmpfs_bytes'))
+        return ResourceRequest.model_validate({**limits, 'temporary_bytes': temporary}).model_dump()
+
+    def wait_resources(self, job, admission):
+        blocker = {'code': 'RESOURCE_WAIT', 'message': '等待资源：' + ', '.join(admission['missing'])}
+        previous = job.get('admission', {})
+        # Sensor timestamps and ordinary free-space fluctuations are not new work.
+        changed = any(previous.get(key) != admission.get(key) for key in ('decision', 'missing', 'required', 'policy'))
+        if changed or job.get('blocker') != blocker:
+            job['admission'], job['blocker'] = admission, blocker
+            self.save(job, 'job.resource_wait')
+
+    def outputs(self, job):
+        output_root = Path(job['directory']) / 'output'
+        walk_root = native_path(output_root)
+        if walk_root.is_symlink():
+            raise Failure('PERMISSION_DENIED', '作业输出不接受符号链接', 403)
+        files, total, count = [], 0, 0
+        def walk_error(error):
+            raise error
+        for directory, folders, names in os.walk(walk_root, followlinks=False, onerror=walk_error):
+            for name in folders + names:
+                path = output_root / Path(directory).relative_to(walk_root) / name
+                count += 1
+                if count > 1000:
+                    raise Failure('RESOURCE_EXHAUSTED', '作业产物数量超出上限', 422)
+                if native_path(path).is_symlink():
+                    raise Failure('PERMISSION_DENIED', '作业输出不接受符号链接', 403)
+                if native_path(path).is_file():
+                    files.append(path)
+                    total += native_path(path).stat().st_size
+                elif not native_path(path).is_dir():
+                    raise Failure('PERMISSION_DENIED', '作业输出仅接受普通文件或目录', 403)
+        return files, total
+
+    def output_violation(self, job, *, check_disk=True):
+        try:
+            _, total = self.outputs(job)
+            if total > job['resource_request']['output_bytes']:
+                return {'code': 'RESOURCE_EXHAUSTED', 'message': '作业总输出超过预算',
+                        'output_bytes': total, 'limit_bytes': job['resource_request']['output_bytes']}
+            free = shutil.disk_usage(self.config.workspace_root).free if check_disk else None
+            if check_disk and free < self.config.code_disk_reserve_bytes:
+                return {'code': 'RESOURCE_EXHAUSTED', 'message': '工作盘空闲空间已低于保留量',
+                        'disk_free_bytes': free, 'reserve_bytes': self.config.code_disk_reserve_bytes}
+        except Failure as error:
+            return {'code': error.code, 'message': str(error)}
+        return None
 
     def request_cancel(self, job_id: str, task_id: str):
         job = self.read(job_id, task_id)
@@ -256,6 +316,7 @@ class Jobs:
         active = any(j["status"] in {"creating", "running", "collecting"} for j in jobs)
         for job in jobs:
             try:
+                profile = None
                 state = self.store.task(job["task_id"])
                 with self.store.transaction() as db:
                     permitted = self.store.capability_allowed(db, state, job.get("kind", "code.execute"))
@@ -269,10 +330,15 @@ class Jobs:
                         continue
                     if active or state["pause_requested"]:
                         continue
-                    if psutil.virtual_memory().available < self.config.max_code_memory_bytes + 2**30 or shutil.disk_usage(self.config.workspace_root).free < 2**30:
-                        job["blocker"] = {"code": "RESOURCE_WAIT", "message": "等待内存或磁盘资源"}
-                        self.save(job, "job.resource_wait")
+                    if 'resource_request' not in job:
+                        job['resource_request'] = self.resource_request(job, state)
+                        self.save(job, 'job.resource_request_frozen')
+                    profile = self.resource_probe(self.config)
+                    admission = assess(job['resource_request'], profile, self.config)
+                    if admission['decision'] == 'wait':
+                        self.wait_resources(job, admission)
                         continue
+                    job['admission'], job['blocker'] = admission, None
                     image = self.docker.call("image", "inspect", job.get("image_reference", self.config.code_image), "--format", "{{.Id}}")
                     if image["code"] != 0:
                         raise Failure("DEPENDENCY_MISSING", "隔离运行镜像未准备，不自动联网下载", 422)
@@ -282,6 +348,7 @@ class Jobs:
                     directory = Path(job["directory"])
                     native_path(directory / "output").mkdir(parents=True, exist_ok=True)
                     prepared = execution_code(job["code"], job["environment"]) if job.get("environment") else job["code"]
+                    prepared = limited_code(prepared, job['resource_request']['output_bytes'])
                     job["prepared_code_sha256"] = hashlib.sha256(prepared.encode()).hexdigest()
                     native_path(directory / "run.py").write_bytes(prepared.encode("utf-8"))
                     self.verify_inputs(job)
@@ -290,6 +357,19 @@ class Jobs:
                     self.save(job, "job.create_intent")
                     active = True
                 container = self.docker.inspect(job["container_name"])
+                if 'resource_request' not in job:
+                    # Historical running jobs keep their actual container limits.
+                    # Do not invent or impose a new output limit on an old run.
+                    job['resource_request'] = self.resource_request(job, state)
+                    job['resource_request']['output_bytes'] = None
+                    job['legacy_container_limits_unverified'] = True
+                    self.save(job, 'job.legacy_resource_snapshot')
+                if job['status'] == 'creating' and not stopping and not state['pause_requested']:
+                    admission = assess(job['resource_request'], profile or self.resource_probe(self.config), self.config)
+                    if admission['decision'] == 'wait':
+                        self.wait_resources(job, admission)
+                        continue
+                    job['admission'], job['blocker'] = admission, None
                 if job["status"] == "creating" and container is None:
                     if stopping:
                         job["status"] = "cancelled"
@@ -301,8 +381,8 @@ class Jobs:
                     args = ["create", "--name", job["container_name"], "--label", "forestry.job=" + job["job_id"],
                         "--label", "forestry.task=" + job["task_id"], "--network", "none", "--read-only",
                         "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--pids-limit", "128",
-                        "--memory", str(self.config.max_code_memory_bytes), "--memory-swap", str(self.config.max_code_memory_bytes),
-                        "--cpus", str(self.config.max_code_cpus), "--user", "65534:65534",
+                        "--memory", str(job['resource_request']['ram_bytes']), "--memory-swap", str(job['resource_request']['ram_bytes']),
+                        "--cpus", str(job.get('admission', {}).get('effective_cpu_threads', job['resource_request']['cpu_threads'])), "--user", "65534:65534",
                         "--tmpfs", f"/tmp:rw,noexec,nosuid,size={job.get('tmpfs_bytes', 67108864)}", "--log-opt", "max-size=1m",
                         "--log-opt", "max-file=2", "--workdir", "/output",
                         "--mount", f"type=bind,src={directory / 'run.py'},dst=/run.py,readonly",
@@ -345,43 +425,62 @@ class Jobs:
                 elapsed = (datetime.now(UTC) - datetime.fromisoformat(job["started_at"])).total_seconds() if job["started_at"] else 0
                 expired = elapsed > job["seconds"]
                 if observed["Running"]:
-                    if stopping or expired:
+                    violation = job.get('resource_stop_requested')
+                    if not stopping and not expired and not violation and job['resource_request']['output_bytes'] is not None:
+                        violation = self.output_violation(job)
+                        if violation:
+                            job['resource_stop_requested'] = violation
+                            self.save(job, 'job.resource_stop_intent')
+                    if stopping or expired or violation:
                         self.docker.call("kill", job["container_id"])
                         confirmed = self.docker.inspect(job["container_name"])
+                        if confirmed is None:
+                            raise Failure('RECONCILIATION_REQUIRED', '停止后容器身份无法核验', 409)
                         self.matches(job, confirmed)
                         if confirmed["State"]["Running"]:
                             raise Failure("RECONCILIATION_REQUIRED", "容器仍运行，不能确认停止", 409)
-                        job["status"] = "cancelled" if stopping else "timed_out"
+                        job["status"] = "cancelled" if stopping else "timed_out" if expired else "failed"
+                        job['blocker'] = violation if job['status'] == 'failed' else None
                         job["exit_code"] = confirmed["State"]["ExitCode"]
                         self.save(job, "job.terminal")
                     continue
                 job["exit_code"] = observed["ExitCode"]
-                job["status"] = "cancelled" if stopping else "failed" if job["exit_code"] else "collecting"
-                job["blocker"] = None
-                self.save(job, "job.execution_observed")
+                violation = job.get('resource_stop_requested')
+                if not stopping and not violation and job['resource_request']['output_bytes'] is not None:
+                    violation = self.output_violation(job, check_disk=False)
+                status = "cancelled" if stopping else "failed" if job["exit_code"] or violation else "collecting"
+                if job['status'] != status:
+                    job['status'], job['blocker'] = status, violation if status == 'failed' else None
+                    self.save(job, "job.execution_observed")
                 if job["status"] == "collecting":
                     # Keep a recoverable boundary until every output has been frozen.
-                    files = []
-                    output_root = Path(job["directory"]) / "output"
-                    walk_root = native_path(output_root)
-                    for directory, folders, names in os.walk(walk_root, followlinks=False):
-                        for name in folders + names:
-                            path = output_root / Path(directory).relative_to(walk_root) / name
-                            if native_path(path).is_symlink():
-                                raise Failure("PERMISSION_DENIED", "作业输出不接受符号链接", 403)
-                            files.append(path)
-                            if len(files) > 1000:
-                                raise Failure("RESOURCE_EXHAUSTED", "作业产物数量超出上限", 422)
+                    files, total = self.outputs(job)
+                    with self.store.transaction() as db:
+                        sealed = {json.loads(row['payload'])['relative_path'] for row in db.execute(
+                            'SELECT payload FROM artifacts WHERE task_id=? AND json_extract(payload,\'$.producer_action_id\')=?',
+                            (job['task_id'], job['action_id']))}
+                    prefix = f"assignments/{job['assignment_id']}/" if job.get("assignment_id") else ""
+                    def relative(path, prefix=prefix, job=job):
+                        return prefix + 'jobs/' + job['job_id'] + '/' + path.relative_to(Path(job['directory']) / 'output').as_posix()
+                    remaining = sum(native_path(path).stat().st_size for path in files if relative(path) not in sealed)
+                    free = shutil.disk_usage(self.config.workspace_root).free
+                    required = remaining + self.config.code_disk_reserve_bytes + 16 * 1024 * 1024
+                    if free < required:
+                        self.wait_resources(job, {'decision': 'wait', 'missing': ['artifact_copy_disk'],
+                            'required': {'disk_bytes': required}, 'profile': {'observed_at': now(), 'workspace_disk_free': free},
+                            'policy': {'disk_reserve_bytes': self.config.code_disk_reserve_bytes}})
+                        continue
+                    job['blocker'] = None
                     for path in files:
                         if native_path(path).is_symlink():
                             raise Failure("PERMISSION_DENIED", "作业输出不接受符号链接", 403)
                         if native_path(path).is_file():
-                            prefix = f"assignments/{job['assignment_id']}/" if job.get("assignment_id") else ""
                             artifact = self.resources.import_file(job["task_id"], job["action_id"], path,
-                                prefix + "jobs/" + job["job_id"] + "/" + path.relative_to(Path(job["directory"]) / "output").as_posix())
+                                relative(path))
                             if artifact["artifact_id"] not in job["artifact_ids"]:
                                 job["artifact_ids"].append(artifact["artifact_id"])
                     job["status"] = "succeeded"
+                    job['output_bytes'] = total
                     self.save(job, "job.terminal")
             except (Failure, OSError, ValueError, KeyError) as error:
                 job["blocker"] = {"code": getattr(error, "code", "EXECUTOR_ERROR"), "message": str(error)[:1500]}

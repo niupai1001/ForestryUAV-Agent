@@ -1,0 +1,39 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "cpu_threads": {
+      "minimum": 1,
+      "title": "Cpu Threads",
+      "type": "integer"
+    },
+    "ram_bytes": {
+      "minimum": 67108864,
+      "title": "Ram Bytes",
+      "type": "integer"
+    },
+    "vram_bytes": {
+      "const": 0,
+      "default": 0,
+      "title": "Vram Bytes",
+      "type": "integer"
+    },
+    "temporary_bytes": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Temporary Bytes",
+      "type": "integer"
+    },
+    "output_bytes": {
+      "minimum": 1024,
+      "title": "Output Bytes",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "cpu_threads",
+    "ram_bytes",
+    "output_bytes"
+  ],
+  "title": "ResourceRequest",
+  "type": "object"
+}
