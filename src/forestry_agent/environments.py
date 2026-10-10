@@ -101,7 +101,7 @@ with tempfile.TemporaryDirectory(prefix='environment-build-', dir={'"/build"' if
 
 
 def execution_code(code, environment):
-    return f'''import hashlib, io, json, shutil, stat, sys, tempfile, zipfile
+    return f'''import hashlib, io, json, os, shutil, stat, sys, tempfile, zipfile
 from pathlib import Path, PurePosixPath
 source = Path('/environment.zip')
 with source.open('rb') as reader:
@@ -135,6 +135,10 @@ with tempfile.TemporaryDirectory(prefix='environment-use-', dir='/environment') 
     if manifest != json.loads({json.dumps(encode(environment['manifest']))}):
         raise RuntimeError('Environment archive manifest mismatch')
     sys.path.insert(0, str(root/'site'))
+    # Keep child interpreters in the same verified environment. This changes
+    # only the restricted Job process; no host environment or installer runs.
+    inherited_path = os.environ.get('PYTHONPATH')
+    os.environ['PYTHONPATH'] = str(root/'site') + (os.pathsep + inherited_path if inherited_path else '')
     scope = {{'__name__':'__main__', '__file__':'/run.py'}}
     exec(compile({json.dumps(code)}, '/run.py', 'exec'), scope)
 '''

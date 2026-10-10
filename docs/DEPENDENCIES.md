@@ -1,5 +1,11 @@
 # 范围依赖准备与复用
 
+## 1.32：子 Python 进程复用
+
+准备环境经过原镜像/归档SHA/清单/路径检查后，既有执行包装器在Job内把临时site加入sys.path和PYTHONPATH。默认继承环境的sys.executable子进程可使用相同包与importlib.metadata；不会修改宿主Python、重新安装或放宽断网/非root/只读挂载。调用方显式env={}或Python隔离选项仍可选择不继承，这类选择不自动覆盖。
+
+v4实测曾出现已绑定环境的子程序缺six、主程序six1.17.0正常；原失败保留。仅验证该边界可用`scripts/smoke_dependencies.py --config workspace/resolution-ui-config.yaml --fixture-lock <已核验wheel锁> --subprocess-only`，它复用原Jobs/准备/观察/清理，不另建执行器或运行模型。真实2作业/14检查证据在`workspace/evidence/dependencies-real-b691c9d7-3f7f-4f62-bb6b-bc5cb1934cb2.json`；不是整个通用或阶段验收。
+
 ## 1.24：精确解析快照复用
 
 resolve_dependencies默认复用原确认动作及不可变解析锁中能够证明相同请求的结果，核验当前源版本/目标/镜像/构建元数据及全部快照字节。返回reused_from_action_id及metadata_requests=0，原产物生产者保持；不当作远程新探测或新执行证据。refresh=true绕过读取复用并走既有网络授权；显式已消费approval_id仍不能执行新请求。原真实锁的只读核验通过，模型完整流程仍被上下文预算挡住，详见[STATUS](STATUS.md)的1.24节。下文为历史。

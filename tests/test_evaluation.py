@@ -109,6 +109,24 @@ def test_readback_with_gap_is_not_full_and_failure_must_be_actual_diagnostic(pil
     assert not score['checks']['observed_original_failure']
 
 
+@pytest.mark.parametrize('label,expected', [('平均', True), ('均值', True), ('总额', False)])
+def test_mean_label_alias_keeps_numeric_provenance_and_semantic_gates(pilot, label, expected):
+    _, case, _ = pilot
+    snapshot, contents = score_data(case)
+    text = f'{label}37.5；局限；源ref-source；结果result-id'
+    contents['report-id'] = text.encode()
+    report = snapshot['artifacts'][1]
+    report.update(sha256=hashlib.sha256(contents['report-id']).hexdigest(), size_bytes=len(contents['report-id']))
+    readback = snapshot['events'][-1]['payload']['result']
+    readback.update(text=text, sha256=report['sha256'], next=report['size_bytes'])
+    score = evaluation.score_trial(case, snapshot, contents)
+    assert score['checks']['report_required_text'] is expected
+    assert not score['full_task_passed'] and score['report_semantics'] == 'not_reviewed'
+    contents['result-id'] = b'{"mean": 999}'
+    score = evaluation.score_trial(case, snapshot, contents)
+    assert not score['checks']['exact_values'] and not score['automatic_checks_passed']
+
+
 @pytest.fixture
 def captured_failure(pilot, tmp_path):
     config, case, envelope = pilot

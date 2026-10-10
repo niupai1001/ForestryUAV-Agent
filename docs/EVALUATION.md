@@ -20,6 +20,8 @@ forestry-agent evaluate report --config workspace/resolution-ui-config.yaml --ma
 
 自动评分核对实际sealed产物字节、独立数值、成功计算生产者/作业、真实缺包失败诊断、环境安装版本、源字节、报告引用及完整读回窗口。文件存在、字段/关键词存在均不能证明报告主张正确，初次自动结果的`full_task_passed`因此为false。独立读报告及实际执行记录后，提供`EvaluationReview` JSON：manifest_sha256、trial_id、task_id、report_artifact_id、report_sha256、reviewer、criteria及observations。criteria逐项记录result_consistency、provenance_claims、language_and_limitations、failure_history、execution_boundaries的passed/failed/unknown；可注明failure_category。
 
+报告文本代理对算术平均接受“平均”与“均值”两个等价标签；不修改冻结答案或报告，也不取消精确数值、真实执行与独立报告语义门槛。v4 large-H1实际报告因字面差异误判后，绑定原记录/报告与真实子程序诊断的只读重新评分单独证明完整通过。原自动评分与分母保留，`report`仍汇总原trial；重新评分sidecar必须注明评分源码版本，不能直接替换旧统计或当作新模型运行。
+
 ```powershell
 forestry-agent evaluate review --config workspace/resolution-ui-config.yaml --manifest workspace/evaluation/general-pilot.json --review-file workspace/evaluation/review-small-H0-r1.json
 ```

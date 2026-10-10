@@ -248,7 +248,11 @@ def score_trial(case, snapshot, contents, *, diagnostic_review=None):
         checks['result_readback'] = full_readback(result, observations, contents[result['artifact_id']])
     if report:
         text = contents[report['artifact_id']].decode('utf-8')
-        checks['report_required_text'] = all(term in text for term in oracle['report_contains'])
+        # Average and mean are interchangeable labels for this arithmetic mean.
+        # This remains a text proxy: exact values/producers and the independent
+        # SHA-bound semantic review are still mandatory for a full pass.
+        checks['report_required_text'] = all(term in text or (term == '平均' and '均值' in text)
+                                             for term in oracle['report_contains'])
         checks['report_actual_input_refs'] = all(resource_id in text for resource_id in snapshot['state']['input_refs'])
         checks['report_actual_result_ref'] = bool(result and result['artifact_id'] in text)
         checks['report_readback'] = full_readback(report, observations, contents[report['artifact_id']])
