@@ -818,13 +818,16 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
 
         @agent.tool
         def index_document(ctx: RunContext[Deps], resource_id: str, relative_path: str = "", page: int = 0) -> dict:
-            """把授权文档的一页/窗口索引到本地知识库。保留来源和版本；需按 next_page 继续。"""
+            """缓存本任务授权文档的一页/窗口供检索，不构成用户知识导入。保留来源版本，按 next_page 继续。"""
             return execute(ctx, "knowledge.index", {"resource_id": resource_id, "relative_path": relative_path, "page": page},
                 lambda _: self.knowledge.index(ctx.deps.task_id, resource_id, relative_path, page))
 
         @agent.tool
         def search_knowledge(ctx: RunContext[Deps], query: str) -> dict:
-            """中文/英文检索本地索引，只返回本任务授权来源的当前版本和引用。无匹配不代表读过来源。"""
+            """检索本任务授权来源的当前版本，保留明确导入的来源分类、适用条件、局限及冲突。
+
+            检查 source_notices，不能使用过期来源或把专家断言当测量验证。无匹配不代表读过来源。
+            """
             return execute(ctx, "knowledge.search", {"query": query}, lambda _: self.knowledge.search(ctx.deps.task_id, query,
                 allowed_refs=assignment["effective_input_refs"] if assignment else None))
 

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import MemoryPanel from './MemoryPanel';
+import KnowledgePanel from './KnowledgePanel';
+import { api } from './api';
 import { ArrowDownToLine, ArrowUpRight, Check, ChevronDown, CircleHelp, File, FolderOpen,
   Leaf, MessageSquare, MoreHorizontal, Pause, Play, Plus, RefreshCw, Send, Settings,
   ShieldCheck, Square, Terminal, X } from 'lucide-react';
@@ -44,13 +46,6 @@ type Scope = 'full'|'files'|'answer'|'custom';
 const scopeCapabilities = (scope:Scope,custom:string[]) => scope==='full'?null:scope==='files'?fileCapabilities:scope==='answer'?[]:custom;
 const scopeName = (caps?:string[]|null) => caps==null?'通用能力':caps.length===0?'仅回答':
   caps.length===fileCapabilities.length&&caps.every(c=>fileCapabilities.includes(c))?'文件与报告':`自定义 ${caps.length} 项`;
-async function api<T>(path: string, payload?: object, method = 'POST'): Promise<T> {
-  const reply = await fetch(path, payload ? {method, headers: {'Content-Type':'application/json'},
-    body: JSON.stringify(payload)} : {});
-  const data = await reply.json();
-  if (!reply.ok) throw new Error(data.error?.message || `请求失败 (${reply.status})`);
-  return data;
-}
 
 async function readPlan(taskId:string):Promise<Plan|null> {
   const reply=await fetch(`/tasks/${taskId}/plan`);
@@ -70,6 +65,7 @@ export default function App() {
   const [text,setText] = useState(''), [error,setError] = useState(''), [busy,setBusy] = useState(false);
   const [settings,setSettings] = useState<{version:number; default_model:string; models:Record<string,any>}|null>(null);
   const [showSettings,setShowSettings] = useState(false), [showSource,setShowSource] = useState(false);
+  const [showKnowledge,setShowKnowledge] = useState(false);
   const [scope,setScope] = useState<Scope>('full'), [customCaps,setCustomCaps] = useState<string[]>([]);
   const [amending,setAmending] = useState<Task|null>(null), [amendObjective,setAmendObjective] = useState('');
   const [amendInputs,setAmendInputs] = useState<string[]>([]), [amendCaps,setAmendCaps] = useState<string[]|null>(null);
@@ -193,6 +189,7 @@ export default function App() {
       <div className="section-caption">工作空间</div>
       <button className="nav-item selected" onClick={()=>input.current?.focus()}><MessageSquare size={18}/>Agent 工作台</button>
       <button className="nav-item" onClick={()=>setShowSource(true)}><FolderOpen size={18}/>本地数据源<span className="small-count">{resources.length}</span></button>
+      <button className="nav-item" onClick={()=>setShowKnowledge(true)}><File size={18}/>本地知识</button>
       <div className="section-caption history-title">最近任务<button title="刷新任务" onClick={()=>void guarded(refresh)}><RefreshCw size={13}/></button></div>
       <div className="history">{tasks.length===0?<p className="muted empty-small">任务会保存在这台电脑上</p>:tasks.map(task=><button key={task.task_id}
         className={`history-item ${active?.task_id===task.task_id?'current':''}`} onClick={()=>setActive(task)}>
@@ -304,6 +301,8 @@ export default function App() {
       <div className="modal-actions"><button disabled={busy} onClick={()=>setAmending(null)}>返回</button><button className="primary" disabled={busy||!amendObjective.trim()} onClick={()=>void saveAmendment()}>保存规范修订</button></div>
     </div></div>}
     {showSource&&<div className="modal-backdrop"><div className="modal"><div className="modal-heading"><h2>登记本地数据源</h2><button onClick={()=>setShowSource(false)}><X size={20}/></button></div><p>输入这台电脑上的绝对文件或目录路径。此操作授予只读访问，不上传或复制整个目录。</p><label>本地路径<input value={path} onChange={e=>setPath(e.target.value)} placeholder="C:\\数据\\样地文件"/></label><label className="checkbox"><input type="checkbox" checked={privateSource} onChange={e=>setPrivateSource(e.target.checked)}/>私密数据，禁止未经授权外传</label><div className="modal-actions"><button onClick={()=>setShowSource(false)}>返回</button><button className="primary" disabled={!path.trim()} onClick={()=>void addSource()}>登记只读资源</button></div></div></div>}
+    {showKnowledge&&<div className="modal-backdrop"><div className="modal settings-modal"><div className="modal-heading"><h2>本地知识与来源</h2><button aria-label="关闭本地知识" onClick={()=>setShowKnowledge(false)}><X size={20}/></button></div>
+      <KnowledgePanel resources={resources} tasks={tasks} onError={setError}/></div></div>}
     {showSettings&&<div className="modal-backdrop"><div className="modal settings-modal"><div className="modal-heading"><h2>模型与执行环境</h2><button onClick={()=>setShowSettings(false)}><X size={20}/></button></div><p>后续新任务使用选定模型，当前任务保留自己的配置快照。</p><label>默认本地模型<select value={settings?.default_model||'small'} onChange={e=>void guarded(async()=>{
       if(!settings)return; await api('/settings',{request_id:requestId(),expected_version:settings.version,default_model:e.target.value},'PUT');setSettings(await api('/settings'));})}>
       <option value="small">Qwen3.5 · 4B</option><option value="large">Qwen3.8 · 27B</option></select></label>

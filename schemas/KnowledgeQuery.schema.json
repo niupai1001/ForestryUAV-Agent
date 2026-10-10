@@ -1,0 +1,23 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "query": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "title": "Query",
+      "type": "string"
+    },
+    "limit": {
+      "default": 8,
+      "maximum": 20,
+      "minimum": 1,
+      "title": "Limit",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "query"
+  ],
+  "title": "KnowledgeQuery",
+  "type": "object"
+}

@@ -141,6 +141,22 @@ class MemoryForget(Boundary):
     expected_version: int = Field(ge=1)
 
 
+class KnowledgeImport(Boundary):
+    request_id: str = Field(min_length=1, max_length=200)
+    resource_id: str = Field(min_length=1, max_length=200)
+    relative_path: str = Field(default="", max_length=4096)
+    page: int = Field(default=0, ge=0)
+    claim_kind: Literal["expert_assertion", "measurement", "reference"] = "expert_assertion"
+    source_label: str = Field(default="", max_length=1000)
+    conditions: str = Field(default="", max_length=2000)
+    limitations: str = Field(default="", max_length=2000)
+
+
+class KnowledgeQuery(Boundary):
+    query: str = Field(min_length=1, max_length=2000)
+    limit: int = Field(default=8, ge=1, le=20)
+
+
 class ApprovalResolution(Boundary):
     request_id: str = Field(min_length=1, max_length=200)
     expected_spec_revision: int = Field(ge=1)

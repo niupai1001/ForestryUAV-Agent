@@ -113,26 +113,35 @@ class Resources:
         return {"resource_id": resource_id, "relative_path": relative, "entries": entries,
                 "next": offset + len(entries), "has_more": more}
 
-    def read(self, resource_id: str, relative: str = "", offset: int = 0, limit: int = 12000, task_id=None):
+    def read(self, resource_id: str, relative: str = "", offset: int = 0, limit: int = 12000, task_id=None, *, align_utf8=False):
         path = self.resolve(resource_id, relative, task_id)
         if not path.is_file():
             raise Failure("PRECONDITION_MISSING", "目标不是可读文件", 422)
         before = version(path)
         with path.open("rb") as stream:
             stream.seek(offset)
-            content = stream.read(limit + 1)
+            content = stream.read(limit + (4 if align_utf8 else 1))
         if version(path) != before:
             raise Failure("VERSION_CONFLICT", "读取过程中源文件发生变化", 409, True)
+        start, end = 0, min(len(content), limit)
+        if align_utf8:
+            # Fixed byte windows assign a crossing character wholly to the prior page.
+            while start < min(3, len(content)) and content[start] & 0xC0 == 0x80:
+                start += 1
+            while end < len(content) and content[end] & 0xC0 == 0x80:
+                end += 1
         try:
-            text = content[:limit].decode("utf-8-sig")
+            text = content[start:end].decode("utf-8-sig" if not align_utf8 or offset == 0 else "utf-8")
         except UnicodeDecodeError:
+            if align_utf8:
+                raise Failure("PRECONDITION_MISSING", "文档不是有效UTF-8文本，需要对应编码读取器", 422) from None
             # The last UTF-8 character can straddle a byte window; preserve the cursor.
             text = content[:limit].decode("utf-8-sig", errors="replace")
         if "\x00" in text:
             raise Failure("PRECONDITION_MISSING", "二进制文件需要对应文档/格式读取器", 422)
         return {"resource_id": resource_id, "relative_path": relative, "version": before,
-                "offset": offset, "next": offset + min(len(content), limit),
-                "has_more": len(content) > limit, "text": text}
+                "offset": offset + start, "next": offset + end,
+                "has_more": len(content) > end, "text": text}
 
     def write(self, task_id: str, action_id: str, relative: str, text: str):
         if len(text.encode()) > 2 * 1024 * 1024:

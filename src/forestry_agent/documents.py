@@ -10,6 +10,7 @@ from pypdf.errors import PyPdfError
 from .contracts import Failure
 from .resources import Resources, file_hash, version
 
+TEXT_READER_VERSION = "utf8_aligned_windows_v1"
 
 class Documents:
     """Bounded format readers return source citations, never user authorizations."""
@@ -69,12 +70,12 @@ class Documents:
                              for node in tree.findall(".//w:p", namespace))
             unit, total, has_more = "document_text", None, False
         elif suffix in {".txt", ".md", ".csv", ".json", ".yaml", ".yml", ".html", ".xml"}:
-            result = self.resources.read(resource_id, relative_path, page * 12000, task_id=task_id)
+            result = self.resources.read(resource_id, relative_path, page * 12000, task_id=task_id, align_utf8=True)
             if version(path) != before or file_hash(path) != source_hash:
                 raise Failure("VERSION_CONFLICT", "提取期间源文档发生变化", 409)
             return {**result, "citation": {"resource_id": resource_id, "relative_path": relative_path,
                 "source_version": result["version"], "source_sha256": source_hash,
-                "unit": f"bytes:{result['offset']}:{result['next']}"},
+                "unit": f"bytes:{result['offset']}:{result['next']}", "reader_version": TEXT_READER_VERSION},
                 "next_page": page + 1 if result["has_more"] else None}
         else:
             raise Failure("PRECONDITION_MISSING", "格式尚无已验证读取器", 422)

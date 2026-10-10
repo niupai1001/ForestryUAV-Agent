@@ -1,0 +1,63 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "resource_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Resource Id",
+      "type": "string"
+    },
+    "relative_path": {
+      "default": "",
+      "maxLength": 4096,
+      "title": "Relative Path",
+      "type": "string"
+    },
+    "page": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Page",
+      "type": "integer"
+    },
+    "claim_kind": {
+      "default": "expert_assertion",
+      "enum": [
+        "expert_assertion",
+        "measurement",
+        "reference"
+      ],
+      "title": "Claim Kind",
+      "type": "string"
+    },
+    "source_label": {
+      "default": "",
+      "maxLength": 1000,
+      "title": "Source Label",
+      "type": "string"
+    },
+    "conditions": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Conditions",
+      "type": "string"
+    },
+    "limitations": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Limitations",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "resource_id"
+  ],
+  "title": "KnowledgeImport",
+  "type": "object"
+}

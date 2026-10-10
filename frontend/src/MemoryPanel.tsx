@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { api as request } from './api';
 
 type Content = {text:string;tags:string[];scope_task_ids:string[];source_note:string;
   conditions:string;limitations:string;expires_at:string|null};
@@ -9,12 +10,6 @@ const empty:Content = {text:'',tags:[],scope_task_ids:[],source_note:'',conditio
 const contentOf=(note:Note):Content=>({text:note.text,tags:note.tags,scope_task_ids:note.scope_task_ids,
   source_note:note.source_note,conditions:note.conditions,limitations:note.limitations,expires_at:note.expires_at});
 
-async function request<T>(path:string,payload?:object,method='POST'):Promise<T> {
-  const response=await fetch(path,payload?{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}:{});
-  const data=await response.json();
-  if(!response.ok)throw new Error(data.error?.message||`请求失败 (${response.status})`);
-  return data;
-}
 
 export default function MemoryPanel({tasks,onError}:{tasks:{task_id:string;objective:string}[];onError:(message:string)=>void}) {
   const [listing,setListing]=useState<Notes>({notes:[],next:0,has_more:false});

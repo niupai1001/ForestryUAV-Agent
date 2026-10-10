@@ -20,6 +20,8 @@ from .contracts import (
     ApprovalResolution,
     Control,
     Failure,
+    KnowledgeImport,
+    KnowledgeQuery,
     MemoryForget,
     MemorySave,
     MemoryUpdate,
@@ -149,6 +151,22 @@ def create_app(config: Config, *, enable_agent: bool = True):
     @app.get("/memory")
     def memory(offset: int = Query(0, ge=0), include_inactive: bool = False):
         return engine.memory.list(offset, include_inactive=include_inactive)
+
+    @app.get("/knowledge")
+    def knowledge_imports(offset: int = Query(0, ge=0)):
+        return engine.knowledge.imports(offset)
+
+    @app.post("/knowledge")
+    def import_knowledge(payload: KnowledgeImport):
+        return engine.knowledge.import_source(payload.model_dump())
+
+    @app.get("/knowledge/{import_id}/content")
+    def knowledge_content(import_id: str):
+        return engine.knowledge.import_content(import_id)
+
+    @app.post("/tasks/{task_id}/knowledge/search")
+    def search_task_knowledge(task_id: str, payload: KnowledgeQuery):
+        return engine.knowledge.search(task_id, payload.query, payload.limit)
 
     @app.post("/memory")
     def save_memory(payload: MemorySave):
