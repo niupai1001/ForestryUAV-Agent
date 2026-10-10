@@ -6,10 +6,16 @@
       "minLength": 1,
       "title": "Request Id",
       "type": "string"
+    },
+    "expected_version": {
+      "minimum": 1,
+      "title": "Expected Version",
+      "type": "integer"
     }
   },
   "required": [
-    "request_id"
+    "request_id",
+    "expected_version"
   ],
   "title": "MemoryForget",
   "type": "object"

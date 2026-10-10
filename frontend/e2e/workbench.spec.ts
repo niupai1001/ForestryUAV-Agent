@@ -35,11 +35,19 @@ test('server rejects invalid source path with a visible explanation', async ({ p
   await expect(page.getByRole('alert')).toBeVisible();
 });
 
-test('long-term memory is explicitly saved, survives reload and can be disabled', async ({page}) => {
+test('long-term memory preview, correction and retirement preserve history across reload', async ({page}) => {
+  const errors:string[]=[];
+  page.on('pageerror', error=>errors.push(error.message));
   const note = `浏览器记忆夹具 ${Date.now()}：报告使用中文。`;
   await page.goto('/');
   await page.getByRole('button',{name:'模型与环境设置'}).click();
   await page.getByLabel('希望长期记住的内容').fill(note);
+  await page.getByLabel('来源与依据',{exact:true}).fill('用户核对的独立界面夹具');
+  await page.getByLabel('适用条件',{exact:true}).fill('通用中文报告');
+  await page.getByLabel('局限',{exact:true}).fill('不代表科学精度验证');
+  await page.getByRole('button',{name:'预览记忆',exact:true}).click();
+  await expect(page.getByRole('region',{name:'记忆保存预览'})).toContainText('所有后续私密任务');
+  expect((await (await page.request.get('/memory')).json()).notes.some((n:any)=>n.text===note)).toBe(false);
   await page.getByRole('button',{name:'明确保存这条记忆'}).click();
   await expect(page.locator('.memory-list')).toContainText(note);
   await page.screenshot({path:'../workspace/evidence/workbench-memory.png',fullPage:true});
@@ -47,8 +55,26 @@ test('long-term memory is explicitly saved, survives reload and can be disabled'
   await page.getByRole('button',{name:'模型与环境设置'}).click();
   const row = page.locator('.memory-list>div').filter({hasText:note});
   await expect(row).toBeVisible();
+  await row.getByRole('button',{name:'更正',exact:true}).click();
+  const corrected=note+'单位使用米。';
+  await page.getByLabel('希望长期记住的内容').fill(corrected);
+  await page.getByRole('button',{name:'预览更正',exact:true}).click();
+  await page.getByRole('button',{name:'明确保存更正',exact:true}).click();
+  await expect(row).toContainText('版本 2');
+  await page.reload();
+  await page.getByRole('button',{name:'模型与环境设置'}).click();
+  await expect(row).toContainText(corrected);
+  await row.getByRole('button',{name:'查看历史',exact:true}).click();
+  const history=page.getByRole('region',{name:'记忆版本历史'});
+  await expect(history).toContainText('版本 1');
   await row.getByTitle('停用这条记忆').click();
   await expect(page.locator('.memory-list')).not.toContainText(note);
+  await expect(history).toContainText('版本 3 · 已停用');
+  await page.getByLabel('显示已停用和过期记录').check();
+  await expect(row).toContainText('已停用');
+  expect((await (await page.request.get('/memory')).json()).notes.some((n:any)=>n.text===corrected)).toBe(false);
+  await page.screenshot({path:'../workspace/evidence/workbench-memory-versions-20261010.png',fullPage:true});
+  expect(errors).toEqual([]);
 });
 
 test('real model reads a registered source and seals only after explicit acceptance', async ({page}) => {

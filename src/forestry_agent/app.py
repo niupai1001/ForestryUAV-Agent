@@ -22,6 +22,7 @@ from .contracts import (
     Failure,
     MemoryForget,
     MemorySave,
+    MemoryUpdate,
     Message,
     RegisterResource,
     SettingsChange,
@@ -116,7 +117,7 @@ def create_app(config: Config, *, enable_agent: bool = True):
 
     @app.get("/models/profiles")
     async def profiles():
-        return await doctor(config)
+        return await doctor(config, probe_search=False)
 
     @app.get("/settings")
     def settings():
@@ -146,12 +147,23 @@ def create_app(config: Config, *, enable_agent: bool = True):
         return resources.all()
 
     @app.get("/memory")
-    def memory(offset: int = Query(0, ge=0)):
-        return engine.memory.list(offset)
+    def memory(offset: int = Query(0, ge=0), include_inactive: bool = False):
+        return engine.memory.list(offset, include_inactive=include_inactive)
 
     @app.post("/memory")
     def save_memory(payload: MemorySave):
-        return engine.memory.save(payload.model_dump())
+        # Keep the original save request digest valid for legacy idempotent retries.
+        data = payload.model_dump(mode="json", exclude_unset=True)
+        data.setdefault("tags", [])
+        return engine.memory.save(data)
+
+    @app.patch("/memory/{memory_id}")
+    def update_memory(memory_id: str, payload: MemoryUpdate):
+        return engine.memory.update(memory_id, payload.model_dump(mode="json"))
+
+    @app.get("/memory/{memory_id}/versions")
+    def memory_versions(memory_id: str, offset: int = Query(0, ge=0)):
+        return engine.memory.history(memory_id, offset)
 
     @app.delete("/memory/{memory_id}")
     def forget_memory(memory_id: str, payload: MemoryForget):

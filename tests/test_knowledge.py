@@ -79,11 +79,12 @@ def test_memory_requires_explicit_user_save_and_can_be_excluded(client, app):
     assert client.post("/memory", json=payload).json() == note
     assert client.post("/memory", json={**payload, "text": "changed"}).status_code == 409
     assert client.get("/memory").json()["notes"] == [note]
-    delete = {"request_id": "forget-note"}
+    delete = {"request_id": "forget-note", "expected_version": note["version"]}
     reply = client.request("DELETE", "/memory/" + note["memory_id"], json=delete)
     assert reply.json()["status"] == "forgotten"
     assert client.request("DELETE", "/memory/" + note["memory_id"], json=delete).json() == reply.json()
     assert client.get("/memory").json()["notes"] == []
     with app.state.store.transaction() as db:
-        assert db.execute("SELECT kind FROM user_events WHERE id=(SELECT event_id FROM memories LIMIT 1)").fetchone() is None
+        assert db.execute("SELECT kind FROM user_events WHERE id=(SELECT event_id FROM memories LIMIT 1)").fetchone()[0] == "explicit_memory_forget"
+        assert db.execute("SELECT COUNT(*) FROM memory_versions").fetchone()[0] == 2
         assert db.execute("SELECT COUNT(*) FROM user_events WHERE kind='explicit_memory_save'").fetchone()[0] == 1

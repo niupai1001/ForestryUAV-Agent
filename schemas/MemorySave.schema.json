@@ -1,12 +1,6 @@
 {
   "additionalProperties": false,
   "properties": {
-    "request_id": {
-      "maxLength": 200,
-      "minLength": 1,
-      "title": "Request Id",
-      "type": "string"
-    },
     "text": {
       "maxLength": 8000,
       "minLength": 1,
@@ -20,11 +14,56 @@
       "maxItems": 10,
       "title": "Tags",
       "type": "array"
+    },
+    "scope_task_ids": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Scope Task Ids",
+      "type": "array"
+    },
+    "source_note": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Source Note",
+      "type": "string"
+    },
+    "conditions": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Conditions",
+      "type": "string"
+    },
+    "limitations": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Limitations",
+      "type": "string"
+    },
+    "expires_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expires At"
+    },
+    "request_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
     }
   },
   "required": [
-    "request_id",
-    "text"
+    "text",
+    "request_id"
   ],
   "title": "MemorySave",
   "type": "object"

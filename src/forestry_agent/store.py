@@ -53,6 +53,7 @@ class Store:
             CREATE TABLE IF NOT EXISTS knowledge_chunks(id TEXT PRIMARY KEY,resource_id TEXT NOT NULL,relative_path TEXT NOT NULL,source_version TEXT NOT NULL,citation TEXT NOT NULL,content TEXT NOT NULL);
             CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(chunk_id UNINDEXED,terms);
             CREATE TABLE IF NOT EXISTS memories(id TEXT PRIMARY KEY,payload TEXT NOT NULL,event_id TEXT NOT NULL REFERENCES user_events(id));
+            CREATE TABLE IF NOT EXISTS memory_versions(memory_id TEXT NOT NULL,version INTEGER NOT NULL,payload TEXT NOT NULL,event_id TEXT NOT NULL REFERENCES user_events(id),PRIMARY KEY(memory_id,version));
             CREATE TABLE IF NOT EXISTS contexts(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),turn_id TEXT NOT NULL,payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS assignments(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),parent_run_id TEXT NOT NULL,role_id TEXT NOT NULL,action_id TEXT NOT NULL UNIQUE REFERENCES actions(id),status TEXT NOT NULL,payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS agent_runs(id TEXT PRIMARY KEY,turn_id TEXT NOT NULL,created_at TEXT NOT NULL);
@@ -62,6 +63,13 @@ class Store:
             """)
             db.execute("INSERT OR IGNORE INTO schema_versions VALUES(1,?)", (now(),))
             db.execute("INSERT OR IGNORE INTO schema_versions VALUES(2,?)", (now(),))
+            # Preserve original save events and bytes; legacy notes become version 1 lazily.
+            if not db.execute("SELECT 1 FROM schema_versions WHERE version=3").fetchone():
+                for row in db.execute("SELECT * FROM memories").fetchall():
+                    note = json.loads(row["payload"])
+                    db.execute("INSERT OR IGNORE INTO memory_versions VALUES(?,?,?,?)",
+                               (row["id"], note.get("version", 1), row["payload"], row["event_id"]))
+                db.execute("INSERT INTO schema_versions VALUES(3,?)", (now(),))
 
     @contextmanager
     def transaction(self):

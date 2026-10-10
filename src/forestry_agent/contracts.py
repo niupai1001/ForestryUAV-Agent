@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_serializer
@@ -103,14 +104,41 @@ class Failure(Exception):
         self.code, self.message, self.status, self.retryable = code, message, status, retryable
 
 
-class MemorySave(Boundary):
-    request_id: str = Field(min_length=1, max_length=200)
+class MemoryContent(Boundary):
     text: str = Field(min_length=1, max_length=8000)
     tags: list[str] = Field(default_factory=list, max_length=10)
+    scope_task_ids: list[str] = Field(default_factory=list, max_length=100)
+    source_note: str = Field(default="", max_length=2000)
+    conditions: str = Field(default="", max_length=2000)
+    limitations: str = Field(default="", max_length=2000)
+    expires_at: datetime | None = None
+
+    @field_validator("expires_at")
+    @classmethod
+    def timezone_required(cls, value):
+        if value is not None and value.utcoffset() is None:
+            raise ValueError("有效期必须包含时区")
+        return value.astimezone(UTC) if value is not None else None
+
+    @field_validator("text")
+    @classmethod
+    def nonblank_text(cls, value):
+        if not value.strip():
+            raise ValueError("记忆内容不能为空")
+        return value
+
+
+class MemorySave(MemoryContent):
+    request_id: str = Field(min_length=1, max_length=200)
+
+
+class MemoryUpdate(MemorySave):
+    expected_version: int = Field(ge=1)
 
 
 class MemoryForget(Boundary):
     request_id: str = Field(min_length=1, max_length=200)
+    expected_version: int = Field(ge=1)
 
 
 class ApprovalResolution(Boundary):
