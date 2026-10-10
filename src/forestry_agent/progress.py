@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 
 from pydantic_ai.messages import ToolReturn
 from pydantic_ai_harness.tool_output_limits import indented_json
 
 from .contracts import Failure
+from .resources import native_path
 from .store import encode, now
 
 
@@ -104,9 +106,69 @@ class Progress:
         if row:
             self.stopped(row["stalled"], row["limit_value"])
 
+    def recovery(self, db, deps, tool, fingerprint):
+        """Restore one lost read per native context loss, without claiming new facts.
+
+        Prove loss from hash-bound prepared tool returns and their existing
+        compaction lineage. Bookkeeping, side effects and unverified snapshots
+        cannot earn this exception; repeated restoration of the same loss cannot.
+        """
+        if tool not in {'read_file', 'read_artifact', 'read_tool_result_window', 'fs.read', 'artifact.read'} or not deps.context_manifest_id:
+            return None
+        root = ordinary_path(native_path(self.config.workspace_root / '.forestry' / 'model-inputs').resolve())
+
+        def prepared(context_id):
+            row = db.execute("SELECT payload FROM contexts WHERE id=? AND task_id=? AND turn_id=? "
+                "AND json_extract(payload,'$.spec_revision')=? AND json_extract(payload,'$.assignment_id') IS ?",
+                (context_id, deps.task_id, deps.turn_id, deps.revision, deps.assignment_id)).fetchone()
+            if not row:
+                return None
+            manifest = json.loads(row['payload'])
+            if (manifest.get('context_manifest_id') != context_id or manifest.get('task_id') != deps.task_id or
+                manifest.get('turn_id') != deps.turn_id):
+                return None
+            path = native_path(Path(manifest['prepared_input_ref'])).resolve(strict=True)
+            if not ordinary_path(path).is_relative_to(root) or path.stat().st_size > 2 * 1024 * 1024:
+                return None
+            data = path.read_bytes()
+            if hashlib.sha256(data).hexdigest() != manifest['prepared_input_sha256']:
+                return None
+            messages = json.loads(data)['messages']
+            refs = [hashlib.sha256(encode(message).encode()).hexdigest() for message in messages]
+            if refs != manifest['ordered_message_refs']:
+                return None
+            matching = {ref for message, ref in zip(messages, refs, strict=True) if any(
+                part.get('part_kind') == 'tool-return' and part.get('tool_name') == tool and
+                observation_fingerprint(tool, observation(tool, part.get('content'))) == fingerprint
+                for part in message.get('parts', []))}
+            return manifest, matching
+
+        try:
+            current = prepared(deps.context_manifest_id)
+            if not current or current[1]:
+                return None
+            # Follow the existing same-turn, same-role lineage, bounded locally.
+            for _ in range(64):
+                child = current[0]
+                current = prepared(child.get('previous_context_ref'))
+                if not current:
+                    return None
+                if current[1]:
+                    if not current[1].intersection(child['prior_message_refs_absent']):
+                        return None
+                    lost_at = child['context_manifest_id']
+                    prior = db.execute("SELECT 1 FROM events WHERE task_id=? AND kind='progress.observed' "
+                        "AND json_extract(payload,'$.turn_id')=? AND json_extract(payload,'$.assignment_id') IS ? "
+                        "AND json_extract(payload,'$.context_loss_id')=? AND json_extract(payload,'$.observation_sha256')=? LIMIT 1",
+                        (deps.task_id, deps.turn_id, deps.assignment_id, lost_at, fingerprint)).fetchone()
+                    return None if prior else {'context_loss_id': lost_at, 'restored_from_context': current[0]['context_manifest_id']}
+        except (OSError, ValueError, KeyError, TypeError):
+            return None  # Missing/corrupt lineage never weakens the normal guard.
+        return None
+
     def record(self, deps, call_id, tool, args, result):
         value = observation(tool, result)
-        fingerprint = hashlib.sha256(encode(json.loads(indented_json({"tool": tool, "observation": value}))).encode()).hexdigest() if value is not None else None
+        fingerprint = observation_fingerprint(tool, value)
         decision = hashlib.sha256(encode({"tool": tool, "args": args}).encode()).hexdigest()
         scope = self.scope(deps)
         request_id = deps.context_manifest_id or ""
@@ -128,12 +190,24 @@ class Progress:
                 seen = fingerprint is not None and db.execute("SELECT 1 FROM progress_observations WHERE task_id=? AND revision=? AND scope=? AND turn_id=? AND fingerprint=? LIMIT 1",
                     (deps.task_id, deps.revision, scope, deps.turn_id, fingerprint)).fetchone()
                 progressed = fingerprint is not None and not seen
-                stalled = 0 if progressed else (latest["stalled"] if latest else 0) + 1
+                recovery = self.recovery(db, deps, tool, fingerprint) if seen else None
+                stalled = 0 if progressed else (latest["stalled"] if latest else 0) + (0 if recovery else 1)
                 db.execute("INSERT INTO progress_observations VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                     (deps.task_id, deps.revision, scope, deps.turn_id, call_id, request_id, tool, decision, fingerprint, stalled, limit, now()))
                 self.store.event(db, deps.task_id, "progress.observed", {"turn_id": deps.turn_id,
                     "assignment_id": deps.assignment_id, "context_manifest_id": request_id or None,
                     "tool": tool, "new_observation": progressed,
-                    "stalled": stalled, "limit": limit, "observation_sha256": fingerprint})
+                    "stalled": stalled, "limit": limit, "observation_sha256": fingerprint,
+                    **({'context_recovered': True, **recovery} if recovery else {})})
         # Commit the observation before stopping, including successful effects.
         self.stopped(stalled, limit)
+
+
+def observation_fingerprint(tool, value):
+    return hashlib.sha256(encode(json.loads(indented_json({'tool': tool, 'observation': value}))).encode()).hexdigest() if value is not None else None
+
+
+def ordinary_path(path):
+    """Compare already resolved Windows paths independently of long-path spelling."""
+    value = str(path)
+    return Path('\\\\' + value[8:] if value.startswith('\\\\?\\UNC\\') else value.removeprefix('\\\\?\\'))

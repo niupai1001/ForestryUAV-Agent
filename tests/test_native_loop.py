@@ -207,7 +207,11 @@ async def test_named_artifacts_and_recent_job_records_are_scoped_bounded_native_
             assert len(diagnostic["text"].encode("utf-8")) <= 512 and "ModuleNotFoundError: no example" in diagnostic["text"]
             assert "HIDDEN_DIAGNOSTIC_PREFIX" not in instructions
             assert all(j["artifact_count"] == 25 and
-                j["artifact_ids"] == [p["artifact_id"] for p in products[-8:]] for j in facts["recent_jobs"])
+                j["artifact_ids"] == [p["artifact_id"] for p in products[-4:]] for j in facts["recent_jobs"])
+            assert "artifact_ids仅采样末尾4项，完整记录用wait_job" in instructions
             assert "记录状态不是新的执行观察或验收" in instructions
+            with engine.store.transaction() as db:
+                actual = json.loads(db.execute("SELECT payload FROM jobs WHERE id='fixture-job-9'").fetchone()[0])
+            assert actual['artifact_ids'] == [p['artifact_id'] for p in products]
     finally:
         await connection.aclose()

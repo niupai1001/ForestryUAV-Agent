@@ -1,6 +1,8 @@
 import asyncio
+import hashlib
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from pydantic_ai.messages import ModelRequest, ModelResponse, ToolCallPart, ToolReturn, ToolReturnPart
@@ -11,13 +13,143 @@ from test_roles import FixtureFunctionModel, stream_adapter
 from forestry_agent.agent import Deps
 from forestry_agent.contracts import Failure
 from forestry_agent.progress import Progress, observation
-from forestry_agent.store import Store
+from forestry_agent.store import Store, encode
 
 
 def recorded(progress, deps):
     with progress.store.transaction() as db:
         return [dict(row) for row in db.execute("SELECT * FROM progress_observations WHERE task_id=? AND scope=? AND turn_id=? ORDER BY rowid",
             (deps.task_id, progress.scope(deps), deps.turn_id))]
+
+
+def save_prepared_context(engine, deps, context_id, returns, *, previous=None):
+    messages = [{'kind': 'request', 'parts': [{'part_kind': 'tool-return', 'tool_name': 'read_file',
+                  'content': value}]} for value in returns]
+    data = encode({'messages': messages}).encode()
+    path = engine.config.workspace_root/'.forestry/model-inputs'/deps.task_id/(deps.assignment_id or 'coordinator')/f'{context_id}.json'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    refs = [hashlib.sha256(encode(message).encode()).hexdigest() for message in messages]
+    manifest = {'context_manifest_id': context_id, 'task_id': deps.task_id, 'turn_id': deps.turn_id,
+                'spec_revision': deps.revision, 'assignment_id': deps.assignment_id,
+                'prepared_input_ref': str(path), 'prepared_input_sha256': hashlib.sha256(data).hexdigest(),
+                'ordered_message_refs': refs, 'previous_context_ref': previous['context_manifest_id'] if previous else None,
+                'prior_message_refs_absent': [ref for ref in previous['ordered_message_refs'] if ref not in refs] if previous else []}
+    with engine.store.transaction() as db:
+        db.execute('INSERT INTO contexts VALUES(?,?,?,?)', (context_id, deps.task_id, deps.turn_id, encode(manifest)))
+    return manifest
+
+
+def test_compaction_recovery_does_not_reset_stall_count_and_cannot_be_repeated_after_reopen(client, app):
+    state, _ = task(client)
+    engine = app.state.engine
+    deps = Deps(engine, state['task_id'], 'recover-sources', 1)
+    sources = [{'text': text, 'resource_id': f'source-{i}', 'version': 'immutable', 'offset': 0, 'next': len(text)}
+               for i, text in enumerate(['instructions', 'transactions', 'original program'])]
+    for i, value in enumerate(sources):
+        engine.progress.record(deps, f'first-{i}', 'read_file', {}, value)
+    engine.progress.record(deps, 'bookkeeping', 'write_plan', {}, {'kind': 'completed'})
+    prior = save_prepared_context(engine, deps, 'before-drop', sources)
+    save_prepared_context(engine, deps, 'after-drop', [], previous=prior)
+    deps.context_manifest_id = 'after-drop'
+    for i, value in enumerate(sources):
+        engine.progress.record(deps, f'recover-{i}', 'read_file', {}, value)
+    assert [r['stalled'] for r in recorded(engine.progress, deps)] == [0, 0, 0, 1, 1, 1, 1]
+    with engine.store.transaction() as db:
+        events = [json.loads(r[0]) for r in db.execute("SELECT payload FROM events WHERE kind='progress.observed' AND task_id=?", (deps.task_id,))]
+    assert all(e['context_recovered'] and not e['new_observation'] for e in events[-3:])
+    assert all(e['context_loss_id'] == 'after-drop' and e['limit'] == 3 for e in events[-3:])
+    reopened = Progress(Store(engine.store.path), engine.config)
+    reopened.record(deps, 'recover-0', 'read_file', {}, sources[0])  # Exact pending-call replay, not another restoration.
+    assert len(recorded(reopened, deps)) == 7
+    reopened.record(deps, 'repeat-restoration', 'read_file', {}, sources[0])
+    with pytest.raises(Failure, match='上限3'):
+        reopened.record(deps, 'repeat-again', 'read_file', {}, sources[1])
+    assert [r['stalled'] for r in recorded(reopened, deps)][-2:] == [2, 3]
+
+
+@pytest.mark.parametrize('invalid', ['still_present', 'changed_snapshot', 'wrong_refs', 'no_loss_lineage',
+                                    'other_turn', 'other_role', 'other_revision', 'outside_snapshot_root'])
+def test_recovery_requires_actual_bound_context_loss_in_same_scope(client, app, invalid):
+    state, _ = task(client)
+    engine = app.state.engine
+    deps = Deps(engine, state['task_id'], 'scoped-recovery', 1)
+    value = {'text': 'original immutable source', 'resource_id': 'source', 'version': 'v1'}
+    engine.progress.record(deps, 'first', 'read_file', {}, value)
+    prior = save_prepared_context(engine, deps, 'source-present', [value])
+    current = save_prepared_context(engine, deps, 'source-lost', [value] if invalid == 'still_present' else [], previous=prior)
+    if invalid == 'changed_snapshot':
+        Path(prior['prepared_input_ref']).write_bytes(b'{"messages":[]}')
+    elif invalid == 'wrong_refs':
+        prior['ordered_message_refs'] = []
+    elif invalid == 'no_loss_lineage':
+        current['prior_message_refs_absent'] = []
+    elif invalid == 'other_turn':
+        prior['turn_id'] = 'another-turn'
+    elif invalid == 'other_role':
+        prior['assignment_id'] = 'another-role'
+    elif invalid == 'other_revision':
+        prior['spec_revision'] = 2
+    elif invalid == 'outside_snapshot_root':
+        outside = engine.config.workspace_root/'outside-prepared.json'
+        outside.write_bytes(Path(prior['prepared_input_ref']).read_bytes())
+        prior['prepared_input_ref'] = str(outside)
+    with engine.store.transaction() as db:
+        for manifest in [prior, current]:
+            db.execute('UPDATE contexts SET payload=? WHERE id=?', (encode(manifest), manifest['context_manifest_id']))
+    deps.context_manifest_id = 'source-lost'
+    engine.progress.record(deps, 'repeat', 'read_file', {}, value)
+    assert recorded(engine.progress, deps)[-1]['stalled'] == 1
+    with engine.store.transaction() as db:
+        event = json.loads(db.execute("SELECT payload FROM events WHERE kind='progress.observed' AND task_id=? ORDER BY seq DESC LIMIT 1", (deps.task_id,)).fetchone()[0])
+    assert not event.get('context_recovered')
+
+
+@pytest.mark.asyncio
+async def test_native_compaction_can_restore_three_sources_without_premature_pause(client, app, tmp_path):
+    refs = []
+    originals = {}
+    for i in range(3):
+        path = tmp_path/f'input-{i}.txt'
+        path.write_text(f'Immutable source fact {i}', encoding='utf-8')
+        originals[path] = path.read_bytes()
+        refs.append(client.post('/resources/register', json={
+            'request_id': f'input-{i}', 'path': str(path), 'classification': 'private', 'read_only': True}).json()['resource_id'])
+    state, _ = task(client, input_refs=refs, harness_mode='H1')
+    engine = app.state.engine
+    agent, connection = engine.make_agent('small', 'native-read-recovery', task_id=state['task_id'])
+    count = 0
+
+    @agent.tool_plain
+    def checkpoint_fixture(index: int) -> dict:
+        # Enough actual history to exceed native keep_tokens; tiny histories
+        # correctly survive the message-count trigger without any data loss.
+        return {'checkpoint': index, 'text': 'x'*3000}
+
+    def model(messages, info):
+        nonlocal count
+        count += 1
+        if count <= 3:
+            return ModelResponse(parts=[ToolCallPart('read_file', {'resource_id': refs[count-1]}, f'first-{count}')])
+        if count <= 9:
+            return ModelResponse(parts=[ToolCallPart('checkpoint_fixture', {'index': count}, f'checkpoint-{count}')])
+        if count == 10:
+            return ModelResponse(parts=[ToolCallPart('read_file', {'resource_id': ref}, f'restore-{i}') for i, ref in enumerate(refs)])
+        return ModelResponse(parts=[ToolCallPart('final_result', {'summary': 'Source windows restored for protocol fixture.',
+                                  'artifact_ids': [], 'limitations': ['Not an application acceptance trial.']}, 'finish')])
+
+    try:
+        with agent.override(model=FixtureFunctionModel(model)):
+            result = await agent.run('协议夹具：保留来源和真实压缩恢复行为。',
+                                     deps=Deps(engine, state['task_id'], 'native-read-recovery', 1))
+        assert result.output.summary == 'Source windows restored for protocol fixture.' and count == 11
+        with engine.store.transaction() as db:
+            events = [json.loads(r[0]) for r in db.execute("SELECT payload FROM events WHERE kind='progress.observed' AND task_id=?", (state['task_id'],))]
+        recovered = [e for e in events if e.get('context_recovered')]
+        assert len(recovered) == 3 and all(e['stalled'] == 0 and e['limit'] == 3 and not e['new_observation'] for e in recovered)
+        assert all(path.read_bytes() == data for path, data in originals.items())
+    finally:
+        await connection.aclose()
 
 
 def test_repeated_and_cyclic_observations_survive_reopening_and_frozen_config(client, app):
