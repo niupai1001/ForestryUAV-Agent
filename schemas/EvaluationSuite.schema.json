@@ -1,0 +1,159 @@
+{
+  "$defs": {
+    "EvaluationCase": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$",
+          "title": "Case Id",
+          "type": "string"
+        },
+        "family": {
+          "maxLength": 80,
+          "minLength": 1,
+          "title": "Family",
+          "type": "string"
+        },
+        "split": {
+          "pattern": "^pilot$",
+          "title": "Split",
+          "type": "string"
+        },
+        "objective": {
+          "maxLength": 32000,
+          "minLength": 1,
+          "title": "Objective",
+          "type": "string"
+        },
+        "inputs": {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Inputs",
+          "type": "array"
+        },
+        "oracle": {
+          "title": "Oracle",
+          "type": "string"
+        },
+        "result_name": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$",
+          "title": "Result Name",
+          "type": "string"
+        },
+        "report_name": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$",
+          "title": "Report Name",
+          "type": "string"
+        },
+        "constraints": {
+          "$ref": "#/$defs/TaskConstraints"
+        },
+        "provenance": {
+          "additionalProperties": true,
+          "title": "Provenance",
+          "type": "object"
+        }
+      },
+      "required": [
+        "case_id",
+        "family",
+        "split",
+        "objective",
+        "inputs",
+        "oracle",
+        "result_name",
+        "report_name",
+        "constraints",
+        "provenance"
+      ],
+      "title": "EvaluationCase",
+      "type": "object"
+    },
+    "TaskConstraints": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_capabilities": {
+          "anyOf": [
+            {
+              "items": {
+                "enum": [
+                  "fs.inputs",
+                  "fs.list",
+                  "fs.read",
+                  "fs.write_workspace",
+                  "artifact.inspect",
+                  "artifact.read",
+                  "action.inspect",
+                  "document.read",
+                  "knowledge.index",
+                  "knowledge.search",
+                  "memory.read",
+                  "environment.inspect",
+                  "environment.prepare",
+                  "code.execute",
+                  "job.observe",
+                  "role.delegate",
+                  "web.search",
+                  "web.read",
+                  "task.plan",
+                  "environment.acquire"
+                ],
+                "type": "string"
+              },
+              "maxItems": 20,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allowed Capabilities"
+        }
+      },
+      "title": "TaskConstraints",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "maximum": 1,
+      "minimum": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "repetitions": {
+      "maximum": 100,
+      "minimum": 3,
+      "title": "Repetitions",
+      "type": "integer"
+    },
+    "observation_seconds": {
+      "default": 30,
+      "maximum": 60,
+      "minimum": 1,
+      "title": "Observation Seconds",
+      "type": "integer"
+    },
+    "cases": {
+      "items": {
+        "$ref": "#/$defs/EvaluationCase"
+      },
+      "maxItems": 50,
+      "minItems": 1,
+      "title": "Cases",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "repetitions",
+    "cases"
+  ],
+  "title": "EvaluationSuite",
+  "type": "object"
+}

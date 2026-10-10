@@ -31,11 +31,13 @@ from .delivery import Delivery
 from .doctor import doctor
 from .models import model_identity
 from .planning import visible_plan
+from .provenance import runtime_manifest
 from .resources import Resources
 from .store import Store, encode, now, uid
 
 
 def create_app(config: Config, *, enable_agent: bool = True):
+    startup_manifest = runtime_manifest(config)
     store = Store(config.workspace_root / ".forestry" / "state.sqlite")
     resources = Resources(store, config.workspace_root)
     engine = Engine(config, store, resources)
@@ -106,6 +108,11 @@ def create_app(config: Config, *, enable_agent: bool = True):
         with store.transaction() as db:
             db.execute("SELECT 1")
         return {"application": "ready", "database": "ready", "domain": "not_implemented"}
+
+    @app.get("/runtime")
+    def runtime():
+        # Authenticated startup snapshot, never a hash of subsequently edited code.
+        return startup_manifest
 
     @app.get("/models/profiles")
     async def profiles():

@@ -39,12 +39,23 @@ def main():
     inspect.add_argument("--comment", default="")
     schema = commands.add_parser("schema")
     schema.add_argument("--output", default="schemas")
+    evaluate = commands.add_parser("evaluate")
+    evaluate.add_argument("operation", choices=["freeze", "run", "review", "report"])
+    evaluate.add_argument("--suite", type=Path, default=Path("fixtures/evaluation/general/suite.json"))
+    evaluate.add_argument("--manifest", type=Path, default=Path("workspace/evaluation/general-pilot.json"))
+    evaluate.add_argument("--directory", type=Path, default=Path("workspace/evaluation/trials"))
+    evaluate.add_argument("--trial")
+    evaluate.add_argument("--timeout", type=int, default=30)
+    evaluate.add_argument("--output", type=Path)
+    evaluate.add_argument("--review-file", type=Path)
+    evaluate.add_argument("--config", default="config/app.example.yaml")
     args = parser.parse_args()
     if args.command == "schema":
         from pydantic_ai_harness.planning import PlanItem
 
         from . import contracts
         from .acquisition import PackageRequest, WheelRequest
+        from .evaluation import EvaluationReview, EvaluationSuite
         from .roles import AssignmentRequest, AssignmentResult, RoleCatalog
         target = Path(args.output)
         target.mkdir(parents=True, exist_ok=True)
@@ -52,11 +63,52 @@ def main():
             model = getattr(contracts, name)
             (target / f"{name}.schema.json").write_text(
                 json.dumps(model.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf-8")
-        for model in [RoleCatalog, AssignmentRequest, AssignmentResult, PlanItem, WheelRequest, PackageRequest]:
+        for model in [RoleCatalog, AssignmentRequest, AssignmentResult, PlanItem, WheelRequest, PackageRequest, EvaluationSuite, EvaluationReview]:
             (target / f"{model.__name__}.schema.json").write_text(
                 json.dumps(model.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf-8")
         return
     config = load_config(args.config)
+    if args.command == "evaluate":
+        from .client import LocalClient
+        from .contracts import Failure
+        from .evaluation import freeze_suite, review_trial, run_trial, summarize, write_json
+        try:
+            if args.operation == 'freeze':
+                if args.manifest.exists():
+                    raise Failure('VERSION_CONFLICT', '冻结清单已存在；更改实验须使用新路径', 409)
+                client = LocalClient(config)
+                try:
+                    report = freeze_suite(args.suite, config, client, asyncio.run(doctor(config, probe_search=False)))
+                finally:
+                    client.close()
+                args.manifest.parent.mkdir(parents=True, exist_ok=True)
+                with args.manifest.open('x', encoding='utf-8', newline='\n') as handle:
+                    handle.write(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+                print(json.dumps({'manifest': str(args.manifest.resolve()), 'manifest_sha256': report['manifest_sha256'],
+                    'scheduled': len(report['manifest']['trials']), 'instrumentation_missing': report['manifest']['instrumentation_missing']}, ensure_ascii=False))
+            else:
+                envelope = json.loads(args.manifest.read_text(encoding='utf-8'))
+                if args.operation == 'run':
+                    if not args.trial:
+                        parser.error('evaluate run requires --trial')
+                    result = run_trial(envelope, args.trial, args.directory, config, timeout=args.timeout)
+                    print(json.dumps({'trial': result['trial'], 'task_id': result['task_id'],
+                        'observation': result['observation'], 'interaction_required': result['interaction_required'],
+                        'score': result.get('score'), 'accepted': result['accepted']}, ensure_ascii=False))
+                elif args.operation == 'review':
+                    if not args.review_file:
+                        parser.error('evaluate review requires --review-file')
+                    result = review_trial(envelope, json.loads(args.review_file.read_text(encoding='utf-8')), args.directory, config)
+                    print(json.dumps(result, ensure_ascii=False))
+                else:
+                    result = summarize(envelope, args.directory)
+                    if args.output:
+                        write_json(args.output, result)
+                    print(json.dumps(result, ensure_ascii=False, indent=2))
+            return
+        except (Failure, OSError, ValueError, httpx.HTTPError) as error:
+            print(json.dumps({'error': {'code': getattr(error, 'code', 'EVALUATION_ERROR'), 'message': str(error)}}, ensure_ascii=False))
+            raise SystemExit(2) from error
     if args.command == "run" or args.command == "tasks" and args.operation != "inspect":
         from .client import LocalClient
         from .contracts import Failure

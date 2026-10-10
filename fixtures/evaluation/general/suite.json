@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "repetitions": 3,
+  "observation_seconds": 30,
+  "cases": [{
+    "case_id": "GENERAL-CSV-DEBUG",
+    "family": "local_document_code_dependency_report",
+    "split": "pilot",
+    "objective": "读取所选instructions.md、transactions.csv和buggy_summary.py，完成账目汇总。先在断网受限作业尝试运行原脚本并保留真实失败诊断；源码只读，不在宿主运行。诊断并通过有范围依赖工具获取/安装six==1.17.0；精确网络请求由操作者逐项处理，不联网搜索。修复脚本中的计算错误，在同一受限环境执行修复代码，把真实结果保存general-summary.json，按说明字段与单位输出并实际读回。写中文general-report.md，说明故障及修复、真实版本/结果、三个输入资源与结果的实际引用、执行边界和局限；实际读回报告并引用交付文件。不要猜测结果或虚构作业，不自动写跨任务记忆；有独立检查收益时可以按当前工作方式使用隔离角色。",
+    "inputs": ["instructions.md", "transactions.csv", "buggy_summary.py"],
+    "oracle": "oracle.json",
+    "result_name": "general-summary.json",
+    "report_name": "general-report.md",
+    "constraints": {"allowed_capabilities": ["fs.inputs", "fs.read", "fs.write_workspace", "document.read", "artifact.inspect", "artifact.read", "action.inspect", "environment.prepare", "environment.acquire", "code.execute", "job.observe", "task.plan", "role.delegate"]},
+    "provenance": {"origin": "project-generated exact software fixture", "license": "local project test fixture", "support": "three synthetic monetary values; independent arithmetic oracle", "scientific_accuracy": "not_assessed"}
+  }]
+}

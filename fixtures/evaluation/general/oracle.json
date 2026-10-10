@@ -1,0 +1,6 @@
+{
+  "result": {"rows": 3, "total": 112.5, "mean": 37.5, "currency": "CNY", "six_version": "1.17.0"},
+  "report_contains": ["平均", "依赖", "局限"],
+  "required_installed": [{"name": "six", "version": "1.17.0"}],
+  "diagnostic_contains": ["ModuleNotFoundError", "six"]
+}

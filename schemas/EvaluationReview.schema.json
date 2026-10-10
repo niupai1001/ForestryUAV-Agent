@@ -1,0 +1,80 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "manifest_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Manifest Sha256",
+      "type": "string"
+    },
+    "trial_id": {
+      "title": "Trial Id",
+      "type": "string"
+    },
+    "task_id": {
+      "title": "Task Id",
+      "type": "string"
+    },
+    "report_artifact_id": {
+      "title": "Report Artifact Id",
+      "type": "string"
+    },
+    "report_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Report Sha256",
+      "type": "string"
+    },
+    "reviewer": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Reviewer",
+      "type": "string"
+    },
+    "criteria": {
+      "additionalProperties": {
+        "enum": [
+          "passed",
+          "failed",
+          "unknown"
+        ],
+        "type": "string"
+      },
+      "title": "Criteria",
+      "type": "object"
+    },
+    "observations": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 20,
+      "minItems": 1,
+      "title": "Observations",
+      "type": "array"
+    },
+    "failure_category": {
+      "default": "unresolved",
+      "enum": [
+        "model_protocol",
+        "harness_context",
+        "tool_environment",
+        "data_observability",
+        "resource",
+        "policy_interaction",
+        "unresolved"
+      ],
+      "title": "Failure Category",
+      "type": "string"
+    }
+  },
+  "required": [
+    "manifest_sha256",
+    "trial_id",
+    "task_id",
+    "report_artifact_id",
+    "report_sha256",
+    "reviewer",
+    "criteria",
+    "observations"
+  ],
+  "title": "EvaluationReview",
+  "type": "object"
+}
