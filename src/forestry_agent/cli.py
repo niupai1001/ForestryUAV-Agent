@@ -49,6 +49,10 @@ def main():
     evaluate.add_argument("--output", type=Path)
     evaluate.add_argument("--review-file", type=Path)
     evaluate.add_argument("--config", default="config/app.example.yaml")
+    backup = commands.add_parser("backup", help="离线备份、校验或恢复工作区状态与任务产物")
+    backup.add_argument("operation", choices=["create", "inspect", "restore"])
+    backup.add_argument("--path", type=Path, required=True, help="独立备份目录；create要求新位置")
+    backup.add_argument("--config", default="config/app.example.yaml")
     args = parser.parse_args()
     if args.command == "schema":
         from pydantic_ai_harness.planning import PlanItem
@@ -69,6 +73,20 @@ def main():
                 json.dumps(model.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf-8")
         return
     config = load_config(args.config)
+    if args.command == "backup":
+        import sqlite3
+
+        from .backup import create_backup, inspect_backup, restore_backup
+        from .contracts import Failure
+        try:
+            operation = {"create": lambda: create_backup(config, args.path),
+                         "inspect": lambda: inspect_backup(args.path),
+                         "restore": lambda: restore_backup(config, args.path)}[args.operation]
+            print(json.dumps(operation(), ensure_ascii=False, indent=2))
+        except (Failure, OSError, ValueError, KeyError, TypeError, sqlite3.Error) as error:
+            print(json.dumps({"error": {"code": getattr(error, "code", "BACKUP_ERROR"), "message": str(error)}}, ensure_ascii=False))
+            raise SystemExit(2) from error
+        return
     if args.command == "evaluate":
         from .client import LocalClient
         from .contracts import Failure
