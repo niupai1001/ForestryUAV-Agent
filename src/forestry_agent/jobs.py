@@ -165,7 +165,7 @@ class Jobs:
             source = self.resources.resolve(ref, task_id=task_id)
             # Directory snapshots and link-safe bulk mounting require a later worker.
             if not native_path(source).is_file() or native_path(source).is_symlink() or "," in str(source):
-                raise Failure("PRECONDITION_MISSING", "通用代码作业当前仅支持无链接的单文件输入", 422)
+                raise Failure("PRECONDITION_MISSING", "通用代码作业当前仅支持无链接的单文件输入。目录授权用于浏览，不能挂载到代码作业；请用户将实际文件分别登记为只读资源，并通过任务规范修订更换输入。不要重试同一个目录标识。文件路径也不能含逗号。", 422)
             mounts.append({"resource_id": ref, "source": str(source), "target": f"/inputs/{ref}",
                            "version": version(source)})
         for ref in dict.fromkeys(input_artifact_ids or []):

@@ -167,6 +167,8 @@ export default function App() {
   const live = active?.status === 'active' || active?.status === 'created';
   const cancelling = !!active?.cancellation_requested && active.status !== 'cancelled';
   const currentStatus = cancelling?'正在取消':labels[active?.status||''];
+  const directoryInputNote = '目录可用于浏览和阅读。需要执行代码时，请分别登记要使用的单文件；已有任务请通过“修改目标、输入与工具范围”更换输入。';
+  const selectedDirectory = resources.some(r=>r.kind==='directory'&&(active?active.input_refs:selected).includes(r.resource_id));
   const resolveApproval = async (record:Approval,verdict:'approve'|'reject'|'revoke') => {
     if(!active||busy)return;
     setBusy(true); await guarded(async()=>{
@@ -264,7 +266,8 @@ export default function App() {
             {resources.length>0&&<div className="source-chips">{resources.filter(r=>!active||active.input_refs.includes(r.resource_id)).map(r=><button key={r.resource_id}
               className={(active?active.input_refs:selected).includes(r.resource_id)?'checked':''} disabled={!!active||(publicTask&&r.classification!=='public')}
               onClick={()=>setSelected(old=>old.includes(r.resource_id)?old.filter(id=>id!==r.resource_id):[...old,r.resource_id])}>
-              <FolderOpen size={13}/>{r.name}{(active?active.input_refs:selected).includes(r.resource_id)&&<Check size={12}/>}</button>)}</div>}
+              <FolderOpen size={13}/>{r.name}{r.kind==='directory'?'（目录）':''}{(active?active.input_refs:selected).includes(r.resource_id)&&<Check size={12}/>}</button>)}</div>}
+            {selectedDirectory&&<p className="queue-note" role="note">{directoryInputNote}</p>}
             <textarea ref={input} value={text} onChange={e=>setText(e.target.value)} placeholder={active?'补充信息或提出后续问题…':'描述你的目标，例如：阅读这份数据，整理重点并生成报告…'}
               onKeyDown={e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();void send();}}}/>
             {live&&<p className="queue-note">补充消息会依次处理。更改目标、输入或工具范围，请使用上方的规范修订。</p>}
@@ -309,13 +312,14 @@ export default function App() {
       <div className="modal-heading"><h2>修改任务规范</h2><button disabled={busy} onClick={()=>setAmending(null)}><X size={20}/></button></div>
       <p>保存为修订 {amending.spec_revision+1}，暂停当前执行并保留历史。核对已登记动作后，使用“恢复”继续。补充消息不会修改工具范围。</p>
       <label>任务目标<textarea aria-label="修订任务目标" value={amendObjective} onChange={e=>setAmendObjective(e.target.value)} maxLength={32000}/></label>
-      <fieldset><legend>本次授权输入</legend><div className="capability-grid">{resources.map(r=><label key={r.resource_id}><input type="checkbox" checked={amendInputs.includes(r.resource_id)} disabled={amending.config_snapshot?.context_classification==='public'&&r.classification!=='public'} onChange={e=>setAmendInputs(old=>e.target.checked?[...old,r.resource_id]:old.filter(id=>id!==r.resource_id))}/>{r.name}</label>)}</div></fieldset>
+      <fieldset><legend>本次授权输入</legend><div className="capability-grid">{resources.map(r=><label key={r.resource_id}><input type="checkbox" checked={amendInputs.includes(r.resource_id)} disabled={amending.config_snapshot?.context_classification==='public'&&r.classification!=='public'} onChange={e=>setAmendInputs(old=>e.target.checked?[...old,r.resource_id]:old.filter(id=>id!==r.resource_id))}/>{r.name}{r.kind==='directory'?'（目录）':''}</label>)}</div></fieldset>
+      {resources.some(r=>r.kind==='directory'&&amendInputs.includes(r.resource_id))&&<p role="note">{directoryInputNote}</p>}
       <label>任务工具范围<select aria-label="修订工具范围" value={amendCaps===null?'full':scopeName(amendCaps)==='文件与报告'?'files':amendCaps.length===0?'answer':'custom'} onChange={e=>setAmendCaps(scopeCapabilities(e.target.value as Scope,amendCaps??[]))}>
         <option value="full">通用能力</option><option value="files">文件与报告</option><option value="answer">仅回答</option><option value="custom">自定义</option></select></label>
       {amendCaps!==null&&<fieldset><legend>允许能力（仍受模型、角色与授权上限约束）</legend><div className="capability-grid">{Object.entries(capabilityLabels).map(([cap,label])=><label key={cap}><input type="checkbox" checked={amendCaps.includes(cap)} onChange={e=>setAmendCaps(old=>e.target.checked?[...(old??[]),cap]:(old??[]).filter(c=>c!==cap))}/>{label}</label>)}</div></fieldset>}
       <div className="modal-actions"><button disabled={busy} onClick={()=>setAmending(null)}>返回</button><button className="primary" disabled={busy||!amendObjective.trim()} onClick={()=>void saveAmendment()}>保存规范修订</button></div>
     </div></div>}
-    {showSource&&<div className="modal-backdrop"><div className="modal"><div className="modal-heading"><h2>登记本地数据源</h2><button onClick={()=>setShowSource(false)}><X size={20}/></button></div><p>输入这台电脑上的绝对文件或目录路径。此操作授予只读访问，不上传或复制整个目录。</p><label>本地路径<input value={path} onChange={e=>setPath(e.target.value)} placeholder="C:\\数据\\样地文件"/></label><label className="checkbox"><input type="checkbox" checked={privateSource} onChange={e=>setPrivateSource(e.target.checked)}/>私密数据，禁止未经授权外传</label><div className="modal-actions"><button onClick={()=>setShowSource(false)}>返回</button><button className="primary" disabled={!path.trim()} onClick={()=>void addSource()}>登记只读资源</button></div></div></div>}
+    {showSource&&<div className="modal-backdrop"><div className="modal"><div className="modal-heading"><h2>登记本地数据源</h2><button onClick={()=>setShowSource(false)}><X size={20}/></button></div><p>输入这台电脑上的绝对文件或目录路径。此操作授予只读访问，不上传或复制整个目录。</p><p role="note">{directoryInputNote}</p><label>本地路径<input value={path} onChange={e=>setPath(e.target.value)} placeholder="C:\\数据\\样地文件"/></label><label className="checkbox"><input type="checkbox" checked={privateSource} onChange={e=>setPrivateSource(e.target.checked)}/>私密数据，禁止未经授权外传</label><div className="modal-actions"><button onClick={()=>setShowSource(false)}>返回</button><button className="primary" disabled={!path.trim()} onClick={()=>void addSource()}>登记只读资源</button></div></div></div>}
     {showKnowledge&&<div className="modal-backdrop"><div className="modal settings-modal"><div className="modal-heading"><h2>本地知识与来源</h2><button aria-label="关闭本地知识" onClick={()=>setShowKnowledge(false)}><X size={20}/></button></div>
       <KnowledgePanel resources={resources} tasks={tasks} onError={setError}/></div></div>}
     {showSettings&&<div className="modal-backdrop"><div className="modal settings-modal"><div className="modal-heading"><h2>模型与执行环境</h2><button onClick={()=>setShowSettings(false)}><X size={20}/></button></div><p>后续新任务使用选定模型，当前任务保留自己的配置快照。</p><label>默认本地模型<select value={settings?.default_model||'small'} onChange={e=>void guarded(async()=>{
