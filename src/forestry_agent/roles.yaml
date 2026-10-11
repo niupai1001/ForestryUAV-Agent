@@ -15,7 +15,7 @@ roles:
   - role_id: environment
     objective_scope: 诊断本地环境与依赖就绪状态，提供可核查清单和阻塞证据。
     model_profile: inherit_task
-    allowed_capabilities: [fs.inputs, fs.list, document.read, artifact.inspect, artifact.read, fs.write_workspace, environment.inspect, environment.prepare, job.observe, task.plan]
+    allowed_capabilities: [fs.inputs, fs.list, document.read, artifact.inspect, artifact.read, action.inspect, fs.write_workspace, environment.inspect, environment.prepare, job.observe, task.plan]
     permission_ceiling: {workspace_write: true, source_write: false, network: none, parent_task_mutation: false}
     context_budget: 32768
     return_schema: AssignmentResult
@@ -27,7 +27,7 @@ roles:
   - role_id: data
     objective_scope: 读取所授输入、检查元数据与来源支持、建立本地索引和准备数据清单。
     model_profile: inherit_task
-    allowed_capabilities: [fs.inputs, fs.list, fs.read, document.read, knowledge.index, knowledge.search, artifact.inspect, artifact.read, fs.write_workspace, task.plan]
+    allowed_capabilities: [fs.inputs, fs.list, fs.read, document.read, knowledge.index, knowledge.search, artifact.inspect, artifact.read, action.inspect, fs.write_workspace, task.plan]
     permission_ceiling: {workspace_write: true, source_write: false, network: none, parent_task_mutation: false}
     context_budget: 32768
     return_schema: AssignmentResult
@@ -39,7 +39,7 @@ roles:
   - role_id: code_experiment
     objective_scope: 编写代码，运行受限小试和有界候选比较，报告实际结果与失败。
     model_profile: inherit_task
-    allowed_capabilities: [fs.inputs, fs.list, fs.read, document.read, artifact.inspect, artifact.read, fs.write_workspace, environment.inspect, environment.prepare, code.execute, job.observe, task.plan]
+    allowed_capabilities: [fs.inputs, fs.list, fs.read, document.read, artifact.inspect, artifact.read, action.inspect, fs.write_workspace, environment.inspect, environment.prepare, code.execute, job.observe, task.plan]
     permission_ceiling: {workspace_write: true, source_write: false, network: none, parent_task_mutation: false}
     context_budget: 32768
     return_schema: AssignmentResult
@@ -51,7 +51,7 @@ roles:
   - role_id: quality
     objective_scope: 按已声明判据独立检查候选文件、来源支持及主张，保留可处理差异。
     model_profile: inherit_task
-    allowed_capabilities: [fs.inputs, fs.list, fs.read, document.read, artifact.inspect, artifact.read, fs.write_workspace, task.plan]
+    allowed_capabilities: [fs.inputs, fs.list, fs.read, document.read, artifact.inspect, artifact.read, action.inspect, fs.write_workspace, task.plan]
     permission_ceiling: {workspace_write: true, source_write: false, network: none, parent_task_mutation: false}
     context_budget: 32768
     return_schema: AssignmentResult

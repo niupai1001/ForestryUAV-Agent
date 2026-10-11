@@ -113,8 +113,6 @@ def test_child_with_action_read_capability_cannot_copy_parent_citation(client, a
     engine = app.state.engine
     def enable(s, db):
         s["config_snapshot"]["harness_mode"] = "H2"
-        role = next(r for r in s["config_snapshot"]["role_catalog"]["roles"] if r["role_id"] == "data")
-        role["allowed_capabilities"].append("action.inspect")
     engine.store.change(state["task_id"], "fixture.child-capability", enable)
     parent = Deps(engine, state["task_id"], "parent", 1)
     handle = engine.perform(parent, "delegation-call", "role.delegate", {}, lambda action_id:
@@ -126,3 +124,37 @@ def test_child_with_action_read_capability_cannot_copy_parent_citation(client, a
     child = Deps(engine, state["task_id"], assignment["run_id"], 1, assignment_id=assignment["assignment_id"])
     with pytest.raises(Failure, match="当前委派"):
         engine.cited_content(child, "child.json", "{}", {"citation": result["action_id"]})
+
+
+@pytest.mark.parametrize("role_id", ["environment", "data", "code_experiment", "quality"])
+def test_default_child_can_copy_own_citation_but_not_parent_or_sibling(client, app, tmp_path, role_id):
+    source_file = tmp_path / "record.txt"
+    source_file.write_text("软件夹具值为42。", encoding="utf-8")
+    grant = client.post("/resources/register", json={"request_id": "child-citation-source", "path": str(source_file)}).json()
+    state, _ = task(client, harness_mode="H2", input_refs=[grant["resource_id"]])
+    engine = app.state.engine
+    parent = Deps(engine, state["task_id"], "citation-root", 1)
+    def read(deps, call_id):
+        return engine.perform(deps, call_id, "document.read", {"resource_id": grant["resource_id"]},
+            lambda _: engine.documents.read(state["task_id"], grant["resource_id"]))
+    parent_read = read(parent, "root-read")
+    children = []
+    for index in range(2):
+        request = AssignmentRequest(objective=f"独立来源检查{index}", input_refs=[grant["resource_id"]])
+        handle = engine.perform(parent, f"child-{index}", "role.delegate", {},
+            lambda action_id, request=request: engine.roles.prepare(parent, action_id, role_id, request))
+        scope = engine.roles.start(engine.roles.read(handle["assignment_id"]))
+        children.append(Deps(engine, state["task_id"], scope["run_id"], 1, assignment_id=scope["assignment_id"]))
+    own_read = read(children[0], "own-read")
+    sibling_read = read(children[1], "sibling-read")
+    written = engine.perform(children[0], "write-own-source", "fs.write_workspace", {},
+        lambda action_id: engine.resources.write(state["task_id"], action_id,
+            engine.roles.output_path(children[0], "report.md"),
+            engine.cited_content(children[0], "report.md", "观察值为42。", {"source": own_read["action_id"]})))
+    assert written["kind"] == "completed"
+    body = engine.resources.read_artifact(state["task_id"], written["artifact_id"])["text"]
+    assert own_read["citation"]["source_sha256"] in body
+    assert written["relative_path"].startswith(f"assignments/{children[0].assignment_id}/")
+    for other in (parent_read, sibling_read):
+        with pytest.raises(Failure, match="当前委派"):
+            engine.cited_content(children[0], "report.md", "42", {"source": other["action_id"]})
