@@ -62,8 +62,18 @@ class Docker:
                 raise Failure("EXECUTOR_UNAVAILABLE", str(error), 503, True) from error
             out.seek(0)
             err.seek(0)
-            return {"code": result.returncode, "stdout": out.read(65536).decode(errors="replace"),
-                    "stderr": err.read(4096).decode(errors="replace")}
+            value = {"code": result.returncode}
+            for name, stream, limit in (("stdout", out, 65536), ("stderr", err, 4096)):
+                if args and args[0] == "logs":
+                    # Tracebacks end with the actionable exception. A bounded
+                    # prefix can hide it behind a long generated-code frame.
+                    size = stream.seek(0, os.SEEK_END)
+                    stream.seek(max(0, size - limit))
+                    value[name + "_truncated"] = size > limit
+                value[name] = stream.read(limit).decode(errors="replace")
+            if args and args[0] == "logs":
+                value["window"] = "tail"
+            return value
 
     def inspect(self, name: str):
         result = self.call("container", "inspect", name)
@@ -449,7 +459,14 @@ class Jobs:
                 violation = job.get('resource_stop_requested')
                 if not stopping and not violation and job['resource_request']['output_bytes'] is not None:
                     violation = self.output_violation(job, check_disk=False)
-                status = "cancelled" if stopping else "failed" if job["exit_code"] or violation else "collecting"
+                outcome = "cancelled" if stopping else "failed" if job["exit_code"] or violation else "succeeded"
+                # A nonzero exit can follow a completed calculation. Preserve
+                # its bounded files for inspection without changing the failed
+                # execution into success. Unsafe/over-budget and cancelled
+                # outputs retain the existing no-publication behavior.
+                status = "collecting" if outcome == "succeeded" or (outcome == "failed" and not violation) else outcome
+                if status == "collecting":
+                    job["collection_outcome"] = outcome
                 if job['status'] != status:
                     job['status'], job['blocker'] = status, violation if status == 'failed' else None
                     self.save(job, "job.execution_observed")
@@ -480,7 +497,8 @@ class Jobs:
                                 relative(path))
                             if artifact["artifact_id"] not in job["artifact_ids"]:
                                 job["artifact_ids"].append(artifact["artifact_id"])
-                    job["status"] = "succeeded"
+                    job["status"] = job["collection_outcome"]
+                    job["partial_outputs"] = job["status"] == "failed" and bool(job["artifact_ids"])
                     job['output_bytes'] = total
                     self.save(job, "job.terminal")
             except (Failure, OSError, ValueError, KeyError) as error:
@@ -515,7 +533,10 @@ class Jobs:
             raise Failure("RECONCILIATION_REQUIRED", "日志容器丢失", 409)
         self.matches(job, container)
         result = self.docker.call("logs", "--tail", "200", job["container_id"])
-        return {"text": result["stdout"], "stderr": result["stderr"], "bounded": True}
+        return {"text": result["stdout"], "stderr": result["stderr"], "bounded": True,
+                "window": result.get("window", "tail"),
+                "stdout_truncated": result.get("stdout_truncated", False),
+                "stderr_truncated": result.get("stderr_truncated", False)}
 
     def verify_environment(self, job):
         if job.get("environment"):
@@ -540,6 +561,10 @@ class Jobs:
             # The model needs the actual traceback to repair generated code.
             # Keep the same job ownership and container identity checks as the UI.
             result["logs"] = self.logs(job_id, task_id)
+        if job.get("partial_outputs"):
+            result["output_review"] = {
+                "execution_status": "failed", "answers_task": "not_assessed",
+                "message": "失败作业已保存产物，artifact_ids可读回核对。先检查末尾错误和已有文件；正确结果可用于报告，不因日志失败重复计算。文件存在不代表作业或目标通过。"}
         if job["status"] == "succeeded" and job.get("kind") == "environment.prepare" and self.environment_resolver:
             if job.get('source_inspection'):
                 if not self.source_requirements_resolver:

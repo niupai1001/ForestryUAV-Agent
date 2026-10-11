@@ -7,7 +7,7 @@ from test_core import task
 
 from forestry_agent.agent import Deps
 from forestry_agent.contracts import Failure
-from forestry_agent.jobs import Jobs
+from forestry_agent.jobs import Docker, Jobs
 from forestry_agent.resources import native_path
 
 
@@ -173,9 +173,63 @@ def test_terminal_observation_provides_actual_diagnostics_and_keeps_identity_che
     fake.call = call
     result = manager.observation(job_id, state["task_id"])
     assert result["job"]["status"] == "failed" and result["job"]["exit_code"] == 1
-    assert result["logs"] == {"text": "before failure", "stderr": "NameError: heights is not defined", "bounded": True}
+    assert result["logs"] == {"text": "before failure", "stderr": "NameError: heights is not defined", "bounded": True,
+                              "window": "tail", "stdout_truncated": False, "stderr_truncated": False}
     with pytest.raises(Failure):
         manager.observation(job_id, "other-task")
     fake.container["Id"] = "replacement"
     with pytest.raises(Failure, match="容器 ID"):
         manager.observation(job_id, state["task_id"])
+
+
+def test_failed_output_collection_recovers_without_reexecution_or_success(client, app, monkeypatch):
+    fake = ExecutorFixture()
+    state, manager, job_id = submit(client, app, fake)
+    manager.tick()
+    output = Path(manager.read(job_id)['directory']) / 'output'
+    (output / 'result.json').write_bytes(b'{"count":3,"mean":233.333333}')
+    (output / 'calculation.py').write_bytes(b'# actual generated source')
+    fake.container['State'].update(Status='exited', Running=False, ExitCode=1)
+    original_import = manager.resources.import_file
+    def lost_copy_response(*args):
+        original_import(*args)
+        raise Failure('EXECUTOR_UNAVAILABLE', 'copy receipt lost', 503)
+    monkeypatch.setattr(manager.resources, 'import_file', lost_copy_response)
+    manager.tick()
+    interrupted = manager.read(job_id)
+    assert interrupted['status'] == 'collecting' and interrupted['collection_outcome'] == 'failed'
+    monkeypatch.setattr(manager.resources, 'import_file', original_import)
+    recovered = Jobs(manager.config, manager.store, manager.resources, fake)
+    recovered.tick()
+    job = recovered.read(job_id)
+    assert job['status'] == 'failed' and job['exit_code'] == 1 and job['partial_outputs']
+    assert len(job['artifact_ids']) == 2
+    observed = recovered.observation(job_id, state['task_id'])
+    assert observed['output_review']['answers_task'] == 'not_assessed'
+    actual = {recovered.resources.artifact(ref)['name']: ref for ref in job['artifact_ids']}
+    assert recovered.resources.read_artifact(state['task_id'], actual['result.json'])['text'] == '{"count":3,"mean":233.333333}'
+    (output / 'result.json').write_bytes(b'changed working bytes')
+    assert recovered.resources.read_artifact(state['task_id'], actual['result.json'])['text'] == '{"count":3,"mean":233.333333}'
+    with pytest.raises(Failure):
+        recovered.observation(job_id, 'other-task')
+    assert len(app.state.store.task(state['task_id'])['artifact_ids']) == 2
+    recovered.tick()
+    assert recovered.read(job_id)['artifact_ids'] == job['artifact_ids']
+    assert sum(c[0] == 'create' for c in fake.commands) == sum(c[0] == 'start' for c in fake.commands) == 1
+
+
+def test_docker_logs_keep_bounded_exception_tail(app, monkeypatch):
+    from types import SimpleNamespace
+    stderr = b'large code frame\n' * 500 + b"NameError: name 'json' is not defined\n"
+    stdout = b'earlier output\n' * 6000 + b'CALCULATION_ALREADY_FINISHED\n'
+    def run(command, *, stdout: object, stderr: object, **kwargs):
+        stdout.write(log_stdout)
+        stderr.write(log_stderr)
+        return SimpleNamespace(returncode=0)
+    log_stdout, log_stderr = stdout, stderr
+    monkeypatch.setattr('forestry_agent.jobs.subprocess.run', run)
+    result = Docker(app.state.engine.config).call('logs', '--tail', '200', 'container-a')
+    assert result['stdout'].endswith('CALCULATION_ALREADY_FINISHED\n')
+    assert result['stderr'].endswith("NameError: name 'json' is not defined\n")
+    assert len(result['stdout'].encode()) <= 65536 and len(result['stderr'].encode()) <= 4096
+    assert result['stdout_truncated'] and result['stderr_truncated'] and result['window'] == 'tail'
