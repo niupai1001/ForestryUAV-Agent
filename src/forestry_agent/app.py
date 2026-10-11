@@ -365,14 +365,21 @@ def create_app(config: Config, *, enable_agent: bool = True):
             turn = db.execute("SELECT * FROM turns WHERE task_id=? AND revision=? AND status IN ('paused','running') AND id NOT IN (SELECT json_extract(payload,'$.run_id') FROM assignments) ORDER BY created_at DESC LIMIT 1",
                 (task_id, state["spec_revision"])).fetchone()
             progress = engine.progress.latest(db, Deps(engine, task_id, turn["id"], state["spec_revision"])) if turn else None
-            if progress and progress["stalled"] >= progress["limit_value"]:
+            turn_limit = state['config_snapshot'].get('generation', {}).get('max_model_requests_per_turn', config.max_model_requests_per_turn)
+            used = db.execute("SELECT COUNT(*) FROM events WHERE task_id=? AND kind='model.request_started' "
+                "AND json_extract(payload,'$.turn_id')=? AND json_extract(payload,'$.assignment_id') IS NULL",
+                (task_id, turn['id'])).fetchone()[0] if turn else 0
+            budget_exhausted = used >= turn_limit
+            if budget_exhausted or (progress and progress["stalled"] >= progress["limit_value"]):
                 corrected = db.execute("SELECT t.id FROM turns t JOIN turn_requests r ON r.turn_id=t.id WHERE t.task_id=? AND t.revision=? AND t.status='queued' ORDER BY t.created_at,t.rowid LIMIT 1",
                     (task_id, state["spec_revision"])).fetchone()
                 if not corrected:
+                    if budget_exhausted:
+                        raise Failure('MODEL_TURN_BUDGET_EXHAUSTED', '本回合累计模型请求上限已用尽。请先补充具体纠正说明再恢复；直接恢复不会重置预算。', 422)
                     raise Failure("NO_PROGRESS", "本回合无进展预算已用尽。请先补充纠正说明再恢复，或修改任务规范；直接恢复不会重置计数。", 422)
                 db.execute("UPDATE turns SET status='stopped' WHERE id=?", (turn["id"],))
                 store.event(db, task_id, "run.superseded", {"stopped_turn_id": turn["id"],
-                    "continuation_turn_id": corrected["id"], "reason": "user_input_after_no_progress"})
+                    "continuation_turn_id": corrected["id"], "reason": 'user_input_after_turn_budget' if budget_exhausted else "user_input_after_no_progress"})
             state.update(status="created", pause_requested=False, blockers=[])
             store.user_event(db, "task_resume", payload.model_dump())
             applied = True

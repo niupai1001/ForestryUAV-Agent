@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, ValidationError
 from pydantic_ai import Agent, ApprovalRequired, CancellationToken, ModelRetry, RunContext
 from pydantic_ai.agent.wrapper import WrapperAgent
 from pydantic_ai.capabilities import Hooks
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import (
     ModelRequest,
     ModelResponse,
@@ -404,6 +405,14 @@ class Engine:
                     raise Failure("EXECUTION_STOPPED", "已请求暂停或取消", 409)
                 if state["model_requests"] >= self.config.max_model_requests_per_task:
                     raise Failure("RESOURCE_EXHAUSTED", "跨重启累计模型调用上限已用尽", 422)
+                if not ctx.deps.assignment_id:
+                    turn_limit = state['config_snapshot'].get('generation', {}).get(
+                        'max_model_requests_per_turn', self.config.max_model_requests_per_turn)
+                    used = db.execute("SELECT COUNT(*) FROM events WHERE task_id=? AND kind='model.request_started' "
+                        "AND json_extract(payload,'$.turn_id')=? AND json_extract(payload,'$.assignment_id') IS NULL",
+                        (ctx.deps.task_id, ctx.deps.turn_id)).fetchone()[0]
+                    if used >= turn_limit:
+                        raise Failure('MODEL_TURN_BUDGET_EXHAUSTED', '本回合累计模型请求上限已用尽，检查点和已完成作业保留。直接恢复不会重置预算；请提供具体纠正说明后继续。', 422)
                 self.roles.before_request(db, ctx.deps)
                 state["model_requests"] += 1
                 self.store.save_task(db, state, state["state_version"])
@@ -1167,6 +1176,8 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
                 status = "paused"
                 error_record = {"code": getattr(error, "code", "MODEL_PROTOCOL_ERROR"),
                                 "message": str(error)[:1500], "turn_id": turn_id}
+                if isinstance(error, UsageLimitExceeded):
+                    error_record.update(code='MODEL_TURN_BUDGET_EXHAUSTED', message='本回合模型请求上限已用尽，检查点和已完成作业保留。直接恢复不会重置预算；请提供具体纠正说明后继续。')
                 def stop(s, db):
                     s["status"] = self.cancel_status(db, task_id) if s["cancellation_requested"] else status
                     s["blockers"] = [] if requested else [error_record]

@@ -268,6 +268,59 @@ def test_envelope_changes_do_not_hide_repetition_but_source_fields_remain_meanin
 
 
 @pytest.mark.asyncio
+async def test_native_turn_request_limit_survives_resume_and_allows_explicit_correction(client, app, monkeypatch):
+    state, _ = task(client)
+    engine = app.state.engine
+    with engine.store.transaction() as db:
+        frozen = engine.store.read_task(db, state['task_id'])
+        frozen['config_snapshot']['generation']['max_model_requests_per_turn'] = 2
+        engine.store.save_task(db, frozen, frozen['state_version'])
+    requests = 0
+    def model(messages, info):
+        nonlocal requests
+        requests += 1
+        if '只引用已完成文件' in (info.instructions or ''):
+            saved = engine.store.task(state['task_id'])['artifact_ids'][-1]
+            return ModelResponse(parts=[ToolCallPart('final_result', {'summary': '引用原产物', 'artifact_ids': [saved]}, 'corrected-final')])
+        return ModelResponse(parts=[ToolCallPart('write_file', {'relative_path': f'new-{requests}.md', 'content': f'distinct result {requests}'}, f'write-{requests}')])
+    fixture = FixtureFunctionModel(model, stream_function=stream_adapter(model))
+    original = engine.make_agent
+    def make_agent(*args, **kwargs):
+        agent, connection = original(*args, **kwargs)
+        agent.model = fixture
+        return agent, connection
+    monkeypatch.setattr(engine, 'make_agent', make_agent)
+    engine.submit(state['task_id'], '有新事实但请求预算有界', 'bounded-turn')
+    await engine.queue[state['task_id']]
+    await asyncio.sleep(0)
+    stopped = engine.store.task(state['task_id'])
+    assert requests == stopped['model_requests'] == 2
+    assert stopped['blockers'][0]['code'] == 'MODEL_TURN_BUDGET_EXHAUSTED'
+    original_artifacts = list(stopped['artifact_ids'])
+    engine.submit(state['task_id'], '恢复同回合不能重新获得两次请求', 'bounded-turn')
+    await engine.queue[state['task_id']]
+    await asyncio.sleep(0)
+    assert requests == engine.store.task(state['task_id'])['model_requests'] == 2
+    response = await asyncio.to_thread(client.post, f"/tasks/{state['task_id']}/resume", json={
+        'request_id': 'no-budget-reset', 'expected_state_version': engine.store.task(state['task_id'])['state_version']})
+    assert response.status_code == 422 and response.json()['error']['code'] == 'MODEL_TURN_BUDGET_EXHAUSTED'
+    response = await asyncio.to_thread(client.post, f"/tasks/{state['task_id']}/messages", json={
+        'request_id': 'budget-correction', 'expected_spec_revision': 1, 'text': '只引用已完成文件，不重复写入'})
+    assert response.status_code == 200 and response.json()['status'] == 'paused'
+    response = await asyncio.to_thread(client.post, f"/tasks/{state['task_id']}/resume", json={
+        'request_id': 'resume-budget-correction', 'expected_state_version': response.json()['state_version']})
+    assert response.status_code == 200
+    with engine.store.transaction() as db:
+        assert db.execute("SELECT status FROM turns WHERE id='bounded-turn'").fetchone()[0] == 'stopped'
+        next_turn = db.execute("SELECT turn_id FROM turn_requests WHERE request_id='budget-correction'").fetchone()[0]
+    assert engine.start_queued(state['task_id']) == next_turn
+    await engine.queue[state['task_id']]
+    finished = engine.store.task(state['task_id'])
+    assert finished['status'] == 'waiting_user' and requests == finished['model_requests'] == 3
+    assert finished['artifact_ids'] == original_artifacts and finished['action_count'] == 2
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("reuse_call_id", [False, True])
 async def test_native_loop_stops_after_confirmed_repeated_writes_and_restart_has_no_extra_request(client, app, monkeypatch, reuse_call_id):
     state, _ = task(client)
