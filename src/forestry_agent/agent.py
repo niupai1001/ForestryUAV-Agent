@@ -17,6 +17,7 @@ from pydantic_ai import Agent, ApprovalRequired, CancellationToken, ModelRetry, 
 from pydantic_ai.agent.wrapper import WrapperAgent
 from pydantic_ai.capabilities import Hooks
 from pydantic_ai.messages import (
+    ModelRequest,
     ModelResponse,
     PartDeltaEvent,
     PartStartEvent,
@@ -240,10 +241,51 @@ class Engine:
                 wait = db.execute("SELECT 1 FROM events WHERE kind='run.approval_wait' "
                     "AND json_extract(payload,'$.native_run_id')=? AND json_extract(payload,'$.turn_id')=?",
                     (run_id, turn_id)).fetchone()
-            snapshot = await self.steps.latest_snapshot(run_id=run_id, include_interrupted=bool(wait))
+                delegation = db.execute("SELECT 1 FROM events WHERE kind='run.assignment_wait' "
+                    "AND json_extract(payload,'$.native_run_id')=? AND json_extract(payload,'$.turn_id')=?",
+                    (run_id, turn_id)).fetchone()
+            snapshot = await self.steps.latest_snapshot(run_id=run_id, include_interrupted=bool(wait or delegation))
+            if snapshot and snapshot.state == "interrupted" and delegation and not wait:
+                calls = self.open_tool_calls(snapshot.messages)
+                safe = bool(calls) and all(call.tool_name == "delegate_task" for call in calls)
+                with self.store.transaction() as db:
+                    for call in calls:
+                        action = db.execute("SELECT * FROM actions WHERE turn_id=? AND call_id=?", (turn_id, call.tool_call_id)).fetchone()
+                        expected_args = {"background": False, "model": None, "resume": None, **call.args_as_dict()}
+                        if action and (action["kind"] != "role.delegate" or action["status"] != "confirmed" or
+                                       json.loads(action["args"]) != expected_args or
+                                       not db.execute("SELECT 1 FROM assignments WHERE action_id=? AND parent_run_id=?", (action["id"], turn_id)).fetchone()):
+                            safe = False
+                if not safe:
+                    snapshot = await self.steps.latest_snapshot(run_id=run_id)
             if snapshot:
                 return snapshot
         return None
+
+    @staticmethod
+    def open_tool_calls(messages):
+        calls = {}
+        for message in messages:
+            if isinstance(message, ModelResponse):
+                calls.update({part.tool_call_id: part for part in message.parts if isinstance(part, ToolCallPart)})
+            elif isinstance(message, ModelRequest):
+                for part in message.parts:
+                    calls.pop(getattr(part, "tool_call_id", None), None)
+        return list(calls.values())
+
+    async def save_assignment_wait(self, ctx, assignment, native_run_id):
+        # Native StepPersistence has no settled parent frontier while its first
+        # delegate call is waiting. Keep that exact call, never a child history.
+        messages = list(ctx.messages)
+        calls = self.open_tool_calls(messages)
+        if not calls or any(call.tool_name != "delegate_task" for call in calls):
+            return
+        await self.steps.save_snapshot(ContinuableSnapshot(run_id=native_run_id,
+            step_index=ctx.run_step, messages=messages, conversation_id=ctx.deps.task_id,
+            state="interrupted"))
+        self.publish(ctx.deps.task_id, "run.assignment_wait", {"turn_id": ctx.deps.turn_id,
+            "native_run_id": native_run_id, "assignment_id": assignment["assignment_id"],
+            "tool_call_id": ctx.tool_call_id})
 
     def approval_results(self, task_id, revision, snapshot):
         """Bind only recorded native waits; original authorization remains mandatory."""
@@ -458,6 +500,7 @@ class Engine:
             value = self.roles.read(handle["assignment_id"], ctx.deps.task_id)
             if value["status"] in ASSIGNMENT_TERMINAL:
                 return encode(value["result"] or {"status": value["status"], "blocker": value["blocker"]})
+            await self.save_assignment_wait(ctx, value, native_run_id or ctx.run_id)
             token = CURRENT_ASSIGNMENT.set(value["assignment_id"])
             try:
                 result = await handler(args)
@@ -1050,6 +1093,14 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
                             history = list(previous.messages)
                             snapshot = previous
                 deferred, pending = self.approval_results(task_id,turn['revision'],snapshot)
+                if deferred is None and snapshot and snapshot.state == "interrupted":
+                    calls = self.open_tool_calls(snapshot.messages)
+                    if calls and all(call.tool_name == "delegate_task" for call in calls):
+                        # Dispatch the validated exact pending delegate calls through
+                        # native recovery, skipping already returned siblings. This
+                        # dispatches only delegates; scope/journal guards still run
+                        # and no network or other effect gets an approval.
+                        deferred = DeferredToolResults(approvals={call.tool_call_id: ToolApproved() for call in calls})
                 if pending and pending.remaining(deferred):
                     # Native resume requires a decision for every open call in
                     # its batch. Keep the same history in the same step store,

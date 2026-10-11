@@ -440,6 +440,84 @@ async def test_child_total_deadline_stops_inflight_model_not_only_next_request(c
         CURRENT_ASSIGNMENT.reset(token)
 
 
+@pytest.mark.asyncio
+async def test_first_parent_delegation_resumes_own_child_checkpoint_without_repeating_write(client, app, monkeypatch):
+    state, _ = task(client, objective="PARENT_PRIVATE_DELEGATION_RESTART")
+    engine = app.state.engine
+    turn_id = "first-parent-delegation"
+    with engine.store.transaction() as db:
+        db.execute("INSERT INTO turns VALUES(?,?,?,?,?,?)", (turn_id, state["task_id"], 1, state["objective"], "queued", now()))
+    interrupted = False
+
+    def model(messages, info):
+        nonlocal interrupted
+        returns = [part for message in messages if isinstance(message, ModelRequest)
+                   for part in message.parts if isinstance(part, ToolReturnPart)]
+        if "委派的权威范围" in (info.instructions or ""):
+            assert "PARENT_PRIVATE_DELEGATION_RESTART" not in str(messages) + (info.instructions or "")
+            written = [part for part in returns if part.tool_name == "write_file"]
+            if not written:
+                return ModelResponse(parts=[ToolCallPart("write_file", {"relative_path": "once.md", "content": "one confirmed child write"}, "child-write-once")])
+            if not interrupted:
+                interrupted = True
+                raise asyncio.CancelledError()
+            return ModelResponse(parts=[ToolCallPart("final_result", {"status": "succeeded", "kind": "dataset_manifest",
+                "summary": "同一个子角色恢复已确认文件", "artifact_ids": [written[0].content["artifact_id"]]}, "child-result")])
+        if not any(part.tool_name == "delegate_task" for part in returns):
+            request = AssignmentRequest(objective="独立写一次文件，恢复时复用已确认文件")
+            return ModelResponse(parts=[ToolCallPart("delegate_task", {"agent_name": "data", "task": request.model_dump_json()}, "first-delegate")])
+        assignment = engine.roles.list(state["task_id"])[0]
+        assert assignment["status"] == "succeeded"
+        return ModelResponse(parts=[ToolCallPart("final_result", {"summary": "父子检查点恢复完成",
+            "artifact_ids": assignment["result"]["artifact_ids"]}, "parent-result")])
+
+    original = engine.make_agent
+
+    def fixture_agent(*args, **kwargs):
+        agent, connection = original(*args, **kwargs)
+        run = agent.run
+
+        async def invoke(*a, **kw):
+            with agent.override(model=FixtureFunctionModel(model, stream_function=stream_adapter(model))):
+                return await run(*a, **kw)
+
+        agent.run = invoke
+        return agent, connection
+
+    monkeypatch.setattr(engine, "make_agent", fixture_agent)
+    with pytest.raises(asyncio.CancelledError):
+        await engine.run(state["task_id"], turn_id)
+    old = engine.roles.list(state["task_id"])[0]
+    assert old["status"] == "waiting"
+    snapshot = await engine.latest_checkpoint(turn_id)
+    assert snapshot and snapshot.state == "interrupted"
+    assert [call.tool_call_id for call in engine.open_tool_calls(snapshot.messages)] == ["first-delegate"]
+    with engine.store.transaction() as db:
+        # Unconfirmed or altered effects cannot grant interrupted replay.
+        db.execute("UPDATE actions SET status='pending' WHERE turn_id=? AND kind='role.delegate'", (turn_id,))
+    assert await engine.latest_checkpoint(turn_id) is None
+    with engine.store.transaction() as db:
+        db.execute("UPDATE actions SET status='confirmed' WHERE turn_id=? AND kind='role.delegate'", (turn_id,))
+        row = db.execute("SELECT id,args FROM actions WHERE turn_id=? AND kind='role.delegate'", (turn_id,)).fetchone()
+        original_args = row["args"]
+        changed = {**json.loads(original_args), "agent_name": "quality"}
+        db.execute("UPDATE actions SET args=? WHERE id=?", (json.dumps(changed), row["id"]))
+    assert await engine.latest_checkpoint(turn_id) is None
+    with engine.store.transaction() as db:
+        db.execute("UPDATE actions SET args=? WHERE id=?", (original_args, row["id"]))
+    paused = engine.store.task(state["task_id"])
+    assert client.post(f"/tasks/{state['task_id']}/resume", json={"request_id": "resume-first-delegate",
+        "expected_state_version": paused["state_version"]}).status_code == 200
+    await engine.run(state["task_id"], turn_id)
+    current = engine.roles.list(state["task_id"])
+    assert len(current) == 1 and current[0]["status"] == "succeeded"
+    assert current[0]["run_id"] == old["run_id"] and current[0]["deadline_at"] == old["deadline_at"]
+    assert engine.store.task(state["task_id"])["status"] == "waiting_user"
+    with engine.store.transaction() as db:
+        assert db.execute("SELECT COUNT(*) FROM actions WHERE turn_id=? AND kind='role.delegate'", (turn_id,)).fetchone()[0] == 1
+        assert db.execute("SELECT COUNT(*) FROM actions WHERE turn_id=? AND kind='fs.write_workspace'", (old["run_id"],)).fetchone()[0] == 1
+
+
 def test_task_cancel_settles_waiting_assignment_after_its_job_stops(client, app):
     from test_jobs import ExecutorFixture
 
