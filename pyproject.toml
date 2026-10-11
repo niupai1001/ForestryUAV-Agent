@@ -16,6 +16,8 @@ dependencies = [
   "pypdf>=6,<7",
   "packaging>=25,<27",
   "resolvelib>=1.2,<2",
+  "laspy>=2.7,<3",
+  "pyproj>=3.7,<4",
 ]
 
 [project.scripts]

@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "dataset": "UAV LiDAR point cloud and ground measurement dataset over a poplar plantation",
+  "dataset_doi": "https://doi.org/10.57745/WAEYEX",
+  "dataset_version": "2.0",
+  "license": "Etalab-2.0",
+  "authors": [
+    "Frédéric Baup",
+    "Clément Battista",
+    "Frédéric Frappart"
+  ],
+  "purpose": "bootstrap, not formal holdout",
+  "selection": "smallest complete original LAS by archive member bytes, chosen before outcome inspection",
+  "archive": {
+    "url": "https://entrepot.recherche.data.gouv.fr/api/access/datafile/749153",
+    "bytes": 13425102952,
+    "publisher_md5": "b3a1a9e8ead84bcac9e01df75a29cba4",
+    "full_archive_md5_verified": false
+  },
+  "member": {
+    "name": "01_UAV_LIDAR/01_LAS/20240124_UAV_flight02_447_120_6_0_triple.las",
+    "bytes": 39311550,
+    "crc32": "74a62fd1",
+    "local_sha256": "65a0df50e96628adec8add7036f0602e7b761d8ce6a0d77db8eaf5c2f67570a5"
+  },
+  "publisher_claims": {
+    "source_note": "Publisher README.txt (MD5 1377b1b649adafd75bd13f049c121791), dataset DOI10.57745/WAEYEX v2.0. Original point coordinates from DJI Terra, not HAG; vertical datum EGM96. These are publisher claims, not independently surveyed control. Original ArcGIS ground classifications remain annotations; do not use them as independent predictions.",
+    "horizontal_crs": "EPSG:2154",
+    "vertical_ref": "EGM96",
+    "z_unit": "m",
+    "z_semantics": "elevation",
+    "classification_semantics": "publisher_annotations"
+  },
+  "file_observed": {
+    "las_version": "1.2",
+    "point_format": 3,
+    "point_count": 1156172,
+    "horizontal_crs": "EPSG:2154"
+  },
+  "constraints": [
+    "Preserve original bytes",
+    "Isolate publisher classification annotations before new ground predictions",
+    "No measured Z unit/vertical datum proof from this file header",
+    "No raw RGB acquisition supplied by orthophoto archive",
+    "No science accuracy acceptance from this manifest"
+  ]
+}

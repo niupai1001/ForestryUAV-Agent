@@ -53,7 +53,34 @@ def main():
     backup.add_argument("operation", choices=["create", "inspect", "restore"])
     backup.add_argument("--path", type=Path, required=True, help="独立备份目录；create要求新位置")
     backup.add_argument("--config", default="config/app.example.yaml")
+    cloud = commands.add_parser("inspect-cloud", help="离线只读检查LAS/LAZ头、坐标和有界样本")
+    cloud.add_argument("--path", type=Path, required=True)
+    cloud.add_argument("--declared", type=Path, help="有来源说明的元数据声明JSON，与文件观察分开")
+    cloud.add_argument("--hash-file", action="store_true", help="流式计算整个源文件SHA256，可能耗时")
+    cloud.add_argument("--output", type=Path, help="新JSON文件；不覆盖已有记录")
     args = parser.parse_args()
+    if args.command == "inspect-cloud":
+        from pydantic import ValidationError
+
+        from .cloud_inputs import CloudDeclaration, inspect_cloud
+        from .contracts import Failure
+        try:
+            declaration = None
+            if args.declared:
+                if args.declared.stat().st_size > 32768:
+                    raise Failure("INPUT_LIMIT", "声明JSON超过32KiB", 422)
+                declaration = CloudDeclaration.model_validate_json(args.declared.read_bytes())
+            result = inspect_cloud(args.path, declaration, hash_file=args.hash_file)
+            output = json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False)
+            if args.output:
+                with args.output.open("x", encoding="utf-8") as handle:
+                    handle.write(output + "\n")
+            print(output)
+        except (Failure, OSError, ValueError, ValidationError) as error:
+            print(json.dumps({"error": {"code": getattr(error, "code", "CLOUD_INSPECTION_ERROR"),
+                                        "message": str(error)}}, ensure_ascii=False))
+            raise SystemExit(2) from error
+        return
     if args.command == "schema":
         from pydantic_ai_harness.planning import PlanItem
 
