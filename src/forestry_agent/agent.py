@@ -1209,6 +1209,7 @@ class RoleProxy(WrapperAgent):
                         raise Failure("RECONCILIATION_REQUIRED", "委派已有未决副作用，拒绝盲目继续", 409)
                     db.execute("INSERT OR IGNORE INTO turns VALUES(?,?,?,?,?,?)", (value["run_id"], deps.task_id,
                         value["spec_revision"], prompt, "running", now()))
+                    db.execute("UPDATE turns SET status='running' WHERE id=? AND task_id=?", (value["run_id"], deps.task_id))
                 snapshot = await engine.latest_checkpoint(value["run_id"])
                 native_run_id = engine.begin_native_run(value["run_id"])
                 agent, client = engine.make_agent(state["model_profile"], value["run_id"], state["config_snapshot"], deps.task_id, value, native_run_id)
@@ -1223,8 +1224,6 @@ class RoleProxy(WrapperAgent):
                     raise Failure("ROLE_TIME_BUDGET_EXHAUSTED", "委派跨恢复累计墙钟预算已用尽", 422) from error
                 engine.roles.validate_result(value, result.output)
                 engine.roles.stop(assignment_id, result.output.status, result=result.output.model_dump())
-                with engine.store.transaction() as db:
-                    db.execute("UPDATE turns SET status='completed' WHERE id=?", (value["run_id"],))
                 return result
         except BaseException as error:
             state = engine.store.task(deps.task_id)

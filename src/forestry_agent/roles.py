@@ -16,6 +16,8 @@ from .store import encode, now, uid
 
 RoleID = Literal["coordinator", "environment", "data", "code_experiment", "quality"]
 TERMINAL = {"succeeded", "partial", "failed", "cancelled"}
+TURN_STATUS = {"succeeded": "completed", "partial": "completed", "failed": "stopped",
+               "cancelled": "cancelled", "waiting": "paused"}
 CURRENT_ASSIGNMENT: ContextVar[str | None] = ContextVar("forestry_assignment", default=None)
 
 
@@ -285,6 +287,8 @@ class Roles:
             value = self.read(assignment_id, db=db)
             value.update(status=status, result=result, blocker=blocker)
             self.save(db, value)
+            db.execute("UPDATE turns SET status=? WHERE id=? AND task_id=?",
+                       (TURN_STATUS[status], value["run_id"], value["task_id"]))
             self.store.event(db, value["task_id"], "assignment.settled", {"assignment_id": assignment_id,
                 "role_id": value["role_id"], "status": status, "result": result, "blocker": blocker})
 
@@ -325,6 +329,17 @@ class Roles:
                 value = json.loads(row["payload"])
                 value.update(status="waiting", blocker={"code": "SERVICE_RESTARTED", "message": "服务重启；恢复自己的检查点，不能复制父历史或盲目重做副作用"})
                 self.save(db, value)
+                db.execute("UPDATE turns SET status='paused' WHERE id=? AND task_id=?",
+                           (value["run_id"], value["task_id"]))
+            for row in db.execute("SELECT payload FROM assignments WHERE status IN ('succeeded','partial','failed','cancelled')").fetchall():
+                value = json.loads(row["payload"])
+                changed = db.execute("UPDATE turns SET status=? WHERE id=? AND task_id=? AND status IN ('queued','running','paused')",
+                    (TURN_STATUS[value["status"]], value["run_id"], value["task_id"])).rowcount
+                if changed:
+                    self.store.event(db, value["task_id"], "assignment.turn_reconciled", {
+                        "assignment_id": value["assignment_id"], "run_id": value["run_id"],
+                        "assignment_status": value["status"], "turn_status": TURN_STATUS[value["status"]],
+                        "reason": "terminal_assignment_with_unclosed_turn"})
 
     def cancel_waiting(self, task_id, db=None):
         if db is None:
@@ -337,4 +352,6 @@ class Roles:
             if not pending and not jobs:
                 value.update(status="cancelled", blocker=None)
                 self.save(db, value)
+                db.execute("UPDATE turns SET status='cancelled' WHERE id=? AND task_id=?",
+                           (value["run_id"], value["task_id"]))
                 self.store.event(db, task_id, "assignment.cancelled", {"assignment_id": value["assignment_id"]})

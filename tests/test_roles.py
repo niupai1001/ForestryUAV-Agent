@@ -132,6 +132,50 @@ def test_assignments_block_acceptance_until_stopped_and_cancel_waiting_is_idempo
     assert engine.roles.read(handle["assignment_id"])["status"] == "cancelled"
 
 
+@pytest.mark.parametrize("outcome,turn_status", [("failed", "stopped"), ("waiting", "paused"), ("cancelled", "cancelled")])
+def test_child_stop_synchronizes_its_turn_without_closing_parent(client, app, outcome, turn_status):
+    state, _ = task(client)
+    engine = app.state.engine
+    handle = prepare(engine, state)
+    assignment = engine.roles.start(engine.roles.read(handle["assignment_id"]))
+    with engine.store.transaction() as db:
+        db.execute("INSERT INTO turns VALUES(?,?,?,?,?,?)", (assignment["run_id"], state["task_id"], 1, "child", "running", now()))
+        db.execute("INSERT INTO turns VALUES(?,?,?,?,?,?)", ("parent-pending", state["task_id"], 1, "parent", "queued", now()))
+    engine.roles.stop(assignment["assignment_id"], outcome, blocker={"code": "fixture_failure"})
+    with engine.store.transaction() as db:
+        assert db.execute("SELECT status FROM turns WHERE id=?", (assignment["run_id"],)).fetchone()[0] == turn_status
+        assert db.execute("SELECT status FROM turns WHERE id='parent-pending'").fetchone()[0] == "queued"
+    engine.store.change(state["task_id"], "fixture.answer", lambda s, _: s.update(status="waiting_user"))
+    with pytest.raises(Failure, match="未处理"):
+        app.state.delivery.candidate(state["task_id"])
+
+
+def test_reconcile_closes_legacy_failed_child_turn_once_and_preserves_failure(client, app):
+    state, _ = task(client)
+    engine = app.state.engine
+    handle = prepare(engine, state)
+    assignment = engine.roles.start(engine.roles.read(handle["assignment_id"]))
+    blocker = {"code": "NO_PROGRESS", "message": "original failure retained"}
+    engine.roles.stop(assignment["assignment_id"], "failed", blocker=blocker)
+    with engine.store.transaction() as db:
+        db.execute("INSERT INTO turns VALUES(?,?,?,?,?,?)", (assignment["run_id"], state["task_id"], 1, "legacy-child", "running", now()))
+    artifact = engine.resources.write(state["task_id"], "parent-report", "report.md", "实际报告，子失败保留。")
+    def answer(s, db):
+        s.update(status="waiting_user")
+        s["messages"].append({"role": "assistant", "spec_revision": 1, "turn_id": "completed-parent",
+            "text": "报告完成，原子角色失败已处理。", "artifact_ids": [artifact["artifact_id"]], "limitations": ["软件夹具"]})
+    engine.store.change(state["task_id"], "fixture.answer", answer)
+    with pytest.raises(Failure, match="未处理"):
+        app.state.delivery.candidate(state["task_id"])
+    engine.roles.reconcile()
+    engine.roles.reconcile()
+    assert app.state.delivery.candidate(state["task_id"])["candidate"]["outputs"][0]["artifact_id"] == artifact["artifact_id"]
+    assert engine.roles.read(assignment["assignment_id"])["blocker"] == blocker
+    with engine.store.transaction() as db:
+        assert db.execute("SELECT COUNT(*) FROM events WHERE kind='assignment.turn_reconciled'").fetchone()[0] == 1
+        assert db.execute("SELECT status FROM turns WHERE id=?", (assignment["run_id"],)).fetchone()[0] == "stopped"
+
+
 def test_harness_modes_freeze_catalog_and_only_h2_has_delegation(client, app):
     for mode in ["H0", "H1", "H2"]:
         state, _ = task(client, request_id=mode, harness_mode=mode)
