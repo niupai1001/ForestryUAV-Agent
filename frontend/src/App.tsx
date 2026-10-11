@@ -66,7 +66,7 @@ export default function App() {
   const [text,setText] = useState(''), [error,setError] = useState(''), [busy,setBusy] = useState(false);
   const [settings,setSettings] = useState<{version:number; default_model:string; models:Record<string,any>}|null>(null);
   const [showSettings,setShowSettings] = useState(false), [showSource,setShowSource] = useState(false);
-  const [showKnowledge,setShowKnowledge] = useState(false);
+  const [showKnowledge,setShowKnowledge] = useState(false), [showNavigation,setShowNavigation] = useState(false);
   const [scope,setScope] = useState<Scope>('full'), [customCaps,setCustomCaps] = useState<string[]>([]);
   const [amending,setAmending] = useState<Task|null>(null), [amendObjective,setAmendObjective] = useState('');
   const [amendInputs,setAmendInputs] = useState<string[]>([]), [amendCaps,setAmendCaps] = useState<string[]|null>(null);
@@ -132,7 +132,8 @@ export default function App() {
   const control = async (operation:string) => {
     if(!active) return;
     await guarded(async()=>{const current = await api<Task>(`/tasks/${active.task_id}`);
-      setActive(await api(`/tasks/${active.task_id}/${operation}`,{request_id:requestId(),expected_state_version:current.state_version})); await refresh();});
+      const result = await api<Task>(`/tasks/${active.task_id}/${operation}`,{request_id:requestId(),expected_state_version:current.state_version});
+      setActive({...current,...result}); await refresh();});
   };
   const openAmendment = () => {
     if(!active)return;
@@ -164,6 +165,8 @@ export default function App() {
     }
   };
   const live = active?.status === 'active' || active?.status === 'created';
+  const cancelling = !!active?.cancellation_requested && active.status !== 'cancelled';
+  const currentStatus = cancelling?'正在取消':labels[active?.status||''];
   const resolveApproval = async (record:Approval,verdict:'approve'|'reject'|'revoke') => {
     if(!active||busy)return;
     setBusy(true); await guarded(async()=>{
@@ -175,10 +178,10 @@ export default function App() {
   };
   const accept = async (verdict:'accept'|'request_changes') => {
     if(!active||!candidate)return;
-    setBusy(true); await guarded(async()=>{setActive(await api(`/tasks/${active.task_id}/acceptance`,{
+    setBusy(true); await guarded(async()=>{setActive({...active,...await api<Task>(`/tasks/${active.task_id}/acceptance`,{
       request_id:requestId(),expected_state_version:candidate.state_version,
       expected_spec_revision:candidate.candidate.spec_revision,candidate_sha256:candidate.candidate_sha256,
-      verdict,comment:acceptComment})); setCandidate(null); await refresh();}); setBusy(false);
+      verdict,comment:acceptComment})}); setCandidate(null); await refresh();}); setBusy(false);
   };
   const tools = events.filter(e=>e.type === 'action.started' || e.type === 'action.observed');
   const liveText = events.filter(e=>e.type === 'model.text' && !e.payload.assignment_id).map(e=>e.payload.text).join('');
@@ -202,12 +205,12 @@ export default function App() {
     </aside>
     <div className="main-shell">
       <header><div className="breadcrumb">工作空间<span>/</span><strong>Agent 工作台</strong></div>
-        <div className="header-right"><span className="local-pill"><span/> LOCAL ONLY</span><button title="环境设置" onClick={()=>setShowSettings(true)}><Settings size={17}/></button></div></header>
+        <div className="header-right"><button className="compact-navigation" aria-label="打开任务与资源" onClick={()=>setShowNavigation(true)}><FolderOpen size={17}/>任务与资源</button><span className="local-pill"><span/> LOCAL ONLY</span><button title="环境设置" onClick={()=>setShowSettings(true)}><Settings size={17}/></button></div></header>
       <main>
         <div className="workspace-heading"><div><div className="eyebrow">YOUR LOCAL RESEARCH PARTNER</div><h1>从一个目标，开始工作。</h1><p>让 Agent 查阅文件、整理证据并交付可检查的结果。</p></div><span className="stage-pill"><span/>通用能力 · 开发中</span></div>
         <div className="workspace-grid"><section className="conversation-card">
           <div className="card-heading"><div className="heading-icon"><MessageSquare size={17}/></div><strong>{active?'当前任务':'新的任务'}</strong>
-            <span className={`task-status ${active?.status||''}`}>{active?labels[active.status]:'准备开始'}</span></div>
+            <span className={`task-status ${active?.status||''}`}>{active?currentStatus:'准备开始'}</span></div>
           <div className="conversation-content">
             {!active?<><div className="welcome-emblem"><Leaf size={32}/></div><h2>你希望完成什么？</h2><p className="welcome-description">描述目标，并选择需要读取的本地文件。<br/>每一步执行、证据和产物都可以在这里检查。</p>
               <div className="suggestions">{[
@@ -282,15 +285,26 @@ export default function App() {
               <p className="muted">独立结果供协调者检查与整合，任务仍须由你验收。</p></details>):<div className="inspector-empty"><ShieldCheck size={26}/><p>需要独立工作时才会委派。<br/>这里显示实际范围、状态和结果。</p></div>}</div>}
         </section>
         <section className="guide-card"><span className="guide-label">工作方式</span><h3>可检查，才可交付。</h3><p>源文件保持只读。所有操作先登记，产物保留版本。执行成功与回答目标分别验收。</p><div><ShieldCheck size={16}/><span>权限与状态由应用控制</span></div></section>
-        {active&&<section className="control-card"><div><span className={`status-dot ${active.status}`}/><strong>{labels[active.status]}</strong></div><div className="task-controls">
-          <button disabled={!live} onClick={()=>void control('pause')}><Pause size={14}/>暂停</button>
-          <button disabled={active.status!=='paused'} onClick={()=>void control('resume')}><Play size={14}/>恢复</button>
-          <button disabled={['cancelled','completed','failed','publishing'].includes(active.status)} onClick={()=>void control('cancel')}><Square size={13}/>取消</button></div></section>}
+        {active&&<section className="control-card"><div><span className={`status-dot ${active.status}`}/><strong>{currentStatus}</strong></div><div className="task-controls">
+          <button disabled={!live||cancelling} onClick={()=>void control('pause')}><Pause size={14}/>暂停</button>
+          <button disabled={active.status!=='paused'||!!active.cancellation_requested} onClick={()=>void control('resume')}><Play size={14}/>恢复</button>
+          <button disabled={!!active.cancellation_requested||['cancelled','completed','failed','publishing'].includes(active.status)} onClick={()=>void control('cancel')}><Square size={13}/>取消</button></div>
+          <p className="control-policy">{cancelling?'已请求取消，正在确认所有作业停止；任务不会继续执行。':'暂停停止新操作，已启动的作业继续运行。取消会停止作业，确认后才显示“已取消”。修改目标后，旧结果仅作历史保留。'}</p></section>}
         </aside></div>
         {error&&<div className="error-banner" role="alert"><CircleHelp size={17}/>{error}<button onClick={()=>setError('')}><X size={16}/></button></div>}
         <footer><span><ShieldCheck size={13}/>真实执行 · 有来源的证据 · 明确的局限</span><span>ForestryUAV-Agent / Independent V1</span></footer>
       </main>
     </div>
+    {showNavigation&&<div className="modal-backdrop"><nav className="modal compact-navigation-panel" role="dialog" aria-label="任务与资源">
+      <div className="modal-heading"><h2>任务与资源</h2><button aria-label="关闭任务与资源" onClick={()=>setShowNavigation(false)}><X size={20}/></button></div>
+      <button className="new-task" onClick={()=>{newTask();setShowNavigation(false);}}><Plus size={18}/>新建任务</button>
+      <button className="nav-item" onClick={()=>{setShowNavigation(false);setShowSource(true);}}><FolderOpen size={18}/>本地数据源<span className="small-count">{resources.length}</span></button>
+      <button className="nav-item" onClick={()=>{setShowNavigation(false);setShowKnowledge(true);}}><File size={18}/>本地知识</button>
+      <div className="section-caption history-title">最近任务<button aria-label="刷新最近任务" onClick={()=>void guarded(refresh)}><RefreshCw size={13}/></button></div>
+      <div className="history">{tasks.length===0?<p className="muted">任务会保存在这台电脑上</p>:tasks.map(task=><button key={task.task_id}
+        className={`history-item ${active?.task_id===task.task_id?'current':''}`} onClick={()=>{setActive(task);setShowNavigation(false);}}>
+        <span className={`status-dot ${task.status}`}/><span>{task.objective}</span></button>)}</div>
+    </nav></div>}
     {amending&&<div className="modal-backdrop"><div className="modal scope-modal" role="dialog" aria-label="修改任务规范">
       <div className="modal-heading"><h2>修改任务规范</h2><button disabled={busy} onClick={()=>setAmending(null)}><X size={20}/></button></div>
       <p>保存为修订 {amending.spec_revision+1}，暂停当前执行并保留历史。核对已登记动作后，使用“恢复”继续。补充消息不会修改工具范围。</p>
