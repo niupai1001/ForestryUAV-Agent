@@ -202,8 +202,12 @@ class Engine:
                                  (action_id, deps.task_id, deps.revision)).fetchone()
                 result = json.loads(row["result"]) if row else {}
                 citation = result.get("citation")
-                if result.get("kind") != "completed" or not isinstance(citation, dict) or not citation:
+                if result.get("kind") != "completed":
                     raise Failure("PERMISSION_DENIED", "引用必须来自本任务当前修订已确认的真实来源动作", 403)
+                if not isinstance(citation, dict) or not citation:
+                    raise Failure("PERMISSION_DENIED", f"引用字段 {key} 的动作 {action_id} 未返回顶层 citation；"
+                        "从 citation_actions 移除此项，保留真实文档引用再保存。产物读取用 artifact_id 和 sha256 写入正文；"
+                        "记忆用 memory_id 和版本写入正文，均不能作为文件来源 citation。", 403)
                 citations[key] = citation
         for citation in citations.values():
             snapshot = citation.get("snapshot_artifact_id")
@@ -766,7 +770,7 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
 
         @agent.tool
         def write_file(ctx: RunContext[Deps], relative_path: str, content: str, citation_actions: dict[str, str] | None = None) -> dict:
-            """写UTF-8并封存；citation_actions={字段名:来源action_id}附真实完整引用。JSON对象合字段，Markdown/文本附来源区；仅当前授权修订的真实来源，不证明正文正确。"""
+            """写UTF-8并封存；citation_actions={字段名:来源action_id}只附返回顶层citation的真实引用。JSON合字段，Markdown/文本附来源区；产物/记忆回执无citation，标识与SHA/版本写正文。不证明正文正确。"""
             args = {"relative_path": relative_path, "content": content}
             if citation_actions is not None:
                 args["citation_actions"] = citation_actions

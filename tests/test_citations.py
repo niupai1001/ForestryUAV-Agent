@@ -108,6 +108,25 @@ def test_citation_copy_requires_action_read_permission_without_double_charging_b
         engine.cited_content(deps, "facts.json", "{}", {"citation": result["action_id"]})
 
 
+def test_mixed_artifact_and_source_citations_identify_the_invalid_entry(client, app):
+    state, source_read = source(client, app)
+    engine = app.state.engine
+    deps = Deps(engine, state["task_id"], "mixed-citations", 1)
+    artifact = engine.resources.write(state["task_id"], "candidate", "candidate.json", '{"claim":16}')
+    read_back = engine.perform(deps, "candidate-read", "artifact.read", {"artifact_id": artifact["artifact_id"]},
+        lambda _: engine.resources.read_artifact(state["task_id"], artifact["artifact_id"]))
+    with pytest.raises(Failure) as caught:
+        engine.cited_content(deps, "report.md", "候选主张待验证。",
+            {"source": source_read["action_id"], "candidate": read_back["action_id"]})
+    message = str(caught.value)
+    assert "candidate" in message and read_back["action_id"] in message
+    assert "artifact_id" in message and "sha256" in message and "移除" in message
+    corrected = engine.cited_content(deps, "report.md", f"候选 {artifact['artifact_id']} SHA {artifact['sha256']} 待验证。",
+                                    {"source": source_read["action_id"]})
+    assert source_read["citation"]["source_sha256"] in corrected
+    assert artifact["sha256"] in corrected
+
+
 def test_child_with_action_read_capability_cannot_copy_parent_citation(client, app):
     state, result = source(client, app)
     engine = app.state.engine
