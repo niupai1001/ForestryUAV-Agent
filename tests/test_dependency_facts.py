@@ -184,11 +184,16 @@ def completed_dependencies(client, engine):
 def test_dependency_facts_bound_latest_operations_and_validate_artifact_producers(client, app):
     engine = app.state.engine
     state, resolved, downloaded = completed_dependencies(client, engine)
+    original = downloaded
+    calls = list(engine.acquisition.http.calls)
     for n in range(4):
         downloaded = acquire(engine, state, f'new-download-{n}')
+        assert downloaded['reused_from_action_id'] == original['action_id']
+        assert downloaded['wheel_artifact_ids'] == original['wheel_artifact_ids']
+    assert engine.acquisition.http.calls == calls
     facts = engine.acquisition.confirmed_receipts(state['task_id'], 1)
     assert len(facts) == 2
-    assert facts[0]['operation'] == 'download' and facts[0]['source_action_id'] == downloaded['action_id']
+    assert facts[0]['operation'] == 'download' and facts[0]['source_action_id'] == original['action_id']
     assert facts[0]['wheels'] == [{**WHEEL, 'artifact_id': downloaded['wheel_artifact_ids'][0]}]
     assert facts[1]['operation'] == 'resolve' and facts[1]['source_action_id'] == resolved['action_id']
     assert not any(k in encode(facts) for k in ['metadata_url', 'sha256', 'bounded-download-fixture-never-installed'])

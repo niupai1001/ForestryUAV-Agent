@@ -158,12 +158,15 @@ def test_source_receipt_summary_and_repeat_download_progress_keep_real_source_fa
     engine = app.state.engine
     engine.acquisition.http = SourceFixture()
     first = acquire(engine,state)
+    calls = list(engine.acquisition.http.calls)
     second = acquire(engine,state,'same-bytes-again')
-    assert first['source_artifact_ids'] != second['source_artifact_ids']
+    assert first['source_artifact_ids'] == second['source_artifact_ids']
+    assert second['reused_from_action_id'] == first['action_id']
+    assert engine.acquisition.http.calls == calls
     assert observation('acquire_dependencies',first) == observation('acquire_dependencies',second)
     summary = engine.acquisition.confirmed_receipts(state['task_id'],1)[0]
     assert summary['wheels']==[] and summary['source_packages']==[{**SOURCE,'artifact_id':second['source_artifact_ids'][0]}]
-    assert summary['source_action_id']==second['action_id']
+    assert summary['source_action_id']==first['action_id']
 
 
 def test_source_artifact_does_not_escape_role_intersection(client, app):
