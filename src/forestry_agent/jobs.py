@@ -156,7 +156,13 @@ class Jobs:
     def submit(self, task_id: str, revision: int, action_id: str, code: str,
                input_refs: list[str], seconds: int = 300, *, environment_artifact_id=None,
                job_kind="code.execute", environment_recipe=None, input_artifact_ids=None, source_recipe=None,
-               source_build_only=False, source_inspection=None):
+               source_build_only=False, source_inspection=None, runtime_profile=None, reuse_equivalent=False):
+        if type(reuse_equivalent) is not bool or (reuse_equivalent and runtime_profile != "scientific"):
+            raise Failure("SCHEMA_INVALID", "相同配方复用仅用于固定科学作业")
+        if runtime_profile not in {None, "scientific"}:
+            raise Failure("SCHEMA_INVALID", "未知执行环境配置")
+        if runtime_profile and (job_kind != "code.execute" or environment_artifact_id or source_recipe):
+            raise Failure("SCHEMA_INVALID", "科学环境不能混用通用依赖准备或环境产物")
         if job_kind not in {"code.execute", "environment.prepare"}:
             raise Failure("SCHEMA_INVALID", "未知受限作业类型")
         if source_recipe and job_kind != "environment.prepare":
@@ -199,12 +205,28 @@ class Jobs:
             if state["spec_revision"] != revision or state["pause_requested"] or state["cancellation_requested"]:
                 raise Failure("EXECUTION_STOPPED", "任务规范或控制状态不允许新作业", 409)
             self.store.authorize_capability(db, state, job_kind)
+            image_reference = self.config.code_image
+            if runtime_profile == "scientific":
+                image_reference = state["config_snapshot"].get("science_image")
+                if not self.config.science_image or not image_reference:
+                    raise Failure("PRECONDITION_MISSING", "任务未冻结可用科学镜像；请明确配置并创建新任务", 422)
+            if reuse_equivalent:
+                equivalent = db.execute("SELECT payload FROM jobs WHERE task_id=? AND revision=? "
+                    "AND json_extract(payload,'$.kind')='code.execute' "
+                    "AND json_extract(payload,'$.image_reference')=? AND json_extract(payload,'$.code_sha256')=?",
+                    (task_id, revision, image_reference, hashlib.sha256(code.encode()).hexdigest())).fetchone()
+                if equivalent:
+                    original = json.loads(equivalent["payload"])
+                    if original["mounts"] != mounts:
+                        raise Failure("VERSION_CONFLICT", "科学输入版本已变化，请明确保存任务修订；不复用旧结果或自动重算", 409)
+                    return {"job": self.public(original), "reused_from_job": original["job_id"],
+                            "original_producer_action_id": original["action_id"]}
             if source_recipe:
                 self.store.authorize_capability(db, state, "code.execute")
             job_id = uid()
             assignment = db.execute("SELECT id FROM assignments WHERE json_extract(payload,'$.run_id')=(SELECT turn_id FROM actions WHERE id=?)", (action_id,)).fetchone()
             job = {"schema_version": 1, "job_id": job_id, "task_id": task_id,
-                "kind": job_kind, "image_reference": self.config.code_image,
+                "kind": job_kind, "image_reference": image_reference,
                 "tmpfs_bytes": 1024*1024*1024 if job_kind == "environment.prepare" else 67108864,
                 "assignment_id": assignment["id"] if assignment else None,
                 "action_id": action_id, "spec_revision": revision, "status": "queued",

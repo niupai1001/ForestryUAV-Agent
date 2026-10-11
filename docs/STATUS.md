@@ -1,5 +1,7 @@
 # Implementation / 实施状态
 
+1.49（2026-10-12）：真实flight02经原授权/持久Jobs/断网6GiB非root容器生成DTM/DSM、地面计数/距离/支持、DSM−DTM、HAG及R工作LAS/中文partial报告。实际PDAL2.9.3与固定科学镜像/包锁保留，R/lidR版本已观察但实际R分割尚未执行，PROJ启动诊断保留。新增任务冻结科学镜像，等价配方调用复用原Job；未知/归一化/不适用方法/未授权来源拒绝。首轮数组赋值、旧LAS扩展字段传输、OriginalZ末位转写问题均按具体问题修复；原Task修订明确授权原产物，地表/HAG未重算，只补映射、工作云/报告和精确OriginalZ元数据，原失败/严格审计记录保持。已有通过检查复用，只复核新恢复/去重与OriginalZ问题；阶段1/模型/UI未重跑，主服务未操作。最终证据lidar-terrain-final-20261012-v1.json，最新工作云见其中locator；全文/限制见[LIDAR-TERRAIN-zh](LIDAR-TERRAIN-zh.md)/[English](LIDAR-TERRAIN-en.md)。单木/分块/领域UI、ODM与阶段3继续。
+
 1.48（2026-10-12）：阶段2新增inspect-cloud离线CLI，复用laspy/pyproj成熟头/CRS解析，明确文件观察、发布者声明、未知Z/地面支持/运行时。实际取得最小完整原始UAV LAS flight02并核对成员大小/CRC，完整文件SHA匹配CLI输出，1,156,172点/文件EPSG:2154；没有把首批分类当地面支持。只验证新增检查与一个具体CRS错误类型，不重跑冻结基础/模型/Jobs/UI，也未操作主服务。当前仅输入检查通过，科学产品尚未计算，WP12其余规划及WP13–15/阶段3继续。见[中文入口](CLOUD-INPUTS-zh.md)/[English](CLOUD-INPUTS-en.md)。
 
 1.47（2026-10-12）：阶段1通用功能出口通过，搜索按用户要求暂缓。复用冻结的契约与实际功能流程，初次证据定位遗漏小模型数据库，仅补读同Task/修订/封存状态，未重跑模型、Jobs或基础验收。阶段2已开始真实许可输入核验；ODM、PDAL/lidR科学产品尚未交付。此判定不表示首次成功率、科学精度或完整V1通过，阶段3正式评估/规模/发布范围保持。见[出口裁决](STAGE-1-EXIT-zh.md)及[当前交付](DELIVERY-TRACKER.md)。下文为历史。

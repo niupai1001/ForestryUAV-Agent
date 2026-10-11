@@ -16,6 +16,7 @@ CAPABILITY_NAMES = {"list_inputs": "fs.inputs", "list_files": "fs.list", "read_f
     "prepare_environment": "environment.prepare", "code_execute": "code.execute", "wait_job": "job.observe", "delegate_task": "role.delegate",
     "search_web": "web.search", "read_web_page": "web.read", "write_plan": "task.plan", "read_plan": "task.plan",
     "acquire_dependencies": "environment.acquire", "resolve_dependencies": "environment.acquire"}
+CAPABILITY_NAMES["process_lidar_terrain"] = "code.execute"
 
 
 class Boundary(BaseModel):

@@ -1,5 +1,7 @@
 # 林遥 · ForestryUAV-Agent V1
 
+**1.49新增实际可用流程：原始UAV LAS→现有Jobs→PDAL地形/支持/HAG→工作云与中文部分报告。** 首次失败与具体修复保留，已有地表/HAG直接复用，OriginalZ只修元数据；单木、独立精度与阶段2/3尚未完成。见[领域入口](docs/LIDAR-TERRAIN-zh.md)。主8769服务本轮未重载该API，开发交付使用独立持久状态；领域UI待扩展。
+
 **1.48新增可用入口：本地LAS/LAZ→只读头/有界样本检查→有来源声明与未知条件分离→独立JSON。** 已用完整真实UAV LAS交付，见[输入操作](docs/CLOUD-INPUTS-zh.md)。ODM、PDAL/lidR产品和领域UI仍待实现；冻结基础与模型流程未重跑。
 
 **当前1.47：阶段1通用功能出口已通过，Agent联网搜索按用户要求暂缓，开始阶段2真实林业数据与ODM、PDAL/lidR流程。** 已验证基础和完整流程冻结，历史失败与人工纠正保留；模型质量比较、科学精度及完整V1仍未完成。以[交付进度入口](docs/DELIVERY-TRACKER.md)和[出口裁决](docs/STAGE-1-EXIT-zh.md)为准。下文版本段落为历史，不作为重跑清单。

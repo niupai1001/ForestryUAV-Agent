@@ -1,0 +1,32 @@
+# Local tested image; configure a verified replacement after an explicit rebuild.
+code_image: public.ecr.aws/docker/library/python@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f
+default_model: small
+docker_distribution: forestry-uav-agent-runtime
+docker_host: unix:///var/run/docker.sock
+host: 127.0.0.1
+max_actions_per_task: 1000
+max_assignments_per_task: 32
+max_code_cpus: 4
+max_code_memory_bytes: 6442450944
+max_code_seconds: 14400
+max_model_requests_per_turn: 30
+max_unchanged_decisions: 3
+model_base_url: http://127.0.0.1:11434/v1
+models:
+  large:
+    context_limit: 32768
+    output_limit: 4096
+    repository: Qwen/Qwen3.8-27B
+    served_name: qwen3.8:latest
+  small:
+    context_limit: 32768
+    output_limit: 4096
+    repository: Qwen/Qwen3.5-4B
+    served_name: qwen3.5:4b
+ollama_base_url: http://127.0.0.1:11434
+port: 8765
+schema_version: 1
+science_image: sha256:eae1217fee43492a6b837fcdac35f493b790dcb1b8a7aa3dd51990d64114a6a8
+search_base_url: null
+search_provider: baidu_html
+workspace_root: ./workspace/science-app

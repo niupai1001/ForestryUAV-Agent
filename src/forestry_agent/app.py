@@ -33,6 +33,7 @@ from .contracts import (
 )
 from .delivery import Delivery
 from .doctor import doctor
+from .lidar_terrain import TerrainRequest, submit_terrain
 from .models import model_identity
 from .planning import visible_plan
 from .provenance import runtime_manifest
@@ -258,11 +259,13 @@ def create_app(config: Config, *, enable_agent: bool = True):
         profile = payload.model_profile or current["default_model"]
         if profile not in config.models:
             raise Failure("PRECONDITION_MISSING", "模型配置不存在", 422)
-        # Until domain methods exist, a hard method request is never silently replaced.
-        if payload.requested_method_id is not None:
+        # A hard method request is never silently replaced.
+        if payload.requested_method_id is not None and (
+            payload.requested_method_id != "lidar.smrf_idw.v1" or not config.science_image):
             raise Failure("PRECONDITION_MISSING", "当前阶段尚未实现该指定方法", 422)
         identity = await model_identity(config, config.models[profile]) if enable_agent else {"backend": "test_fixture"}
         state = store.create_task(payload.model_dump(), {"model_profile": profile,
+            **({"science_image": config.science_image} if config.science_image else {}),
             "execution_limits": config.execution_limits(),
             "harness_mode": payload.harness_mode, "role_catalog": engine.roles.catalog,
             "context_classification": payload.context_classification,
@@ -285,6 +288,14 @@ def create_app(config: Config, *, enable_agent: bool = True):
     @app.get("/tasks/{task_id}")
     def task(task_id: str):
         return store.describe_task(task_id)
+
+    @app.post("/tasks/{task_id}/lidar/terrain")
+    def lidar_terrain(task_id: str, payload: TerrainRequest):
+        deps = Deps(engine, task_id, "operator-terrain", payload.expected_spec_revision)
+        arguments = {**payload.model_dump(),
+                     "input_refs": [payload.cloud_ref, payload.declaration_ref, *payload.resume_refs.values()]}
+        return engine.perform(deps, payload.request_id, "code.execute", arguments,
+                              lambda action_id: submit_terrain(engine, deps, action_id, payload))
 
     @app.get("/tasks/{task_id}/acceptance-candidate")
     def acceptance_candidate(task_id: str):
@@ -330,7 +341,8 @@ def create_app(config: Config, *, enable_agent: bool = True):
             nonlocal stop_token
             if state["spec_revision"] != payload.expected_spec_revision:
                 raise Failure("VERSION_CONFLICT", "规范修订已变化", 409)
-            if payload.requested_method_id is not None:
+            if payload.requested_method_id is not None and (
+                payload.requested_method_id != "lidar.smrf_idw.v1" or not config.science_image):
                 raise Failure("PRECONDITION_MISSING", "指定领域方法尚未实现", 422)
             for resource_id in payload.input_refs:
                 resource = db.execute("SELECT payload FROM resources WHERE id=?", (resource_id,)).fetchone()

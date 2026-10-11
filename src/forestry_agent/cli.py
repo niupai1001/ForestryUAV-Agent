@@ -58,6 +58,16 @@ def main():
     cloud.add_argument("--declared", type=Path, help="有来源说明的元数据声明JSON，与文件观察分开")
     cloud.add_argument("--hash-file", action="store_true", help="流式计算整个源文件SHA256，可能耗时")
     cloud.add_argument("--output", type=Path, help="新JSON文件；不覆盖已有记录")
+    terrain = commands.add_parser("lidar-terrain", help="授权原始LAS与声明资源→现有持久Jobs处理地形/HAG")
+    terrain.add_argument("--config", default="config/app.example.yaml")
+    terrain.add_argument("--task", required=True)
+    terrain.add_argument("--cloud-ref", required=True)
+    terrain.add_argument("--declaration-ref", required=True)
+    terrain.add_argument("--revision", type=int, required=True)
+    terrain.add_argument("--request-id", required=True, help="保留同请求ID以读取原作业；不自动重算")
+    terrain.add_argument("--seconds", type=int, default=900)
+    terrain.add_argument("--resume-job", help="本任务原失败Job；只读复用地形/HAG做后处理")
+    terrain.add_argument("--resume-refs", type=Path, help="已明确登记/修订的恢复文件名→资源ID JSON")
     args = parser.parse_args()
     if args.command == "inspect-cloud":
         from pydantic import ValidationError
@@ -87,6 +97,7 @@ def main():
         from . import contracts
         from .acquisition import PackageRequest, WheelRequest
         from .evaluation import EvaluationDiagnosticReview, EvaluationReview, EvaluationSuite
+        from .lidar_terrain import TerrainRequest
         from .roles import AssignmentRequest, AssignmentResult, RoleCatalog
         target = Path(args.output)
         target.mkdir(parents=True, exist_ok=True)
@@ -95,11 +106,37 @@ def main():
             (target / f"{name}.schema.json").write_text(
                 json.dumps(model.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf-8")
         for model in [RoleCatalog, AssignmentRequest, AssignmentResult, PlanItem, WheelRequest, PackageRequest,
-                      EvaluationSuite, EvaluationReview, EvaluationDiagnosticReview]:
+                      EvaluationSuite, EvaluationReview, EvaluationDiagnosticReview, TerrainRequest]:
             (target / f"{model.__name__}.schema.json").write_text(
                 json.dumps(model.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf-8")
         return
     config = load_config(args.config)
+    if args.command == "lidar-terrain":
+        from .client import LocalClient
+        from .contracts import Failure
+        client = None
+        try:
+            client = LocalClient(config)
+            payload = {
+                "request_id": args.request_id, "expected_spec_revision": args.revision,
+                "cloud_ref": args.cloud_ref, "declaration_ref": args.declaration_ref, "seconds": args.seconds}
+            if args.resume_job or args.resume_refs:
+                if not args.resume_job or not args.resume_refs or args.resume_refs.stat().st_size > 32768:
+                    raise Failure("SCHEMA_INVALID", "恢复须同时提供原Job与32KiB内资源映射JSON", 422)
+                payload.update(resume_job_id=args.resume_job,
+                               resume_refs=json.loads(args.resume_refs.read_text(encoding="utf-8")))
+            result = client.request("POST", f"/tasks/{args.task}/lidar/terrain", payload)
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+            if result.get("kind") == "failed":
+                raise SystemExit(2)
+        except (Failure, OSError, ValueError, httpx.HTTPError) as error:
+            print(json.dumps({"error": {"code": getattr(error, "code", "CLI_ERROR"),
+                                        "message": str(error)}}, ensure_ascii=False))
+            raise SystemExit(2) from error
+        finally:
+            if client:
+                client.close()
+        return
     if args.command == "backup":
         import sqlite3
 

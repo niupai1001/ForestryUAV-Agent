@@ -1,0 +1,66 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "expected_spec_revision": {
+      "minimum": 1,
+      "title": "Expected Spec Revision",
+      "type": "integer"
+    },
+    "cloud_ref": {
+      "minLength": 1,
+      "title": "Cloud Ref",
+      "type": "string"
+    },
+    "declaration_ref": {
+      "minLength": 1,
+      "title": "Declaration Ref",
+      "type": "string"
+    },
+    "method_id": {
+      "default": "lidar.smrf_idw.v1",
+      "title": "Method Id",
+      "type": "string"
+    },
+    "seconds": {
+      "default": 900,
+      "maximum": 14400,
+      "minimum": 1,
+      "title": "Seconds",
+      "type": "integer"
+    },
+    "resume_job_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Resume Job Id"
+    },
+    "resume_refs": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "maxProperties": 20,
+      "title": "Resume Refs",
+      "type": "object"
+    }
+  },
+  "required": [
+    "request_id",
+    "expected_spec_revision",
+    "cloud_ref",
+    "declaration_ref"
+  ],
+  "title": "TerrainRequest",
+  "type": "object"
+}
