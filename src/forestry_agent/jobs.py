@@ -83,6 +83,7 @@ class Jobs:
         self.resource_probe = resource_probe or execution_profile
         self.worker: asyncio.Task | None = None
         self.cancel_assignments = None
+        self.settle_obsolete_assignments = None
         self.environment_resolver = None
         self.source_build_resolver = None
         self.source_requirements_resolver = None
@@ -487,6 +488,9 @@ class Jobs:
                 self.save(job, "job.blocked")
         # A task cancellation is terminal only after every effect has settled.
         with self.store.transaction() as db:
+            if self.settle_obsolete_assignments:
+                for row in db.execute("SELECT t.id FROM tasks t WHERE EXISTS (SELECT 1 FROM assignments a WHERE a.task_id=t.id AND a.status IN ('queued','waiting') AND json_extract(a.payload,'$.spec_revision') != json_extract(t.state,'$.spec_revision'))").fetchall():
+                    self.settle_obsolete_assignments(row["id"], db)
             for row in db.execute("SELECT state FROM tasks WHERE status='paused'").fetchall():
                 state = json.loads(row["state"])
                 task_id = state["task_id"]

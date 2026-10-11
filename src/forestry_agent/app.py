@@ -307,6 +307,7 @@ def create_app(config: Config, *, enable_agent: bool = True):
                          requested_method_id=payload.requested_method_id, status="paused", pause_requested=True,
                          acceptance=None, blockers=[{"code": "AMENDED", "message": "规范已修改，请对账后恢复"}])
             db.execute("INSERT INTO specs VALUES(?,?,?)", (task_id, state["spec_revision"], encode({**previous, **amended})))
+            engine.roles.cancel_obsolete(task_id, db, current_revision=state["spec_revision"])
             stop_token = engine.tokens.get(task_id)
         result = store.change(task_id, "task.amended", mutate, amended)
         if stop_token is not None:

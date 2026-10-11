@@ -461,3 +461,84 @@ def test_task_cancel_settles_waiting_assignment_after_its_job_stops(client, app)
     assert jobs.read(submitted["job"]["job_id"])["status"] == "cancelled"
     assert engine.roles.read(value["assignment_id"])["status"] == "cancelled"
     assert engine.store.task(state["task_id"])["status"] == "cancelled"
+
+
+def test_amendment_settles_obsolete_idle_child_once_and_keeps_current_assignment(client, app):
+    state, _ = task(client)
+    engine = app.state.engine
+    handle = prepare(engine, state)
+    old = engine.roles.start(engine.roles.read(handle["assignment_id"]))
+    with engine.store.transaction() as db:
+        db.execute("INSERT INTO turns VALUES(?,?,?,?,?,?)", (old["run_id"], state["task_id"], 1, "child", "running", now()))
+    engine.roles.stop(old["assignment_id"], "waiting", blocker={"code": "SERVICE_RESTARTED"})
+    payload = {"request_id": "amend-obsolete", "expected_spec_revision": 1, "objective": "只交付新目标报告"}
+    amended = client.post(f"/tasks/{state['task_id']}/amendments", json=payload)
+    assert amended.status_code == 200
+    assert engine.roles.read(old["assignment_id"])["status"] == "cancelled"
+    assert engine.roles.read(old["assignment_id"])["blocker"]["code"] == "SPEC_SUPERSEDED"
+    resumed = client.post(f"/tasks/{state['task_id']}/resume", json={"request_id": "resume-current-assignment", "expected_state_version": amended.json()["state_version"]})
+    assert resumed.status_code == 200
+    current = prepare(engine, resumed.json(), call_id="current-assignment")
+    engine.roles.cancel_obsolete(state["task_id"])
+    assert engine.roles.read(current["assignment_id"])["status"] == "queued"
+    assert client.post(f"/tasks/{state['task_id']}/amendments", json=payload).json() == amended.json()
+    with engine.store.transaction() as db:
+        assert db.execute("SELECT status FROM turns WHERE id=?", (old["run_id"],)).fetchone()[0] == "cancelled"
+        assert db.execute("SELECT COUNT(*) FROM events WHERE task_id=? AND kind='assignment.cancelled'", (state["task_id"],)).fetchone()[0] == 1
+    with pytest.raises(Failure, match="修订|控制"):
+        engine.roles.start(old)
+
+
+def test_obsolete_waiting_child_stays_unsettled_until_pending_effect_is_reconciled(client, app):
+    state, _ = task(client)
+    engine = app.state.engine
+    handle = prepare(engine, state)
+    old = engine.roles.start(engine.roles.read(handle["assignment_id"]))
+    with engine.store.transaction() as db:
+        db.execute("INSERT INTO actions VALUES(?,?,?,?,?,?,?,?,NULL)", ("pending-child", state["task_id"], old["run_id"], "pending", 1, "fs.write_workspace", "{}", "pending"))
+    engine.roles.stop(old["assignment_id"], "waiting", blocker={"code": "RECONCILIATION_REQUIRED"})
+    assert client.post(f"/tasks/{state['task_id']}/amendments", json={"request_id": "amend-pending-child", "expected_spec_revision": 1, "objective": "新修订"}).status_code == 200
+    engine.roles.cancel_obsolete(state["task_id"])
+    assert engine.roles.read(old["assignment_id"])["status"] == "waiting"
+    current_state = engine.store.task(state["task_id"])
+    reply = client.post(f"/tasks/{state['task_id']}/resume", json={"request_id": "resume-pending-child", "expected_state_version": current_state["state_version"]})
+    assert reply.status_code == 409 and reply.json()["error"]["code"] == "RECONCILIATION_REQUIRED"
+    with engine.store.transaction() as db:
+        db.execute("UPDATE actions SET status='failed',result=? WHERE id='pending-child'", ('{"kind":"failed"}',))
+    engine.roles.cancel_obsolete(state["task_id"])
+    assert engine.roles.read(old["assignment_id"])["status"] == "cancelled"
+
+
+def test_revision_revocation_waits_for_actual_worker_stop_and_settles_after_parent_resumes(client, app):
+    from test_jobs import ExecutorFixture
+
+    from forestry_agent.jobs import Jobs
+
+    state, _ = task(client)
+    engine = app.state.engine
+    handle = prepare(engine, state, role="code_experiment")
+    old = engine.roles.start(engine.roles.read(handle["assignment_id"]))
+    child = Deps(engine, state["task_id"], old["run_id"], 1, assignment_id=old["assignment_id"])
+    fake = ExecutorFixture()
+    jobs = Jobs(engine.config, engine.store, engine.resources, fake)
+    jobs.settle_obsolete_assignments = engine.roles.cancel_obsolete
+    submitted = engine.perform(child, "obsolete-code", "code.execute", {}, lambda action: jobs.submit(state["task_id"], 1, action, "print(42)", [], 60))
+    jobs.tick()
+    assert fake.container["State"]["Running"]
+    engine.roles.stop(old["assignment_id"], "waiting", blocker={"code": "JOB_PENDING"})
+    amended = client.post(f"/tasks/{state['task_id']}/amendments", json={"request_id": "revoke-code", "expected_spec_revision": 1,
+        "objective": "只核对撤销，不再运行代码", "constraints": {"allowed_capabilities": ["job.observe"]}}).json()
+    assert engine.roles.read(old["assignment_id"])["status"] == "waiting"
+    resumed = client.post(f"/tasks/{state['task_id']}/resume", json={"request_id": "resume-revoked", "expected_state_version": amended["state_version"]})
+    assert resumed.status_code == 200 and resumed.json()["status"] == "created"
+    fake.refuse_stop = True
+    jobs.tick()
+    assert jobs.read(submitted["job"]["job_id"])["status"] == "running"
+    assert engine.roles.read(old["assignment_id"])["status"] == "waiting"
+    with pytest.raises(Failure), engine.store.transaction() as db:
+        engine.roles.authorize(db, child, "code.execute", {})
+    fake.refuse_stop = False
+    jobs.tick()
+    assert jobs.read(submitted["job"]["job_id"])["status"] == "cancelled"
+    assert engine.roles.read(old["assignment_id"])["status"] == "cancelled"
+    assert engine.store.task(state["task_id"])["cancellation_requested"] is False

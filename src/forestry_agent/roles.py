@@ -345,13 +345,28 @@ class Roles:
         if db is None:
             with self.store.transaction() as connection:
                 return self.cancel_waiting(task_id, connection)
+        self._cancel_inactive(task_id, db)
+
+    def cancel_obsolete(self, task_id, db=None, *, current_revision=None):
+        if db is None:
+            with self.store.transaction() as connection:
+                return self.cancel_obsolete(task_id, connection, current_revision=current_revision)
+        revision = current_revision or self.store.read_task(db, task_id)["spec_revision"]
+        self._cancel_inactive(task_id, db, current_revision=revision)
+
+    def _cancel_inactive(self, task_id, db, *, current_revision=None):
         for row in db.execute("SELECT payload FROM assignments WHERE task_id=? AND status IN ('queued','waiting')", (task_id,)).fetchall():
             value = json.loads(row["payload"])
+            if current_revision is not None and value["spec_revision"] == current_revision:
+                continue
             pending = db.execute("SELECT 1 FROM actions WHERE turn_id=? AND status='pending'", (value["run_id"],)).fetchone()
             jobs = db.execute("SELECT 1 FROM jobs j JOIN actions a ON j.action_id=a.id WHERE a.turn_id=? AND j.status NOT IN ('succeeded','failed','cancelled','timed_out')", (value["run_id"],)).fetchone()
             if not pending and not jobs:
-                value.update(status="cancelled", blocker=None)
+                blocker = {"code": "SPEC_SUPERSEDED", "message": "委派所属规范已被替代，旧副作用已结清，不再恢复"} if current_revision is not None else None
+                value.update(status="cancelled", blocker=blocker)
                 self.save(db, value)
                 db.execute("UPDATE turns SET status='cancelled' WHERE id=? AND task_id=?",
                            (value["run_id"], value["task_id"]))
-                self.store.event(db, task_id, "assignment.cancelled", {"assignment_id": value["assignment_id"]})
+                self.store.event(db, task_id, "assignment.cancelled", {"assignment_id": value["assignment_id"],
+                    **({"reason": "SPEC_SUPERSEDED", "spec_revision": value["spec_revision"],
+                        "current_spec_revision": current_revision} if current_revision is not None else {})})

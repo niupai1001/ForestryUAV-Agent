@@ -105,6 +105,7 @@ class Engine:
         self.contexts = Contexts(store, config.workspace_root)
         self.roles = Roles(self)
         self.jobs.cancel_assignments = self.roles.cancel_waiting
+        self.jobs.settle_obsolete_assignments = self.roles.cancel_obsolete
         self.network = Network(self)
         self.acquisition = Acquisition(self)
         self.resolution = DependencyResolution(self)
