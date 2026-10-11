@@ -27,6 +27,7 @@ from .contracts import (
     MemoryUpdate,
     Message,
     RegisterResource,
+    RegisterResourceFile,
     SettingsChange,
     TaskCreate,
 )
@@ -197,7 +198,46 @@ def create_app(config: Config, *, enable_agent: bool = True):
     @app.get("/resources/{resource_id}/children")
     def children(resource_id: str, relative_path: str = "", cursor: int = Query(0, ge=0),
                  limit: int = Query(100, ge=1, le=200)):
-        return resources.list(resource_id, relative_path, cursor, limit)
+        try:
+            return resources.list(resource_id, relative_path, cursor, limit)
+        except OSError:
+            raise Failure("PRECONDITION_MISSING", "目录不存在或当前不可读取，请检查源文件", 422) from None
+
+    @app.get("/resources/{resource_id}/preview")
+    def source_preview(resource_id: str, relative_path: str = "", page: int = Query(0, ge=0),
+                       expected_version: str | None = Query(None, max_length=200)):
+        # This authenticated operator view does not give the model new input grants.
+        try:
+            path = resources.resolve(resource_id, relative_path)
+            if path.suffix.lower() in {".pdf", ".docx"}:
+                result = engine.documents.read(None, resource_id, relative_path, page)
+                source_version = result["citation"]["source_version"]
+                unit = result["citation"]["unit"]
+            else:
+                result = resources.read(resource_id, relative_path, page * 12000, align_utf8=True)
+                source_version = result["version"]
+                unit = f"bytes:{result['offset']}:{result['next']}"
+                result["next_page"] = page + 1 if result["has_more"] else None
+        except OSError:
+            raise Failure("PRECONDITION_MISSING", "文件不存在或当前不可读取，请检查源文件", 422) from None
+        if expected_version is not None and source_version != expected_version:
+            raise Failure("VERSION_CONFLICT", "源文件已变化，请从第一页重新预览", 409)
+        return {"text": result["text"], "source_version": source_version, "unit": unit,
+                "has_more": result["has_more"], "next_page": result["next_page"]}
+
+    @app.post("/resources/{resource_id}/files")
+    def register_source_file(resource_id: str, payload: RegisterResourceFile):
+        try:
+            path = resources.resolve(resource_id, payload.relative_path)
+            if not path.is_file():
+                raise Failure("PRECONDITION_MISSING", "请选择授权目录内的单文件", 422)
+            with store.transaction() as db:
+                parent = json.loads(db.execute("SELECT payload FROM resources WHERE id=?", (resource_id,)).fetchone()[0])
+            return resources.register({"request_id": payload.request_id, "path": str(path),
+                "classification": parent["classification"], "read_only": True,
+                "parent_resource_id": resource_id, "relative_path": payload.relative_path})
+        except OSError:
+            raise Failure("PRECONDITION_MISSING", "文件不存在或当前不可读取，请重新选择", 422) from None
 
     @app.get("/tasks")
     def tasks():

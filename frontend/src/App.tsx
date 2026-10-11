@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import MemoryPanel from './MemoryPanel';
 import KnowledgePanel from './KnowledgePanel';
 import JobsPanel from './JobsPanel';
+import SourceBrowser from './SourceBrowser';
 import { api } from './api';
 import { ArrowDownToLine, ArrowUpRight, Check, ChevronDown, CircleHelp, File, FolderOpen,
   Leaf, MessageSquare, MoreHorizontal, Pause, Play, Plus, RefreshCw, Send, Settings,
@@ -156,6 +157,17 @@ export default function App() {
       setResources(await api('/resources')); setSelected(old=>[...new Set([...old,source.resource_id])]);
       setShowSource(false); setPath('');
     });
+  };
+  const selectSourceFile = async (source:Resource) => {
+    setResources(await api<Resource[]>('/resources'));
+    if(active) {
+      openAmendment();setAmendInputs([...new Set([...active.input_refs,source.resource_id])]);
+      setShowSource(false);
+    }else if(!publicTask||source.classification==='public') {
+      setSelected(old=>[...new Set([...old,source.resource_id])]);setShowSource(false);
+    }else {
+      throw new Error('单文件已登记；公开任务不能选入私密来源。请关闭公开信息选项后再选择。');
+    }
   };
   const openPreview = async (artifact:Artifact) => {
     setPreview(artifact); setPreviewText('');
@@ -319,7 +331,7 @@ export default function App() {
       {amendCaps!==null&&<fieldset><legend>允许能力（仍受模型、角色与授权上限约束）</legend><div className="capability-grid">{Object.entries(capabilityLabels).map(([cap,label])=><label key={cap}><input type="checkbox" checked={amendCaps.includes(cap)} onChange={e=>setAmendCaps(old=>e.target.checked?[...(old??[]),cap]:(old??[]).filter(c=>c!==cap))}/>{label}</label>)}</div></fieldset>}
       <div className="modal-actions"><button disabled={busy} onClick={()=>setAmending(null)}>返回</button><button className="primary" disabled={busy||!amendObjective.trim()} onClick={()=>void saveAmendment()}>保存规范修订</button></div>
     </div></div>}
-    {showSource&&<div className="modal-backdrop"><div className="modal"><div className="modal-heading"><h2>登记本地数据源</h2><button onClick={()=>setShowSource(false)}><X size={20}/></button></div><p>输入这台电脑上的绝对文件或目录路径。此操作授予只读访问，不上传或复制整个目录。</p><p role="note">{directoryInputNote}</p><label>本地路径<input value={path} onChange={e=>setPath(e.target.value)} placeholder="C:\\数据\\样地文件"/></label><label className="checkbox"><input type="checkbox" checked={privateSource} onChange={e=>setPrivateSource(e.target.checked)}/>私密数据，禁止未经授权外传</label><div className="modal-actions"><button onClick={()=>setShowSource(false)}>返回</button><button className="primary" disabled={!path.trim()} onClick={()=>void addSource()}>登记只读资源</button></div></div></div>}
+    {showSource&&<div className="modal-backdrop"><div className="modal source-modal"><div className="modal-heading"><h2>登记本地数据源</h2><button aria-label="关闭本地数据源" onClick={()=>setShowSource(false)}><X size={20}/></button></div><p>输入这台电脑上的绝对文件或目录路径。此操作授予只读访问，不上传或复制整个目录。</p><p role="note">{directoryInputNote}</p><label>本地路径<input value={path} onChange={e=>setPath(e.target.value)} placeholder="C:\\数据\\样地文件"/></label><label className="checkbox"><input type="checkbox" checked={privateSource} onChange={e=>setPrivateSource(e.target.checked)}/>私密数据，禁止未经授权外传</label><div className="modal-actions"><button onClick={()=>setShowSource(false)}>返回</button><button className="primary" disabled={!path.trim()} onClick={()=>void addSource()}>登记只读资源</button></div><SourceBrowser resources={resources} activeTask={!!active} onRegistered={selectSourceFile}/></div></div>}
     {showKnowledge&&<div className="modal-backdrop"><div className="modal settings-modal"><div className="modal-heading"><h2>本地知识与来源</h2><button aria-label="关闭本地知识" onClick={()=>setShowKnowledge(false)}><X size={20}/></button></div>
       <KnowledgePanel resources={resources} tasks={tasks} onError={setError}/></div></div>}
     {showSettings&&<div className="modal-backdrop"><div className="modal settings-modal"><div className="modal-heading"><h2>模型与执行环境</h2><button onClick={()=>setShowSettings(false)}><X size={20}/></button></div><p>后续新任务使用选定模型，当前任务保留自己的配置快照。</p><label>默认本地模型<select value={settings?.default_model||'small'} onChange={e=>void guarded(async()=>{

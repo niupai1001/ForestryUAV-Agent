@@ -83,6 +83,11 @@ class RegisterResource(Boundary):
     read_only: Literal[True] = True
 
 
+class RegisterResourceFile(Boundary):
+    request_id: str = Field(min_length=1, max_length=200)
+    relative_path: str = Field(min_length=1, max_length=4096)
+
+
 class SettingsChange(Boundary):
     request_id: str = Field(min_length=1, max_length=200)
     expected_version: int = Field(ge=1)

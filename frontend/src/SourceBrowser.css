@@ -1,0 +1,16 @@
+.source-modal{max-height:90vh;overflow-y:auto;width:680px}
+.source-browser{border-top:1px solid #e3eadd;margin-top:24px;padding-top:18px}
+.source-browser h3{font-size:15px;margin:0 0 18px}
+.source-location{display:flex;justify-content:space-between;gap:12px;font-size:12px;overflow-wrap:anywhere}
+.source-location span{min-width:0}.source-location small{flex-shrink:0}
+.source-browser small{color:#789061;font-size:11px;overflow-wrap:anywhere}
+.source-browser-actions{display:flex;flex-wrap:wrap;gap:10px;margin:14px 0}
+.source-browser-actions button{border:1px solid #dce5d2;border-radius:6px;padding:9px 12px;font-size:12px}
+.source-browser-actions .primary{background:#365e3c;color:#fff;border-color:#365e3c}
+.source-entries{list-style:none;margin:12px 0;padding:0;max-height:35vh;overflow:auto}
+.source-entries li{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid #edf2e8}
+.source-entries button{min-width:0;font-size:12px;justify-content:flex-start;text-align:left}
+.source-entries button span{overflow-wrap:anywhere}.source-entries button svg{flex-shrink:0}
+.source-browser pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:40vh;overflow:auto;font:12px/1.8 Consolas,"Microsoft YaHei",monospace;background:#f8faf3;border:1px solid #e5ebda;border-radius:6px;padding:12px}
+.source-browser [role=alert]{color:#ad8055}.source-browser button:disabled{opacity:.55}
+@media(max-width:600px){.source-modal{width:100%}.source-location{flex-direction:column}.source-entries small{flex-shrink:0}}

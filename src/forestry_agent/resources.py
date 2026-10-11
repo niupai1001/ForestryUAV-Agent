@@ -45,6 +45,10 @@ class Resources:
         if not raw.is_absolute():
             raise Failure("SCHEMA_INVALID", "登记资源须使用用户选择的绝对路径")
         path = raw.resolve(strict=True)
+        if payload.get("parent_resource_id"):
+            granted_file = self.resolve(payload["parent_resource_id"], payload["relative_path"])
+            if path != granted_file or not path.is_file():
+                raise Failure("PERMISSION_DENIED", "单文件不再位于已授权来源范围", 403)
         internal = self.workspace / ".forestry"
         if path == Path(path.anchor) or path.is_relative_to(internal) or internal.is_relative_to(path):
             raise Failure("PERMISSION_DENIED", "不接受整个磁盘或应用内部状态目录作为数据源", 403)
