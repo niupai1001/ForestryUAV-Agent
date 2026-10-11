@@ -1,0 +1,54 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "expected_spec_revision": {
+      "minimum": 1,
+      "title": "Expected Spec Revision",
+      "type": "integer"
+    },
+    "stage": {
+      "enum": [
+        "chm",
+        "seeds",
+        "instances"
+      ],
+      "title": "Stage",
+      "type": "string"
+    },
+    "input_refs": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "maxProperties": 10,
+      "title": "Input Refs",
+      "type": "object"
+    },
+    "method_id": {
+      "const": "lidar.p2r_lmf_dalponte.v1",
+      "default": "lidar.p2r_lmf_dalponte.v1",
+      "title": "Method Id",
+      "type": "string"
+    },
+    "seconds": {
+      "default": 900,
+      "maximum": 14400,
+      "minimum": 1,
+      "title": "Seconds",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "request_id",
+    "expected_spec_revision",
+    "stage",
+    "input_refs"
+  ],
+  "title": "CanopyStageRequest",
+  "type": "object"
+}

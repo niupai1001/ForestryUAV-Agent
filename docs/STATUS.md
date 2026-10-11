@@ -1,5 +1,7 @@
 # Implementation / 实施状态
 
+1.50（2026-10-12）：已交付真实工作云→0.5米无填洞p2r CHM→LMF整架次种子协调→Dalponte实例→原始Z分割LAZ、ID/UID、GPKG/指标与中文partial报告。48个高冠层候选、2317.5平方米有效支持；全部1156172原始点保留，treeID=0未分配语义明确。复用原PDAL计算、输入与科学镜像；三个R文件入口失败发生在CHM计算前并留档，成功CHM与下游各只计算一次。仅核对新阶段/新产物，0模型实验，已有基础不重跑。结果视图新增实际预览/指标/下载；完整ROI/缓冲分块/跨块ID、独立科学精度、ODM与阶段3继续，见[LIDAR-CANOPY-zh](LIDAR-CANOPY-zh.md)/[English](LIDAR-CANOPY-en.md)。
+
 1.49（2026-10-12）：真实flight02经原授权/持久Jobs/断网6GiB非root容器生成DTM/DSM、地面计数/距离/支持、DSM−DTM、HAG及R工作LAS/中文partial报告。实际PDAL2.9.3与固定科学镜像/包锁保留，R/lidR版本已观察但实际R分割尚未执行，PROJ启动诊断保留。新增任务冻结科学镜像，等价配方调用复用原Job；未知/归一化/不适用方法/未授权来源拒绝。首轮数组赋值、旧LAS扩展字段传输、OriginalZ末位转写问题均按具体问题修复；原Task修订明确授权原产物，地表/HAG未重算，只补映射、工作云/报告和精确OriginalZ元数据，原失败/严格审计记录保持。已有通过检查复用，只复核新恢复/去重与OriginalZ问题；阶段1/模型/UI未重跑，主服务未操作。最终证据lidar-terrain-final-20261012-v1.json，最新工作云见其中locator；全文/限制见[LIDAR-TERRAIN-zh](LIDAR-TERRAIN-zh.md)/[English](LIDAR-TERRAIN-en.md)。单木/分块/领域UI、ODM与阶段3继续。
 
 1.48（2026-10-12）：阶段2新增inspect-cloud离线CLI，复用laspy/pyproj成熟头/CRS解析，明确文件观察、发布者声明、未知Z/地面支持/运行时。实际取得最小完整原始UAV LAS flight02并核对成员大小/CRC，完整文件SHA匹配CLI输出，1,156,172点/文件EPSG:2154；没有把首批分类当地面支持。只验证新增检查与一个具体CRS错误类型，不重跑冻结基础/模型/Jobs/UI，也未操作主服务。当前仅输入检查通过，科学产品尚未计算，WP12其余规划及WP13–15/阶段3继续。见[中文入口](CLOUD-INPUTS-zh.md)/[English](CLOUD-INPUTS-en.md)。

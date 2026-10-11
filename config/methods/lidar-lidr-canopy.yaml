@@ -1,0 +1,14 @@
+schema_version: 1
+method_id: lidar.p2r_lmf_dalponte.v1
+lidr_version: 4.2.3
+chm_resolution_m: 0.5
+p2r_subcircle_m: 0
+p2r_na_fill: null
+lmf_window_m: 5
+tree_min_height_m: 2
+th_seed: 0.45
+th_cr: 0.55
+max_crown_diameter_m: 10
+scope: whole_supported_flight
+point_assignment: supported_crown_projection_and_hag_at_least_hmin
+stages: [chm, seeds, instances]

@@ -1,0 +1,10 @@
+.lidar-panel{padding:20px;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.lidar-panel h3{margin:0 0 8px;font-size:18px}.lidar-panel h4{margin:20px 0 8px}
+.lidar-summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}
+.lidar-summary div{background:#f4f7f5;border:1px solid #dce7df;border-radius:8px;padding:10px}
+.lidar-summary dt{color:#596c60;font-size:11px}.lidar-summary dd{margin:4px 0 0;font-size:19px;font-weight:650;color:#264e38}
+.lidar-panel figure{margin:18px 0}.lidar-panel img{display:block;width:100%;image-rendering:pixelated;background:#f0f2f0;border:1px solid #dce7df}
+.lidar-panel figcaption{font-weight:600;margin-top:6px}.lidar-panel small{color:#657269;font-size:11px}
+.lidar-table-scroll{max-height:320px;overflow:auto}.lidar-panel table{width:100%;border-collapse:collapse;font-size:11px}
+.lidar-panel th,.lidar-panel td{text-align:right;border-bottom:1px solid #dce7df;padding:6px 4px;white-space:nowrap}
+.lidar-panel th{position:sticky;top:0;background:#f4f7f5}.lidar-panel ul{padding-left:18px}.lidar-panel a{color:#286342}

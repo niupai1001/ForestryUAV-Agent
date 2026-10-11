@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import MemoryPanel from './MemoryPanel';
 import KnowledgePanel from './KnowledgePanel';
 import JobsPanel from './JobsPanel';
+import LidarPanel from './LidarPanel';
 import SourceBrowser from './SourceBrowser';
 import { api } from './api';
 import { ArrowDownToLine, ArrowUpRight, Check, ChevronDown, CircleHelp, File, FolderOpen,
@@ -11,7 +12,7 @@ import { ArrowDownToLine, ArrowUpRight, Check, ChevronDown, CircleHelp, File, Fo
 type Task = {task_id: string; objective: string; status: string; state_version: number;
   spec_revision: number; model_profile: string; input_refs: string[]; artifact_ids: string[];
   requested_method_id?:string|null; constraints?:{allowed_capabilities?:string[]|null}; cancellation_requested?:boolean;
-  config_snapshot?: {harness_mode?: string;context_classification?:string};
+  config_snapshot?: {harness_mode?: string;context_classification?:string;science_image?:string};
   messages: {id: string; role: string; text: string; limitations?: string[]}[];
   blockers: {code: string; message: string}[]; action_count: number;
   last_usage?: {requests: number; input_tokens: number; output_tokens: number}};
@@ -72,7 +73,7 @@ export default function App() {
   const [amending,setAmending] = useState<Task|null>(null), [amendObjective,setAmendObjective] = useState('');
   const [amendInputs,setAmendInputs] = useState<string[]>([]), [amendCaps,setAmendCaps] = useState<string[]|null>(null);
   const [path,setPath] = useState(''), [privateSource,setPrivateSource] = useState(true);
-  const [diagnostics,setDiagnostics] = useState<any>(null), [panel,setPanel] = useState<'artifacts'|'trace'|'roles'|'plan'|'jobs'>('artifacts');
+  const [diagnostics,setDiagnostics] = useState<any>(null), [panel,setPanel] = useState<'artifacts'|'trace'|'roles'|'plan'|'jobs'|'lidar'>('artifacts');
   const [preview,setPreview] = useState<Artifact|null>(null), [previewText,setPreviewText] = useState('');
   const [candidate,setCandidate] = useState<Candidate|null>(null), [acceptComment,setAcceptComment] = useState('');
   const seen = useRef(new Set<string>()), input = useRef<HTMLTextAreaElement>(null);
@@ -287,10 +288,10 @@ export default function App() {
           </div>
         </section>
         <aside className="inspector"><section className="inspector-card">
-          <div className="inspector-tabs"><button className={panel==='artifacts'?'active':''} onClick={()=>setPanel('artifacts')}>产物<span>{artifacts.length}</span></button><button className={panel==='trace'?'active':''} onClick={()=>setPanel('trace')}>执行记录</button><button className={panel==='jobs'?'active':''} onClick={()=>setPanel('jobs')}>作业</button><button className={panel==='plan'?'active':''} onClick={()=>setPanel('plan')}>计划</button><button className={panel==='roles'?'active':''} onClick={()=>setPanel('roles')}>委派<span>{assignments.length}</span></button></div>
+          <div className="inspector-tabs">{active?.config_snapshot?.science_image&&<button className={panel==='lidar'?'active':''} onClick={()=>setPanel('lidar')}>林业结果</button>}<button className={panel==='artifacts'?'active':''} onClick={()=>setPanel('artifacts')}>产物<span>{artifacts.length}</span></button><button className={panel==='trace'?'active':''} onClick={()=>setPanel('trace')}>执行记录</button><button className={panel==='jobs'?'active':''} onClick={()=>setPanel('jobs')}>作业</button><button className={panel==='plan'?'active':''} onClick={()=>setPanel('plan')}>计划</button><button className={panel==='roles'?'active':''} onClick={()=>setPanel('roles')}>委派<span>{assignments.length}</span></button></div>
           {panel==='artifacts'?<div className="artifact-list">{artifacts.length?artifacts.map(a=><div className="artifact-item" key={a.artifact_id}><div className="file-icon"><File size={20}/></div><div><button onClick={()=>void openPreview(a)}>{a.name}</button><span>{(a.size_bytes/1024).toFixed(1)} KB · 校验和已检查</span></div><a title="下载产物" href={a.download_url}><ArrowDownToLine size={15}/></a></div>):<div className="inspector-empty"><div><FolderOpen size={26}/></div><strong>结果会出现在这里</strong><p>真实生成的报告、代码与表格<br/>支持版本检查、预览和下载。</p></div>}</div>:
             panel==='trace'?<div className="trace-list">{tools.length?tools.map(e=><details key={e.event_id}><summary><span className={e.type==='action.observed'?'observed':'started'}/>{e.payload.tool}<small>{e.type==='action.observed'?'已返回':'调用'}</small></summary><pre>{JSON.stringify(e.payload.arguments||e.payload.result,null,2)}</pre></details>):<div className="inspector-empty"><Terminal size={26}/><p>工具调用后显示真实参数和结果</p></div>}</div>:
-            panel==='jobs'?<JobsPanel key={active?.task_id||'empty'} taskId={active?.task_id||''} refreshKey={events.filter(e=>e.type.startsWith('job.')).slice(-1)[0]?.event_id||''} onError={setError}/>:panel==='plan'?<div className="plan-list"><p className="muted">助手的工作安排与自报进度；完成状态仍须实际检查和验收。</p>{plan?.items.length?<ol>{plan.items.map(item=><li key={item.id} data-status={item.status}><strong>{item.content}</strong><span>{planLabels[item.status]||item.status}</span></li>)}</ol>:<p className="empty-small">当前回合尚未保存计划。</p>}</div>:
+            panel==='lidar'?<LidarPanel taskId={active?.task_id||''} artifacts={artifacts} onError={setError}/>:panel==='jobs'?<JobsPanel key={active?.task_id||'empty'} taskId={active?.task_id||''} refreshKey={events.filter(e=>e.type.startsWith('job.')).slice(-1)[0]?.event_id||''} onError={setError}/>:panel==='plan'?<div className="plan-list"><p className="muted">助手的工作安排与自报进度；完成状态仍须实际检查和验收。</p>{plan?.items.length?<ol>{plan.items.map(item=><li key={item.id} data-status={item.status}><strong>{item.content}</strong><span>{planLabels[item.status]||item.status}</span></li>)}</ol>:<p className="empty-small">当前回合尚未保存计划。</p>}</div>:
             <div className="assignment-list">{assignments.length?assignments.map(a=><details key={a.assignment_id} className="assignment-item"><summary><strong>{roleNames[a.role_id]||a.role_id}</strong><span>{assignmentLabels[a.status]||a.status}</span></summary>
               <p>{a.request.objective}</p><small>{a.model_requests} 次模型请求 · {a.actions} 次动作 · {a.effective_input_refs.length} 个授权输入</small>
               {a.blocker&&<p className="limitations">{a.blocker.message}</p>}{a.result&&<><p>{a.result.summary}</p>
