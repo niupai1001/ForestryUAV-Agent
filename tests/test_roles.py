@@ -88,6 +88,11 @@ async def test_native_two_delegations_are_isolated_scoped_and_do_not_finish_pare
         assert not engine.store.task(state["task_id"])["messages"]
         assert set(scopes_seen) == {"data", "quality"}
         assert len(returns_seen) == 2
+        for returned in returns_seen:
+            receipt = json.loads(returned.content) if isinstance(returned.content, str) else returned.content
+            owned = next(a for a in assignments if a["assignment_id"] == receipt["assignment_id"])
+            assert receipt == engine.roles.result_receipt(owned)
+            assert receipt["role_id"] == owned["role_id"] and receipt["artifact_ids"] == owned["result"]["artifact_ids"]
         assert engine.store.task(state["task_id"])["model_requests"] == 9
     finally:
         await connection.aclose()

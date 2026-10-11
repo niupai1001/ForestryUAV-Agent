@@ -91,6 +91,11 @@ KINDS = {"environment": "environment_manifest", "data": "dataset_manifest",
 class Roles:
     """Application assignment facts; native Harness owns each child model loop."""
 
+    @staticmethod
+    def result_receipt(value):
+        return {**(value["result"] or {"status": value["status"], "blocker": value["blocker"]}),
+                "assignment_id": value["assignment_id"], "role_id": value["role_id"]}
+
     def __init__(self, engine):
         self.engine, self.store = engine, engine.store
         path = engine.config.roles_path or Path(__file__).with_name("roles.yaml")

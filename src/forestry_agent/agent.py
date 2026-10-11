@@ -499,14 +499,14 @@ class Engine:
                 return encode(handle)
             value = self.roles.read(handle["assignment_id"], ctx.deps.task_id)
             if value["status"] in ASSIGNMENT_TERMINAL:
-                return encode(value["result"] or {"status": value["status"], "blocker": value["blocker"]})
+                return encode(self.roles.result_receipt(value))
             await self.save_assignment_wait(ctx, value, native_run_id or ctx.run_id)
             token = CURRENT_ASSIGNMENT.set(value["assignment_id"])
             try:
                 result = await handler(args)
                 if self.roles.read(value["assignment_id"])["status"] == "queued":
                     self.roles.stop(value["assignment_id"], "failed", blocker={"code": "NATIVE_DELEGATION_REFUSED", "message": str(result)[:1500]})
-                return result
+                return encode(self.roles.result_receipt(self.roles.read(value["assignment_id"], ctx.deps.task_id)))
             except Failure as error:
                 return encode({"assignment_id": value["assignment_id"], "status": self.roles.read(value["assignment_id"])["status"],
                                "error": {"code": error.code, "message": str(error)}})
