@@ -8,7 +8,7 @@ type Selection = {id:string;path:string;kind:string;cursor:number;version?:strin
 type Entries = {entries:{name:string;kind:string;size_bytes?:number|null;readable?:boolean}[];next:number;has_more:boolean};
 type Preview = {text:string;source_version:string;unit:string;has_more:boolean;next_page:number|null};
 
-export default function SourceBrowser({resources,activeTask,allowRegistration=true,onRegistered}:{resources:Resource[];activeTask:boolean;allowRegistration?:boolean;
+export default function SourceBrowser({resources,allowRegistration=true,onRegistered}:{resources:Resource[];activeTask:boolean;allowRegistration?:boolean;
   onRegistered:(resource:Resource)=>Promise<void>}) {
   const [selection,setSelection] = useState<Selection|null>(null);
   const [entries,setEntries] = useState<Entries|null>(null), [preview,setPreview] = useState<Preview|null>(null);
@@ -63,7 +63,7 @@ export default function SourceBrowser({resources,activeTask,allowRegistration=tr
     </select></label>
     {resource&&selection&&<>
       <div className="source-location"><span>{resource.name}{selection.path?` / ${selection.path}`:''}</span>
-        <small>{resource.classification==='private'?'私密 · 只读':'公开 · 只读'}</small></div>
+        <small>只读引用</small></div>
       <div className="source-browser-actions">
         {selection.path&&<button disabled={registering||loading} onClick={parent}>返回上级</button>}
         <button disabled={registering||loading} onClick={()=>setSelection({...selection,cursor:0,version:undefined})}>刷新来源</button>
@@ -84,7 +84,7 @@ export default function SourceBrowser({resources,activeTask,allowRegistration=tr
         </div>
       </>}
       {preview&&<>
-        <small>源版本：{preview.source_version} · {preview.unit}</small>
+        <details><summary>文件信息</summary><small>{preview.source_version} · {preview.unit}</small></details>
         <pre aria-label="源文件预览">{preview.text||'（空文件）'}</pre>
         <div className="source-browser-actions">
           {selection.cursor>0&&<button disabled={registering} onClick={()=>setSelection({...selection,cursor:0,version:undefined})}>回到第一页</button>}
@@ -93,7 +93,7 @@ export default function SourceBrowser({resources,activeTask,allowRegistration=tr
       </>}
       {allowRegistration&&resource.kind==='directory'&&selection.kind==='file'&&<div className="source-browser-actions">
         <button className="primary" disabled={registering||loading} onClick={()=>void registerFile()}>
-          {registering?'正在登记…':activeTask?'登记单文件并准备规范修订':'登记并选择单文件'}</button>
+          {registering?'正在添加…':'添加这个文件'}</button>
       </div>}
     </>}
   </section>;

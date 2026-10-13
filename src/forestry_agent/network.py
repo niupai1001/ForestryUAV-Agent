@@ -345,6 +345,28 @@ class Network:
         self.engine, self.store = engine, engine.store
         self.http = http or PublicHTTP()
 
+    def disable_web_grants(self):
+        if self.engine.config.search_enabled:
+            return
+        with self.store.transaction() as db:
+            rows = db.execute("SELECT id,task_id,payload FROM approvals WHERE status IN ('pending','approved')").fetchall()
+            affected = set()
+            for row in rows:
+                value = json.loads(row['payload'])
+                if value['request']['kind'] not in {'web.search', 'web.read'}:
+                    continue
+                value.update(status='revoked', resolved_at=now(), runtime_reason='web_capability_disabled')
+                db.execute("UPDATE approvals SET status='revoked',payload=? WHERE id=?", (encode(value), row['id']))
+                self.store.event(db, row['task_id'], 'approval.disabled', {'approval_id': row['id'], 'reason': 'web_capability_disabled'})
+                affected.add(row['task_id'])
+            for task_id in affected:
+                state = self.store.read_task(db, task_id)
+                if (state['status'] == 'waiting_user' and state['blockers']
+                        and all(b['code'] == 'APPROVAL_REQUIRED' for b in state['blockers'])
+                        and not db.execute("SELECT 1 FROM approvals WHERE task_id=? AND status IN ('pending','approved')", (task_id,)).fetchone()):
+                    state['blockers'] = []
+                    self.store.save_task(db, state, state['state_version'])
+
     def scope(self, state, kind, value, page=1):
         if kind == "web.search":
             provider = state["config_snapshot"].get("search", {})
@@ -480,12 +502,16 @@ class Network:
             return self.store.receipt(db, payload["request_id"], {"kind": "approval.resolve", "task_id": task_id, "approval_id": approval_id, **payload}, record)
 
     def execute(self, deps, action_id, kind, value, approval_id=None, page=1):
+        if kind in {'web.search', 'web.read'} and not self.engine.config.search_enabled:
+            raise Failure('CAPABILITY_DISABLED', '网页搜索与读取已暂缓，当前运行环境未启用', 403)
         state = self.store.task(deps.task_id)
         request, digest = self.scope(state, kind, value, page)
         admission = self.admit(deps, action_id, request, digest, approval_id)
         if isinstance(admission, dict):
             return admission
         def guard(_):
+            if not self.engine.config.search_enabled:
+                raise Failure('CAPABILITY_DISABLED', '网页搜索与读取已关闭', 403)
             current = self.store.task(deps.task_id)
             if current["spec_revision"] != deps.revision or current["pause_requested"] or current["cancellation_requested"]:
                 raise Failure("EXECUTION_STOPPED", "控制状态或修订阻止发送", 409)

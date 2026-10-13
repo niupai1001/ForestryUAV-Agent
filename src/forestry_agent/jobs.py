@@ -177,6 +177,9 @@ class Jobs:
         if seconds < 1 or seconds > self.config.max_code_seconds:
             raise Failure("RESOURCE_EXHAUSTED", "作业时限超出配置", 422)
         mounts = []
+        if runtime_profile == 'scientific':
+            input_refs, scientific_artifacts = self.resources.partition_refs(input_refs, task_id)
+            input_artifact_ids = list(dict.fromkeys([*(input_artifact_ids or []), *scientific_artifacts]))
         for ref in dict.fromkeys(input_refs):
             source = self.resources.resolve(ref, task_id=task_id)
             # Directory snapshots and link-safe bulk mounting require a later worker.
@@ -185,13 +188,18 @@ class Jobs:
             mounts.append({"resource_id": ref, "source": str(source), "target": f"/inputs/{ref}",
                            "version": version(source)})
         for ref in dict.fromkeys(input_artifact_ids or []):
-            if job_kind != "environment.prepare" or not self.input_artifact_validator:
+            if runtime_profile == 'scientific':
+                self.resources.partition_refs([ref], task_id)
+                artifact = self.resources.artifact(ref, task_id)
+            elif job_kind == 'environment.prepare' and self.input_artifact_validator:
+                artifact = self.input_artifact_validator(task_id, revision, ref)
+            else:
                 raise Failure("PERMISSION_DENIED", "产物输入仅用于经核验的离线依赖准备", 403)
-            artifact = self.input_artifact_validator(task_id, revision, ref)
             source = Path(artifact["locator"])
             if native_path(source).is_symlink() or "," in str(source):
                 raise Failure("PRECONDITION_MISSING", "依赖产物路径不支持链接或逗号", 422)
-            mounts.append({"artifact_id": ref, "source": str(source), "target": f"/inputs/{ref}", "version": version(source)})
+            mounts.append({"artifact_id": ref, "source": str(source), "target": f"/inputs/{ref}",
+                           "version": version(source), **({'sha256': artifact['sha256']} if runtime_profile else {})})
         environment = None
         if environment_artifact_id:
             if job_kind != "code.execute" or not self.environment_resolver:
@@ -239,6 +247,8 @@ class Jobs:
             if environment:
                 job["environment"] = environment
                 job["environment_tmpfs_bytes"] = 1024*1024*1024
+            if runtime_profile:
+                job['runtime_profile'] = runtime_profile
             if environment_recipe is not None:
                 job["environment_recipe"] = environment_recipe
             if source_recipe:
@@ -333,9 +343,14 @@ class Jobs:
     def verify_inputs(self, job):
         for mount in job["mounts"]:
             if mount.get("artifact_id"):
-                if not self.input_artifact_validator:
+                if job.get('runtime_profile') == 'scientific':
+                    artifact = self.resources.artifact(mount['artifact_id'], job['task_id'])
+                    if artifact['sha256'] != mount['sha256']:
+                        raise Failure('VERSION_CONFLICT', '科学输入产物校验和已变化', 409)
+                elif self.input_artifact_validator:
+                    artifact = self.input_artifact_validator(job["task_id"], job["spec_revision"], mount["artifact_id"])
+                else:
                     raise Failure("PRECONDITION_MISSING", "恢复缺少依赖产物核验器", 422)
-                artifact = self.input_artifact_validator(job["task_id"], job["spec_revision"], mount["artifact_id"])
                 source = Path(artifact["locator"])
             else:
                 source = self.resources.resolve(mount["resource_id"], task_id=job["task_id"])

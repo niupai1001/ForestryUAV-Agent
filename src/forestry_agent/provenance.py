@@ -9,10 +9,16 @@ from .store import encode
 
 
 def source_manifest(root: Path | None = None):
+    default_root = root is None
     root = root or Path(__file__).parent
     files = {path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
              for path in sorted(root.rglob('*')) if path.is_file() and path.suffix in
-             {'.py', '.yaml', '.html', '.js', '.css'} and '__pycache__' not in path.parts}
+             {'.py', '.R', '.yaml', '.html', '.js', '.css'} and '__pycache__' not in path.parts}
+    if default_root:
+        methods = root.parents[1] / 'config' / 'methods'
+        files.update({'config/methods/' + path.relative_to(methods).as_posix():
+                      hashlib.sha256(path.read_bytes()).hexdigest()
+                      for path in sorted(methods.rglob('*.yaml')) if path.is_file()})
     return {'files': files, 'sha256': hashlib.sha256(encode(files).encode()).hexdigest()}
 
 

@@ -1,0 +1,11 @@
+schema_version: 1
+method_id: lidar.roi_clip.v1
+parent_method: lidar.p2r_lmf_dalponte.v1
+area_basis: exact_projected_polygon_pixel_intersection
+pixel_weights: float64
+top_boundary: included
+point_boundary: included
+count_basis: accepted_crown_instance_with_apex_covered_by_roi
+point_assignment: preserve_parent_treeID_inside_roi_for_counted_instances_else_zero
+invalid_geometry: reject_without_automatic_repair
+independent_field_accuracy: not_assessed

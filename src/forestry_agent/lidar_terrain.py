@@ -34,8 +34,8 @@ def prepare_terrain(engine, task_id, request: TerrainRequest):
         raise Failure("PRECONDITION_MISSING", "指定方法不可用，不自动替换", 422)
     if not engine.config.science_image or not state["config_snapshot"].get("science_image"):
         raise Failure("PRECONDITION_MISSING", "任务没有冻结科学运行时", 422)
-    source = engine.resources.resolve(request.cloud_ref, task_id=task_id)
-    declared_source = engine.resources.resolve(request.declaration_ref, task_id=task_id)
+    source = engine.resources.resolve_input(request.cloud_ref, task_id)
+    declared_source = engine.resources.resolve_input(request.declaration_ref, task_id)
     if declared_source.stat().st_size > 32768:
         raise Failure("INPUT_LIMIT", "点云声明超过32KiB", 422)
     declaration = CloudDeclaration.model_validate_json(declared_source.read_bytes())
@@ -76,7 +76,7 @@ def prepare_terrain(engine, task_id, request: TerrainRequest):
             raise Failure("VERSION_CONFLICT", "恢复不能替换原源、方法或垂直声明", 409)
         inputs = {}
         for name, ref in request.resume_refs.items():
-            path = engine.resources.resolve(ref, task_id=task_id)
+            path = engine.resources.resolve_input(ref, task_id)
             artifact = next((a for a in previous_artifacts if a["name"] == name and Path(a["locator"]).resolve() == path), None)
             if not artifact:
                 raise Failure("PERMISSION_DENIED", "恢复文件必须是原Job已发布产物，并被明确授权为当前输入", 403)

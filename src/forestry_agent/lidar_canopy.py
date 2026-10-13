@@ -11,7 +11,7 @@ from pydantic import Field, model_validator
 from .contracts import Boundary, Failure
 
 METHOD_ID = "lidar.p2r_lmf_dalponte.v1"
-REGISTERED_METHODS = {METHOD_ID, "lidar.smrf_idw.v1"}
+REGISTERED_METHODS = {METHOD_ID, "lidar.smrf_idw.v1", "lidar.roi_clip.v1"}
 
 
 def method_spec():
@@ -49,7 +49,7 @@ def prepare_canopy(engine, task_id: str, request: CanopyStageRequest):
     if not engine.config.science_image or not state["config_snapshot"].get("science_image"):
         raise Failure("PRECONDITION_MISSING", "任务未冻结科学镜像", 422)
     for ref in request.input_refs.values():
-        path = engine.resources.resolve(ref, task_id=task_id)
+        path = engine.resources.resolve_input(ref, task_id)
         if not path.is_file():
             raise Failure("PRECONDITION_MISSING", "科学阶段须明确授权单文件", 422)
     spec = method_spec()

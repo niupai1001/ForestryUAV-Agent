@@ -180,6 +180,8 @@ class Store:
                 "created_at": now(), "updated_at": now(), "user_event_id": event_id,
                 "messages": [], "artifact_ids": [], "blockers": [], "cancellation_requested": False,
                 "pause_requested": False, "action_count": 0, "model_requests": 0, "acceptance": None}
+            from .attachments import claim_uploads
+            claim_uploads(db, payload['input_refs'], state['task_id'])
             db.execute("INSERT INTO tasks VALUES(?,?,?,?,?,?)",
                 (state["task_id"], 1, 1, "created", encode(state), now()))
             db.execute("INSERT INTO specs VALUES(?,?,?)", (state["task_id"], 1, encode(payload)))
@@ -197,7 +199,8 @@ class Store:
             version = state["state_version"]
             if expected is not None and expected != version:
                 raise Failure("VERSION_CONFLICT", "状态版本已变化，请刷新", 409)
-            if state["status"] in {"completed", "failed", "cancelled", "publishing"}:
+            if state["status"] in {"completed", "failed", "cancelled", "publishing"} and not (
+                    state["status"] == "completed" and kind in {"user.message", "task.sources_changed"}):
                 raise Failure("VERSION_CONFLICT", "终态或正在封存的任务不能修改", 409)
             mutate(state, db)
             self.save_task(db, state, version)

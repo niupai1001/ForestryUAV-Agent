@@ -16,7 +16,7 @@ module = importlib.import_module("forestry_agent.doctor")
     (["large"], True, True, False, False),
 ])
 async def test_endpoint_probes_never_certify_general_agent(monkeypatch, tmp_path, installed, search, docker, startup, prerequisites):
-    config = Config(workspace_root=tmp_path, models={key: ModelProfile(repository="fixture/" + key, served_name=key)
+    config = Config(workspace_root=tmp_path, search_enabled=True, models={key: ModelProfile(repository="fixture/" + key, served_name=key)
                                                  for key in ["small", "large"]})
     class Client:
         async def __aenter__(self):
@@ -56,7 +56,7 @@ async def test_endpoint_probes_never_certify_general_agent(monkeypatch, tmp_path
 
 @pytest.mark.asyncio
 async def test_unprobed_search_is_not_a_ready_prerequisite(monkeypatch, tmp_path):
-    config = Config(workspace_root=tmp_path, models={"small": ModelProfile(repository="fixture/small", served_name="small")})
+    config = Config(workspace_root=tmp_path, search_enabled=True, models={"small": ModelProfile(repository="fixture/small", served_name="small")})
     monkeypatch.setattr(module.PublicHTTP, "get", lambda *args, **kwargs: pytest.fail("unrequested network probe"))
     # Other endpoint failures are legitimate diagnostic results; no actual service is needed.
     class Client:

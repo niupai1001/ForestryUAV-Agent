@@ -56,6 +56,9 @@ class Resources:
             "locator": str(path), "kind": "directory" if path.is_dir() else "file",
             "classification": payload["classification"], "read_only": True,
             "version": version(path), "created_at": now()}
+        if payload.get('upload_draft_id'):
+            resource.update(upload_draft_id=payload['upload_draft_id'], upload_sha256=payload['upload_sha256'],
+                            owner_task_id=None)
         with self.store.transaction() as db:
             request = {"kind": "resource.register", **payload}
             replay = self.store.replay(db, payload["request_id"], request)
@@ -94,6 +97,27 @@ class Resources:
         target = self.workspace / "tasks" / task_id / "files"
         target.mkdir(parents=True, exist_ok=True)
         return target
+
+    def partition_refs(self, refs, task_id, *, db=None):
+        """Classify exact same-task refs; never turn an arbitrary locator into a grant."""
+        inputs, artifacts = [], []
+        with self.store.transaction() if db is None else nullcontext(db) as connection:
+            state = self.store.read_task(connection, task_id)
+            for ref in dict.fromkeys(refs):
+                if ref in state['input_refs']:
+                    inputs.append(ref)
+                elif ref in state['artifact_ids'] and connection.execute(
+                        'SELECT 1 FROM artifacts WHERE id=? AND task_id=?', (ref, task_id)).fetchone():
+                    artifacts.append(ref)
+                else:
+                    raise Failure('PERMISSION_DENIED', '输入须为本会话授权来源或本会话产物', 403)
+        return inputs, artifacts
+
+    def resolve_input(self, ref, task_id):
+        inputs, _ = self.partition_refs([ref], task_id)
+        if inputs:
+            return self.resolve(ref, task_id=task_id)
+        return Path(self.artifact(ref, task_id)['locator'])
 
     def list(self, resource_id: str, relative: str = "", offset: int = 0, limit: int = 100, task_id=None):
         path = self.resolve(resource_id, relative, task_id)

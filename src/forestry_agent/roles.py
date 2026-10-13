@@ -220,6 +220,8 @@ class Roles:
             raise Failure("PERMISSION_DENIED", "代码输入超出委派范围", 403)
         if "artifact_id" in args and args["artifact_id"] not in self.artifacts(value, db):
             raise Failure("PERMISSION_DENIED", "产物超出委派范围", 403)
+        if not set(args.get('input_artifact_ids', [])) <= set(self.artifacts(value, db)):
+            raise Failure('PERMISSION_DENIED', '科学输入产物超出委派范围', 403)
         if args.get("environment_artifact_id") and args["environment_artifact_id"] not in self.artifacts(value, db):
             raise Failure("PERMISSION_DENIED", "依赖环境超出委派产物范围", 403)
         if (args.get("wheel_artifact_ids") or args.get('source_artifact_ids')) and not {

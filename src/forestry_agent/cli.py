@@ -76,6 +76,13 @@ def main():
     canopy.add_argument("--revision", type=int, required=True)
     canopy.add_argument("--request-id", required=True)
     canopy.add_argument("--seconds", type=int, default=900)
+    roi = commands.add_parser("lidar-roi", help="复用冠层产品，明确ROI的精确面积/指标和标签后处理")
+    roi.add_argument("--config", default="config/app.science.example.yaml")
+    roi.add_argument("--task", required=True)
+    roi.add_argument("--inputs", type=Path, required=True)
+    roi.add_argument("--revision", type=int, required=True)
+    roi.add_argument("--request-id", required=True)
+    roi.add_argument("--seconds", type=int, default=600)
     args = parser.parse_args()
     if args.command == "inspect-cloud":
         from pydantic import ValidationError
@@ -106,6 +113,7 @@ def main():
         from .acquisition import PackageRequest, WheelRequest
         from .evaluation import EvaluationDiagnosticReview, EvaluationReview, EvaluationSuite
         from .lidar_canopy import CanopyStageRequest
+        from .lidar_roi import RoiDefinition, RoiRequest
         from .lidar_terrain import TerrainRequest
         from .roles import AssignmentRequest, AssignmentResult, RoleCatalog
         target = Path(args.output)
@@ -115,12 +123,13 @@ def main():
             (target / f"{name}.schema.json").write_text(
                 json.dumps(model.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf-8")
         for model in [RoleCatalog, AssignmentRequest, AssignmentResult, PlanItem, WheelRequest, PackageRequest,
-                      EvaluationSuite, EvaluationReview, EvaluationDiagnosticReview, TerrainRequest, CanopyStageRequest]:
+                      EvaluationSuite, EvaluationReview, EvaluationDiagnosticReview, TerrainRequest, CanopyStageRequest,
+                      RoiDefinition, RoiRequest]:
             (target / f"{model.__name__}.schema.json").write_text(
                 json.dumps(model.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf-8")
         return
     config = load_config(args.config)
-    if args.command == "lidar-canopy":
+    if args.command in {"lidar-canopy", "lidar-roi"}:
         from .client import LocalClient
         from .contracts import Failure
         client = None
@@ -128,10 +137,13 @@ def main():
             if args.inputs.stat().st_size > 32768:
                 raise Failure("INPUT_LIMIT", "阶段输入映射超过32KiB", 422)
             payload = {"request_id": args.request_id, "expected_spec_revision": args.revision,
-                       "stage": args.stage, "seconds": args.seconds,
+                       "seconds": args.seconds,
                        "input_refs": json.loads(args.inputs.read_text(encoding="utf-8"))}
+            if args.command == "lidar-canopy":
+                payload["stage"] = args.stage
             client = LocalClient(config)
-            result = client.request("POST", f"/tasks/{args.task}/lidar/canopy", payload)
+            endpoint = "canopy" if args.command == "lidar-canopy" else "roi"
+            result = client.request("POST", f"/tasks/{args.task}/lidar/{endpoint}", payload)
             print(json.dumps(result, ensure_ascii=False, indent=2))
             if result.get("kind") == "failed":
                 raise SystemExit(2)

@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 
 from .agent import Deps, Engine
+from .attachments import AttachmentChange, LocalSelection, claim_uploads, pick_local, upload
 from .config import Config
 from .contracts import (
     Acceptance,
@@ -34,6 +35,7 @@ from .contracts import (
 from .delivery import Delivery
 from .doctor import doctor
 from .lidar_canopy import REGISTERED_METHODS, CanopyStageRequest, submit_canopy
+from .lidar_roi import RoiRequest, submit_roi
 from .lidar_terrain import TerrainRequest, submit_terrain
 from .models import model_identity
 from .planning import visible_plan
@@ -56,6 +58,7 @@ def create_app(config: Config, *, enable_agent: bool = True):
     @asynccontextmanager
     async def lifespan(app):
         engine.reconcile_startup()
+        engine.network.disable_web_grants()
         await asyncio.to_thread(delivery.recover)
         if enable_agent:
             engine.jobs.start()
@@ -113,7 +116,16 @@ def create_app(config: Config, *, enable_agent: bool = True):
         # No state paths or private source metadata in unauthenticated health output.
         with store.transaction() as db:
             db.execute("SELECT 1")
-        return {"application": "ready", "database": "ready", "domain": "not_implemented"}
+        return {"application": "ready", "database": "ready",
+                "domain": "configured" if config.science_image else "not_configured"}
+
+    @app.get("/capabilities")
+    def capabilities():
+        return {"web": {"enabled": config.search_enabled},
+                "scientific": {"configured": bool(config.science_image), "image": config.science_image,
+                               "methods": sorted(REGISTERED_METHODS - {'lidar.roi_clip.v1'}),
+                               "validation": "see_frozen_delivery_evidence"},
+                "source_sha256": startup_manifest["source"]["sha256"]}
 
     @app.get("/runtime")
     def runtime():
@@ -150,6 +162,67 @@ def create_app(config: Config, *, enable_agent: bool = True):
     @app.get("/resources")
     def list_resources():
         return resources.all()
+
+    @app.post('/uploads', status_code=201)
+    async def upload_file(request: Request, filename: str = Query(max_length=180),
+                          draft_id: str = Query(max_length=80), request_id: str = Query(max_length=80)):
+        return await upload(resources, request, filename, draft_id, request_id)
+
+    @app.post('/resources/pick')
+    def pick_files(payload: LocalSelection):
+        return pick_local(resources, payload)
+
+    @app.get('/tasks/{task_id}/sources')
+    def task_sources(task_id: str):
+        refs = store.task(task_id)['input_refs']
+        with store.transaction() as db:
+            return [json.loads(db.execute('SELECT payload FROM resources WHERE id=?', (ref,)).fetchone()[0])
+                    for ref in refs]
+
+    @app.post('/tasks/{task_id}/sources')
+    def change_sources(task_id: str, payload: AttachmentChange):
+        stop_token = None
+        def mutate(state, db):
+            nonlocal stop_token
+            if state['spec_revision'] != payload.expected_spec_revision:
+                raise Failure('VERSION_CONFLICT', '会话文件已变化，请刷新后重试', 409)
+            if state['cancellation_requested']:
+                raise Failure('VERSION_CONFLICT', '取消中的会话不能更换输入', 409)
+            refs = list(dict.fromkeys([r for r in state['input_refs'] if r not in payload.remove_refs] + payload.add_refs))
+            if len(refs) > 100:
+                raise Failure('INPUT_LIMIT', '每个会话最多100个来源', 422)
+            claim_uploads(db, refs, task_id)
+            if state['config_snapshot'].get('context_classification') == 'public':
+                for ref in refs:
+                    resource = json.loads(db.execute('SELECT payload FROM resources WHERE id=?', (ref,)).fetchone()[0])
+                    if resource['classification'] != 'public':
+                        raise Failure('PERMISSION_DENIED', '旧公开会话不能读取私密附件，请新建会话', 403)
+            previous = json.loads(db.execute('SELECT payload FROM specs WHERE task_id=? AND revision=?',
+                                            (task_id, state['spec_revision'])).fetchone()[0])
+            if state.get('delivery'):
+                state.setdefault('delivery_history', []).append(state.pop('delivery'))
+            state['input_refs'] = refs
+            prior_turn = db.execute("SELECT id FROM turns WHERE task_id=? AND status='completed' "
+                "AND id NOT IN (SELECT json_extract(payload,'$.run_id') FROM assignments) ORDER BY rowid DESC LIMIT 1",
+                (task_id,)).fetchone()
+            if prior_turn:
+                state['history_bridge_turn_id'] = prior_turn['id']
+            state['spec_revision'] += 1
+            state['acceptance'] = None
+            store.user_event(db, 'attachment_change', {'task_id': task_id, **payload.model_dump()})
+            db.execute('INSERT INTO specs VALUES(?,?,?)', (task_id, state['spec_revision'], encode({**previous, 'input_refs': refs})))
+            db.execute("UPDATE turns SET status='cancelled' WHERE task_id=? AND status='queued'", (task_id,))
+            engine.roles.cancel_obsolete(task_id, db, current_revision=state['spec_revision'])
+            if state['status'] in {'active', 'created', 'waiting_job'}:
+                state.update(status='paused', pause_requested=True, attachment_pause=True,
+                             blockers=[{'code': 'INPUTS_CHANGED', 'message': '文件已更新。发送后续要求即可继续。'}])
+                stop_token = engine.tokens.get(task_id)
+            elif state['status'] == 'completed':
+                state.update(status='waiting_user', blockers=[])
+        result = store.change(task_id, 'task.sources_changed', mutate, payload.model_dump())
+        if stop_token is not None:
+            stop_token.cancel()
+        return result
 
     @app.get("/memory")
     def memory(offset: int = Query(0, ge=0), include_inactive: bool = False):
@@ -262,7 +335,8 @@ def create_app(config: Config, *, enable_agent: bool = True):
             raise Failure("PRECONDITION_MISSING", "模型配置不存在", 422)
         # A hard method request is never silently replaced.
         if payload.requested_method_id is not None and (
-            payload.requested_method_id not in REGISTERED_METHODS or not config.science_image):
+            payload.requested_method_id not in REGISTERED_METHODS or not config.science_image or
+            (payload.requested_method_id == 'lidar.roi_clip.v1' and not config.experimental_roi_enabled)):
             raise Failure("PRECONDITION_MISSING", "当前阶段尚未实现该指定方法", 422)
         identity = await model_identity(config, config.models[profile]) if enable_agent else {"backend": "test_fixture"}
         state = store.create_task(payload.model_dump(), {"model_profile": profile,
@@ -298,12 +372,26 @@ def create_app(config: Config, *, enable_agent: bool = True):
         return engine.perform(deps, payload.request_id, "code.execute", arguments,
                               lambda action_id: submit_terrain(engine, deps, action_id, payload))
 
+    @app.get('/tasks/{task_id}/lidar/products')
+    def lidar_products(task_id: str):
+        from .lidar_products import product_set
+        return product_set(engine, task_id)
+
     @app.post("/tasks/{task_id}/lidar/canopy")
     def lidar_canopy(task_id: str, payload: CanopyStageRequest):
         deps = Deps(engine, task_id, "operator-canopy", payload.expected_spec_revision)
         arguments = {**payload.model_dump(), "input_refs": list(payload.input_refs.values())}
         return engine.perform(deps, payload.request_id, "code.execute", arguments,
                               lambda action_id: submit_canopy(engine, deps, action_id, payload))
+
+    @app.post("/tasks/{task_id}/lidar/roi")
+    def lidar_roi(task_id: str, payload: RoiRequest):
+        if not config.experimental_roi_enabled:
+            raise Failure('CAPABILITY_DISABLED', 'ROI流程尚未验收，当前入口未启用', 403)
+        deps = Deps(engine, task_id, "operator-roi", payload.expected_spec_revision)
+        arguments = {**payload.model_dump(), "input_refs": list(payload.input_refs.values())}
+        return engine.perform(deps, payload.request_id, "code.execute", arguments,
+                              lambda action_id: submit_roi(engine, deps, action_id, payload))
 
     @app.get("/tasks/{task_id}/acceptance-candidate")
     def acceptance_candidate(task_id: str):
@@ -318,12 +406,28 @@ def create_app(config: Config, *, enable_agent: bool = True):
         def mutate(state, db):
             if state["spec_revision"] != payload.expected_spec_revision:
                 raise Failure("VERSION_CONFLICT", "规范修订已变化", 409)
+            if state["status"] == "completed":
+                if state.get("delivery"):
+                    state.setdefault("delivery_history", []).append(state.pop("delivery"))
+                previous = db.execute('SELECT payload FROM specs WHERE task_id=? AND revision=?',
+                                      (task_id, state['spec_revision'])).fetchone()[0]
+                prior_turn = db.execute("SELECT id FROM turns WHERE task_id=? AND revision=? AND status='completed' "
+                    "AND id NOT IN (SELECT json_extract(payload,'$.run_id') FROM assignments) ORDER BY rowid DESC LIMIT 1",
+                    (task_id, state['spec_revision'])).fetchone()
+                if prior_turn:
+                    state['history_bridge_turn_id'] = prior_turn['id']
+                state['spec_revision'] += 1
+                db.execute('INSERT INTO specs VALUES(?,?,?)', (task_id, state['spec_revision'], previous))
+                state.update(acceptance=None, pause_requested=False)
+            if state.pop("attachment_pause", False):
+                state.update(pause_requested=False, status='created')
             event_id = store.user_event(db, "user_message", payload.model_dump())
             state["messages"].append({"id": uid(), "role": "user", "text": payload.text,
                                       "user_event_id": event_id, "at": now()})
             if state["cancellation_requested"]:
                 raise Failure("VERSION_CONFLICT", "已请求取消的任务不能接收新执行回合", 409)
             store.enqueue_turn(db, state, payload.text, payload.request_id, event_id)
+            state["acceptance"] = None
             if not state["pause_requested"] and state["status"] != "paused":
                 state.update(status="active" if task_id in engine.queue and not engine.queue[task_id].done() else "created", blockers=[])
         result = store.change(task_id, "user.message", mutate, payload.model_dump())
@@ -350,7 +454,8 @@ def create_app(config: Config, *, enable_agent: bool = True):
             if state["spec_revision"] != payload.expected_spec_revision:
                 raise Failure("VERSION_CONFLICT", "规范修订已变化", 409)
             if payload.requested_method_id is not None and (
-                payload.requested_method_id not in REGISTERED_METHODS or not config.science_image):
+                payload.requested_method_id not in REGISTERED_METHODS or not config.science_image or
+                (payload.requested_method_id == 'lidar.roi_clip.v1' and not config.experimental_roi_enabled)):
                 raise Failure("PRECONDITION_MISSING", "指定领域方法尚未实现", 422)
             for resource_id in payload.input_refs:
                 resource = db.execute("SELECT payload FROM resources WHERE id=?", (resource_id,)).fetchone()

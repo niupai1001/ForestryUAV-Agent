@@ -26,6 +26,8 @@ class Config(BaseModel):
     ollama_base_url: str = "http://127.0.0.1:11434"
     models: dict[str, ModelProfile]
     default_model: str = "small"
+    search_enabled: bool = False
+    experimental_roi_enabled: bool = False
     search_base_url: str | None = None
     search_provider: Literal["baidu_html", "bing_rss", "searxng"] = "baidu_html"
     roles_path: Path | None = None
@@ -53,6 +55,8 @@ class Config(BaseModel):
                 "vram_bytes": 0, "output_bytes": self.max_code_output_bytes}
 
     def search_configuration(self):
+        if not self.search_enabled:
+            return {}
         base = self.search_base_url or {"baidu_html": "https://www.baidu.com", "bing_rss": "https://www.bing.com"}.get(self.search_provider)
         return {"provider": self.search_provider, "base_url": base} if base else {}
 

@@ -39,6 +39,7 @@ dev = ["pytest>=8,<10", "pytest-asyncio>=1,<2", "ruff>=0.12,<1"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = ["offline_web: exercise the production default with deferred web capabilities disabled"]
 
 [tool.ruff]
 line-length = 110

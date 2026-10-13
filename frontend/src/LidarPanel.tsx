@@ -14,18 +14,24 @@ function csvRows(text:string):Row[] {
 }
 export default function LidarPanel({taskId,artifacts,onError}:{taskId:string;artifacts:Artifact[];onError:(message:string)=>void}) {
   const [quality,setQuality]=useState<Quality|null>(null),[rows,setRows]=useState<Row[]>([]);
-  const [range,setRange]=useState<number[]|null>(null);
-  const signature=artifacts.filter(a=>['instance-quality.json','trees.csv','冠层产品读回检查.json'].includes(a.name)).map(a=>a.artifact_id).join(',');
-  const file=(name:string)=>artifacts.filter(a=>a.name===name).at(-1);
+  const [range,setRange]=useState<number[]|null>(null), [productFiles,setProductFiles]=useState<Artifact[]>([]);
+  const signature=artifacts.map(a=>a.artifact_id).join(',');
+  const file=(name:string)=>productFiles.find(a=>a.name===name);
   useEffect(()=>{
-    let current=true;setQuality(null);setRows([]);setRange(null);
-    const read=async(name:string)=>{
-      const artifact=file(name);if(!artifact)return null;
+    let current=true;setQuality(null);setRows([]);setRange(null);setProductFiles([]);
+    const read=async(files:Artifact[],name:string)=>{
+      const artifact=files.find(a=>a.name===name);if(!artifact)return null;
       if(artifact.size_bytes>131072)throw new Error(`${name} 超出结果视图读取范围，请下载完整文件。`);
       const response=await fetch(artifact.preview_url);if(!response.ok)throw new Error('林业结果读取失败');
       return response.text();
     };
-    Promise.all([read('instance-quality.json'),read('trees.csv'),read('冠层产品读回检查.json')]).then(([q,t,a])=>{
+    fetch(`/tasks/${taskId}/lidar/products`).then(async response=>{
+      const product=await response.json();
+      if(!response.ok)throw new Error(product.error?.message||'林业产品批次读取失败');
+      if(!current)return [null,null,null];
+      setProductFiles(product.files);
+      return Promise.all([read(product.files,'instance-quality.json'),read(product.files,'trees.csv'),read(product.files,'冠层产品读回检查.json')]);
+    }).then(([q,t,a])=>{
       if(!current)return;
       setQuality(q?JSON.parse(q):null);setRows(t?csvRows(t):[]);setRange(a?JSON.parse(a).chm_preview_range_m:null);
     }).catch(error=>{if(current)onError((error as Error).message);});

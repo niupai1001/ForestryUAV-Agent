@@ -119,6 +119,8 @@ class Engine:
             self.store.event(db, task_id, kind, payload)
 
     def perform(self, deps: Deps, call_id: str, kind: str, args: dict, operation: Callable):
+        if kind in {'web.search', 'web.read'} and not self.config.search_enabled:
+            raise Failure('CAPABILITY_DISABLED', '网页搜索与读取已暂缓，当前运行环境未启用', 403)
         with self.store.transaction() as db:
             state = self.store.read_task(db, deps.task_id)
             if state["spec_revision"] != deps.revision:
@@ -135,7 +137,14 @@ class Engine:
                 if row["status"] in {"confirmed", "failed"}:
                     return json.loads(row["result"])
                 raise Failure("RECONCILIATION_REQUIRED", "工具副作用未对账，拒绝重放", 409)
-            self.roles.authorize(db, deps, kind, args)
+            authorization_args = args
+            if kind == 'code.execute' and args.get('method_id') in {
+                    'lidar.smrf_idw.v1', 'lidar.p2r_lmf_dalponte.v1', 'lidar.roi_clip.v1'}:
+                if args['method_id'] == 'lidar.roi_clip.v1' and not self.config.experimental_roi_enabled:
+                    raise Failure('CAPABILITY_DISABLED', 'ROI流程尚未验收，当前入口未启用', 403)
+                inputs, artifacts = self.resources.partition_refs(args.get('input_refs', []), deps.task_id, db=db)
+                authorization_args = {**args, 'input_refs': inputs, 'input_artifact_ids': artifacts}
+            self.roles.authorize(db, deps, kind, authorization_args)
             if state["action_count"] >= self.config.max_actions_per_task:
                 raise Failure("RESOURCE_EXHAUSTED", "任务累计动作上限已用尽", 422)
             action_id, attempt_id = uid(), uid()
@@ -440,13 +449,17 @@ class Engine:
             raise error
 
         async def prepare_tools(ctx, tool_defs):
+            if not self.config.experimental_roi_enabled:
+                tool_defs = [t for t in tool_defs if t.name != 'apply_lidar_roi']
+            if not self.config.search_enabled:
+                tool_defs = [t for t in tool_defs if t.name not in {'search_web', 'read_web_page'}]
             with self.store.transaction() as db:
                 state = self.store.read_task(db, ctx.deps.task_id)
                 allowed = self.store.capabilities(db, state)
                 restricted = self.store.constraints(db, state).allowed_capabilities is not None
             classification = state["config_snapshot"].get("context_classification", "private")
             if not state["config_snapshot"].get("science_image"):
-                tool_defs = [t for t in tool_defs if t.name not in {"process_lidar_terrain", "process_lidar_canopy"}]
+                tool_defs = [t for t in tool_defs if t.name not in {"process_lidar_terrain", "process_lidar_canopy", "apply_lidar_roi"}]
             # Native overflow readers only inspect this run's already-owned tool results.
             # They do not expose new source, filesystem, network or execution authority.
             if restricted:
@@ -1028,20 +1041,39 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
             return self.jobs.model_receipt(receipt)
 
         @agent.tool
-        async def process_lidar_canopy(ctx: RunContext[Deps], stage: str, input_refs: dict[str, str],
+        async def process_lidar_canopy(ctx: RunContext[Deps], stage: str, input_refs: dict[str, str] | None = None,
                                       seconds: int = 900) -> dict:
             """固定lidR配方的chm/seeds/instances独立阶段；文件角色及授权须完整。
             chm:working/terrain_quality/terrain_support；seeds:chm/chm_record；
             instances:working/original/hag/chm/chm_record/seeds/seed_record。
             返回job_id后wait_job；复用已完成阶段，不重新归一化或做现场准确性推断。
+            input_refs可使用同会话产物ID，无须重新登记；省略时按完整产品批次自动衔接已有阶段。
             """
             from .lidar_canopy import CanopyStageRequest, submit_canopy
+            from .lidar_products import automatic_inputs
 
+            if input_refs is None:
+                input_refs = automatic_inputs(self, ctx.deps.task_id, stage)
             payload = CanopyStageRequest(request_id="native-canopy", expected_spec_revision=ctx.deps.revision,
                                          stage=stage, input_refs=input_refs, seconds=seconds)
             arguments = {**payload.model_dump(), "input_refs": list(input_refs.values())}
             receipt = await asyncio.to_thread(execute, ctx, "code.execute", arguments,
                 lambda action_id: submit_canopy(self, ctx.deps, action_id, payload))
+            return self.jobs.model_receipt(receipt)
+
+        @agent.tool
+        async def apply_lidar_roi(ctx: RunContext[Deps], input_refs: dict[str, str], seconds: int = 600) -> dict:
+            """明确投影ROI的面积/指标/标签后处理，不重算地形或实例。
+            输入角色segmented/chm/trees/vectors/quality/instance_record/roi均须是授权单文件。
+            ROI JSON明确米制投影CRS/多边形/来源说明；输出只过滤treeID，保留其它点属性和原ID。
+            """
+            from .lidar_roi import RoiRequest, submit_roi
+
+            payload = RoiRequest(request_id="native-roi", expected_spec_revision=ctx.deps.revision,
+                                 input_refs=input_refs, seconds=seconds)
+            arguments = {**payload.model_dump(), "input_refs": list(input_refs.values())}
+            receipt = await asyncio.to_thread(execute, ctx, "code.execute", arguments,
+                lambda action_id: submit_roi(self, ctx.deps, action_id, payload))
             return self.jobs.model_receipt(receipt)
 
         @agent.tool
@@ -1111,6 +1143,7 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
         token = CancellationToken()
         self.tokens[task_id] = token
         client = None
+        turn = None
         try:
             async with self.model_slot:
                 state = self.store.task(task_id)
@@ -1132,8 +1165,8 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
                 if not snapshot:
                     with self.store.transaction() as db:
                         prior_effect = db.execute("SELECT 1 FROM actions WHERE turn_id=?", (turn_id,)).fetchone()
-                        prior_turn = db.execute("SELECT id FROM turns WHERE task_id=? AND id!=? AND revision=? AND status='completed' AND id NOT IN (SELECT json_extract(payload,'$.run_id') FROM assignments) ORDER BY created_at DESC LIMIT 1",
-                            (task_id, turn_id, turn["revision"])).fetchone()
+                        prior_turn = db.execute("SELECT id FROM turns WHERE task_id=? AND id!=? AND (revision=? OR id=?) AND status='completed' AND id NOT IN (SELECT json_extract(payload,'$.run_id') FROM assignments) ORDER BY created_at DESC,rowid DESC LIMIT 1",
+                            (task_id, turn_id, turn["revision"], state.get('history_bridge_turn_id'))).fetchone()
                     if prior_effect:
                         raise Failure("RECONCILIATION_REQUIRED", "已有动作但缺少可恢复检查点，拒绝盲目重放", 409)
                     if prior_turn:
@@ -1185,8 +1218,10 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
                 usage = result.usage
                 def finish(s, db):
                     if s["spec_revision"] != turn["revision"]:
-                        s["status"] = "paused"
-                        s["blockers"] = [{"code": "STALE_REVISION", "message": "旧修订结果仅作历史参考"}]
+                        db.execute("UPDATE turns SET status='completed' WHERE id=?", (turn_id,))
+                        self.store.event(db, task_id, 'run.stale_finished', {'turn_id': turn_id,
+                            'spec_revision': turn['revision'], 'answer': answer})
+                        return
                     elif s["cancellation_requested"]:
                         s["status"] = self.cancel_status(db, task_id)
                     elif s["pause_requested"]:
@@ -1199,18 +1234,26 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
                         s.update(status="waiting_user", blockers=[{"code": "APPROVAL_REQUIRED", "message": "网络请求待审批或执行，尚不能验收"}])
                     else:
                         s["status"] = "waiting_user"
-                        s["blockers"] = [{"code": "ACCEPTANCE_REQUIRED", "message": "文件已检查，任务语义待验收"}]
+                        s["blockers"] = []
                     s["messages"].append({"id": uid(), "role": "assistant", "text": answer["summary"],
                         "artifact_ids": artifacts, "limitations": answer["limitations"], "turn_id": turn_id,
                         "spec_revision": turn["revision"], "at": now()})
                     s["last_usage"] = {"requests": usage.requests, "input_tokens": usage.input_tokens,
                                       "output_tokens": usage.output_tokens}
-                    s["acceptance"] = {"status": "not_assessed", "file_checks": "passed",
+                    s["acceptance"] = {"status": "not_assessed", "file_checks": "passed" if artifacts else "not_applicable",
                                        "semantic_check": "not_assessed", "artifact_ids": artifacts}
                     db.execute("UPDATE turns SET status='completed' WHERE id=?", (turn_id,))
                 self.store.change(task_id, "run.finished", finish, {"turn_id": turn_id, "answer": answer})
         except BaseException as error:
             state = self.store.task(task_id)
+            if turn is not None and state['spec_revision'] != turn['revision']:
+                with self.store.transaction() as db:
+                    db.execute("UPDATE turns SET status='paused' WHERE id=?", (turn_id,))
+                    self.store.event(db, task_id, 'run.stale_stopped', {'turn_id': turn_id,
+                        'spec_revision': turn['revision'], 'message': str(error)[:1500]})
+                if isinstance(error, asyncio.CancelledError):
+                    raise
+                return
             if state["status"] not in {"cancelled", "completed", "failed"}:
                 requested = state["cancellation_requested"] or state["pause_requested"]
                 status = "paused"
@@ -1219,6 +1262,11 @@ citation_actions只取返回citation的真实读取动作；inspect_action(view=
                 if isinstance(error, UsageLimitExceeded):
                     error_record.update(code='MODEL_TURN_BUDGET_EXHAUSTED', message='本回合模型请求上限已用尽，检查点和已完成作业保留。直接恢复不会重置预算；请提供具体纠正说明后继续。')
                 def stop(s, db):
+                    if turn is not None and s['spec_revision'] != turn['revision']:
+                        db.execute("UPDATE turns SET status='paused' WHERE id=?", (turn_id,))
+                        self.store.event(db, task_id, 'run.stale_stopped', {'turn_id': turn_id,
+                            'spec_revision': turn['revision'], 'message': error_record['message']})
+                        return
                     s["status"] = self.cancel_status(db, task_id) if s["cancellation_requested"] else status
                     s["blockers"] = [] if requested else [error_record]
                     db.execute("UPDATE turns SET status=? WHERE id=?", (status, turn_id))

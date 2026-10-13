@@ -9,7 +9,7 @@
 3. 检查配置指定的 Docker 后端。专用 WSL 配置唤醒发行版并启动 `docker.service`；Docker Desktop 配置启动 Docker Desktop。检查配置中的本地镜像。
 4. Agent 未运行时使用现有 `.venv` 启动后端；健康及工作区身份核验通过后打开工作台。前端已随应用构建，日常启动不需要 Node 或前端开发服务。
 
-当前机器默认沿用 `workspace/resolution-ui-config.yaml`，地址为 **http://127.0.0.1:8769**，历史任务保存在原工作区。配置选择顺序：显式参数 → `config/app.local.yaml` → 现有主工作台配置 `workspace/resolution-ui-config.yaml` → `config/app.wsl.example.yaml`。如需固定其他配置，可手动复制并修改 `config/app.local.yaml`，该文件不提交版本库。
+当前机器使用 `config/app.local.yaml`，地址为 **http://127.0.0.1:8769**；保留原主工作区，已加载审查修复版与固定科学镜像，网页搜索/读取关闭，ROI草稿未启用。部署边界见[审查修复](REVIEW-FIXES-20261013-zh.md)。配置选择顺序：显式参数 → `config/app.local.yaml` → 现有主工作台配置 `workspace/resolution-ui-config.yaml` → `config/app.wsl.example.yaml`。如需固定其他配置，可修改 `config/app.local.yaml`，该文件不提交版本库。
 
 在 PowerShell 指定其他配置：
 

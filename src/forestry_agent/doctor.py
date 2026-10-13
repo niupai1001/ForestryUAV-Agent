@@ -50,7 +50,8 @@ async def doctor(config: Config, *, probe_search: bool = True) -> dict:
         except (httpx.HTTPError, KeyError, ValueError) as error:
             report["capabilities"]["local_models"] = {"status": "failed", "message": str(error)}
     base = config.search_configuration().get("base_url")
-    report["capabilities"]["search"] = {"status": "not_probed" if base else "not_configured", "provider": config.search_provider}
+    report["capabilities"]["search"] = {"status": ("disabled" if not config.search_enabled else
+        "not_probed" if base else "not_configured"), "provider": config.search_provider}
     if base and probe_search:
         try:
             url, origins = search_request(config.search_provider, base, "OpenDroneMap")
@@ -69,12 +70,13 @@ async def doctor(config: Config, *, probe_search: bool = True) -> dict:
     except (Failure, OSError, subprocess.TimeoutExpired) as error:
         report["capabilities"]["restricted_code"] = {"status": "unavailable", "message": str(error)}
     report["capabilities"]["file_tools"] = {"status": "available"}
-    report["capabilities"]["domain"] = {"status": "not_implemented", "stage": 2}
+    report["capabilities"]["domain"] = {"status": "configured" if config.science_image else "not_configured",
+        "image": config.science_image, "validation": "see_frozen_delivery_evidence", "stage": 2}
     installed_profiles = {key for key, value in report["models"].items()
                           if value["status"] == "available_not_tool_verified"}
     report["startup_ready"] = config.default_model in installed_profiles
     missing = ["model:" + key for key in config.models if key not in installed_profiles]
-    missing.extend(name for name in ["search", "restricted_code"]
+    missing.extend(name for name in (["search"] if config.search_enabled else []) + ["restricted_code"]
                    if report["capabilities"][name]["status"] != "available")
     report["general_prerequisites_ready"] = not missing
     report["general_prerequisite_blockers"] = missing
