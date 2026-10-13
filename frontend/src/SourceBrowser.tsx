@@ -8,12 +8,13 @@ type Selection = {id:string;path:string;kind:string;cursor:number;version?:strin
 type Entries = {entries:{name:string;kind:string;size_bytes?:number|null;readable?:boolean}[];next:number;has_more:boolean};
 type Preview = {text:string;source_version:string;unit:string;has_more:boolean;next_page:number|null};
 
-export default function SourceBrowser({resources,activeTask,onRegistered}:{resources:Resource[];activeTask:boolean;
+export default function SourceBrowser({resources,activeTask,allowRegistration=true,onRegistered}:{resources:Resource[];activeTask:boolean;allowRegistration?:boolean;
   onRegistered:(resource:Resource)=>Promise<void>}) {
   const [selection,setSelection] = useState<Selection|null>(null);
   const [entries,setEntries] = useState<Entries|null>(null), [preview,setPreview] = useState<Preview|null>(null);
   const [error,setError] = useState(''), [loading,setLoading] = useState(false), [registering,setRegistering] = useState(false);
   const resource = resources.find(r=>r.resource_id===selection?.id);
+  useEffect(()=>{if(selection&&!resources.some(value=>value.resource_id===selection.id))setSelection(null);},[resources,selection?.id]);
   const selectRoot = (id:string) => {
     const root=resources.find(r=>r.resource_id===id);
     setSelection(root?{id,path:'',kind:root.kind,cursor:0}:null);
@@ -54,9 +55,10 @@ export default function SourceBrowser({resources,activeTask,onRegistered}:{resou
     finally{setRegistering(false);}
   };
   return <section className="source-browser" aria-label="浏览已授权来源">
-    <h3>浏览已授权来源</h3>
-    <label>选择来源<select aria-label="浏览来源" value={selection?.id||''} disabled={registering} onChange={e=>selectRoot(e.target.value)}>
-      <option value="">请选择已登记的文件或目录</option>
+    <h3>浏览会话数据源</h3>
+    {!resources.length&&<p>此会话还未添加数据源。</p>}
+    <label>选择来源<select aria-label="浏览来源" value={selection?.id||''} disabled={registering||!resources.length} onChange={e=>selectRoot(e.target.value)}>
+      <option value="">请选择此会话的文件或目录</option>
       {resources.map(r=><option key={r.resource_id} value={r.resource_id}>{r.name}{r.kind==='directory'?'（目录）':''}</option>)}
     </select></label>
     {resource&&selection&&<>
@@ -89,7 +91,7 @@ export default function SourceBrowser({resources,activeTask,onRegistered}:{resou
           {preview.has_more&&preview.next_page!==null&&<button disabled={registering} onClick={()=>setSelection({...selection,cursor:preview.next_page!,version:preview.source_version})}>继续预览</button>}
         </div>
       </>}
-      {resource.kind==='directory'&&selection.kind==='file'&&<div className="source-browser-actions">
+      {allowRegistration&&resource.kind==='directory'&&selection.kind==='file'&&<div className="source-browser-actions">
         <button className="primary" disabled={registering||loading} onClick={()=>void registerFile()}>
           {registering?'正在登记…':activeTask?'登记单文件并准备规范修订':'登记并选择单文件'}</button>
       </div>}
