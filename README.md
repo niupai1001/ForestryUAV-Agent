@@ -1,5 +1,7 @@
 # 林遥 · ForestryUAV-Agent V1
 
+**Windows 日常入口：双击项目目录 `Start-Agent.cmd`，或上级目录 `启动林业Agent.cmd`，检查/启动 Ollama、配置指定的 WSL/Docker 与 Agent，并打开工作台。** 已运行服务直接复用，保留原任务；使用说明见[一键启动](docs/ONE-CLICK-START-zh.md)。
+
 1.50新增真实lidR冠层实例交付与结果视图：复用地形/HAG，独立CHM/种子/分割Jobs，原始Z分割LAZ、精确ID/UID、矢量/指标/中文partial报告；[操作与范围](docs/LIDAR-CANOPY-zh.md)。边界分块、独立精度、ODM与阶段3未完成。
 
 **1.49新增实际可用流程：原始UAV LAS→现有Jobs→PDAL地形/支持/HAG→工作云与中文部分报告。** 首次失败与具体修复保留，已有地表/HAG直接复用，OriginalZ只修元数据；单木、独立精度与阶段2/3尚未完成。见[领域入口](docs/LIDAR-TERRAIN-zh.md)。主8769服务本轮未重载该API，开发交付使用独立持久状态；领域UI待扩展。
