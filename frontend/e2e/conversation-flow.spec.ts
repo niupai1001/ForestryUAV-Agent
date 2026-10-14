@@ -1,0 +1,48 @@
+import { test, expect } from '@playwright/test';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+test('continuous conversation: rendered answer, stopped followup and message-owned file',async({page})=>{
+  test.skip(process.env.RUN_CONVERSATION_UI!=='1','Requires the isolated non-model fixture.');
+  const fixture=JSON.parse(readFileSync(resolve('../workspace/conversation-ui-20261014/metadata.json'),'utf8'));
+  expect(fixture.enable_agent).toBe(false);
+  expect(test.info().project.use.baseURL).toBe(fixture.url);
+  const errors:string[]=[],foreign:string[]=[];
+  page.on('pageerror',e=>errors.push(e.message));
+  page.on('request',r=>{if(!r.url().startsWith(fixture.url))foreign.push(r.url());});
+  await page.goto('/');
+  await page.locator('.history-item').filter({hasText:'停止后的连续会话夹具'}).click();
+  await expect(page.getByRole('heading',{name:'当前能力',exact:true})).toBeVisible();
+  await expect(page.locator('.message.assistant strong')).toHaveText('读取文件');
+  await expect(page.locator('.message.assistant table')).toHaveCount(1);
+  await expect(page.locator('.message.assistant pre code')).toHaveText('print(42)\n');
+  await expect(page.locator('.limitations p')).not.toBeVisible();
+  await page.locator('.message.assistant .public-process summary').click();
+  await expect(page.getByText('已检查当前工具。',{exact:true})).toBeVisible();
+  await page.locator('.composer textarea').fill('停止后可以继续聊');
+  await expect(page.locator('.send-button')).toBeEnabled();
+  const resumed=page.waitForResponse(r=>new URL(r.url()).pathname===`/tasks/${fixture.stopped_task_id}/messages`);
+  await page.locator('.send-button').click();
+  expect((await resumed).status()).toBe(200);
+  await expect(page.locator('.message.user').last()).toContainText('停止后可以继续聊');
+  await expect(page.getByText('你的补充',{exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'添加文件',exact:true}).click();
+  await expect(page.getByRole('button',{name:'文件夹',exact:true})).toBeVisible();
+  const uploaded=page.waitForResponse(r=>new URL(r.url()).pathname==='/uploads');
+  await page.getByLabel('上传文件',{exact:true}).setInputFiles({name:'本条消息.md',mimeType:'text/markdown',buffer:Buffer.from('# 内容\n只属于本条消息')});
+  const resource=(await(await uploaded).json()).resource_id;
+  await expect(page.getByRole('button',{name:'移除待发送 本条消息.md'})).toBeVisible();
+  const attached=page.waitForResponse(r=>new URL(r.url()).pathname===`/tasks/${fixture.stopped_task_id}/messages`);
+  await page.locator('.composer textarea').fill('查看这个文件');
+  await page.locator('.send-button').click();
+  const state=await(await attached).json();
+  expect(state.messages.at(-1).attachment_refs).toEqual([resource]);
+  await expect(page.locator('.composer .source-chips')).toHaveCount(0);
+  await expect(page.locator('.message.user').last().getByLabel('消息附件')).toContainText('本条消息.md');
+  await page.getByRole('button',{name:'新建会话',exact:true}).click();
+  await expect(page.locator('.composer .source-chips')).toHaveCount(0);
+  expect(errors).toEqual([]);expect(foreign).toEqual([]);
+  await page.screenshot({path:resolve('../workspace/evidence/conversation-ui-20261014.png'),fullPage:true});
+  writeFileSync(resolve('../workspace/evidence/conversation-ui-20261014.json'),JSON.stringify({status:'passed',enable_agent:false,
+    stopped_task_id:fixture.stopped_task_id,page_errors:errors,foreign_requests:foreign},null,2));
+});

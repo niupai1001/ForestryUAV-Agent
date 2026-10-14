@@ -5,6 +5,8 @@ import JobsPanel from './JobsPanel';
 import LidarPanel from './LidarPanel';
 import SourceBrowser from './SourceBrowser';
 import { api } from './api';
+import MarkdownMessage from './MarkdownMessage';
+import MessageAttachments, { type Attachment } from './MessageAttachments';
 import { ArrowDownToLine, ArrowUpRight, Check, ChevronDown, CircleHelp, File, FolderOpen,
   Leaf, MessageSquare, Pause, Play, Plus, RefreshCw, Send, Settings,
   ShieldCheck, Square, Terminal, X } from 'lucide-react';
@@ -13,7 +15,8 @@ type Task = {task_id: string; objective: string; status: string; state_version: 
   spec_revision: number; model_profile: string; input_refs: string[]; artifact_ids: string[];
   requested_method_id?:string|null; constraints?:{allowed_capabilities?:string[]|null}; cancellation_requested?:boolean;
   config_snapshot?: {harness_mode?: string;context_classification?:string;science_image?:string};
-  messages: {id: string; role: string; text: string; limitations?: string[]}[];
+  active_turn_id?:string; initial_attachments?:Attachment[];
+  messages: {id: string; role: string; text: string; limitations?: string[];attachments?:Attachment[];process_summary?:string;turn_id?:string}[];
   blockers: {code: string; message: string}[]; action_count: number;
   last_usage?: {requests: number; input_tokens: number; output_tokens: number}};
 type Resource = {resource_id: string; name: string; locator: string; kind: string; classification: string};
@@ -36,7 +39,7 @@ const planLabels:Record<string,string> = {pending:'待处理',in_progress:'进�
 const roleNames:Record<string,string> = {environment:'环境检查',data:'数据准备',code_experiment:'代码实验',quality:'质量复核'};
 const assignmentLabels:Record<string,string> = {queued:'等待开始',running:'运行中',waiting:'等待恢复',succeeded:'已返回',partial:'部分结果',failed:'失败',cancelled:'已取消'};
 const labels: Record<string,string> = {created:'等待运行', active:'运行中', paused:'已暂停',
-  completed:'已完成', failed:'失败', cancelled:'已取消', waiting_user:'待确认', waiting_job:'处理中', publishing:'正在封存'};
+  completed:'已保存', failed:'失败', cancelled:'已停止', waiting_user:'等待你的消息', waiting_job:'处理中', publishing:'正在封存'};
 const requestId = () => crypto.randomUUID();
 const capabilityLabels:Record<string,string> = {'fs.inputs':'查看任务输入','fs.list':'列出源文件','fs.read':'读取源文件',
   'fs.write_workspace':'写入产物','artifact.inspect':'检查产物','artifact.read':'读回产物','action.inspect':'查看动作证据',
@@ -71,6 +74,7 @@ async function readPlan(taskId:string):Promise<Plan|null> {
 export default function App() {
   const [tasks,setTasks] = useState<Task[]>([]), [active,setActive] = useState<Task|null>(null);
   const [resources,setResources] = useState<Resource[]>([]), [selected,setSelected] = useState<string[]>([]);
+  const [pendingSources,setPendingSources] = useState<Resource[]>([]);
   const [artifacts,setArtifacts] = useState<Artifact[]>([]), [events,setEvents] = useState<Event[]>([]);
   const [assignments,setAssignments] = useState<Assignment[]>([]), [harness,setHarness] = useState(()=>taskPreferences().harness);
   const [plan,setPlan] = useState<Plan|null>(null);
@@ -94,11 +98,12 @@ export default function App() {
   const sessionKey=active?.task_id||draftId.current;
   currentSession.current=sessionKey;
   const seen = useRef(new Set<string>()), input = useRef<HTMLTextAreaElement>(null);
+  const conversation=useRef<HTMLDivElement>(null), followLatest=useRef(true);
 
   const guarded = async (work:()=>Promise<void>) => {setError(''); try {await work();} catch(e) {setError(String((e as Error).message));}};
   const sessionResources = resources.filter(resource=>(active?active.input_refs:selected).includes(resource.resource_id));
   const amendmentResources = resources.filter(resource=>amendAvailableInputs.includes(resource.resource_id));
-  const editable = !active||!['failed','cancelled','publishing'].includes(active.status);
+  const editable = !active||active.status!=='publishing';
   useEffect(()=>{localStorage.setItem('forestry.task-preferences',JSON.stringify({harness,scope,caps:customCaps}));},[harness,scope,customCaps]);
   const openSettings = () => {setCurrentScopeCaps(active?.constraints?.allowed_capabilities??null);setShowSettings(true);};
   const refresh = async () => {setTasks(await api<Task[]>('/tasks'));};
@@ -134,24 +139,26 @@ export default function App() {
       const event:Event = JSON.parse(message.data);
       if(seen.current.has(event.event_id)) return;
       seen.current.add(event.event_id); setEvents(previous => [...previous,event].slice(-500));
-      if(event.type !== 'model.text') void guarded(loadDetails);
+      if(!['model.text','assistant.draft'].includes(event.type)) void guarded(loadDetails);
     };
     void guarded(loadDetails);
     return ()=>{current=false;source.close();};
   },[active?.task_id]);
-  const selectTask = (task:Task|null) => {if(busy)return;setArtifacts([]);setAssignments([]);setEvents([]);setApprovals([]);setPlan(null);setResources([]);setActive(task);};
+  const selectTask = (task:Task|null) => {if(busy)return;setSelected([]);setPendingSources([]);setArtifacts([]);setAssignments([]);setEvents([]);setApprovals([]);setPlan(null);setResources([]);setActive(task);};
   const newTask = () => {if(busy)return;selectTask(null);draftId.current=requestId();setSelected([]); setText(''); setPanel('artifacts'); localStorage.removeItem('forestry.task'); input.current?.focus();};
   const send = async () => {
-    if(!text.trim() || busy) return;
+    if((!text.trim()&&!selected.length) || busy) return;
     setBusy(true);
+    followLatest.current=true;
     await guarded(async()=>{
       let result:Task;
+      const message=text.trim()||'请查看我发送的文件，简要说明内容。';
       if(active) result = await api(`/tasks/${active.task_id}/messages`,{request_id:requestId(),
-        expected_spec_revision:active.spec_revision,text});
-      else result = await api('/tasks',{request_id:requestId(),objective:text,input_refs:selected,
+        expected_spec_revision:active.spec_revision,text:message,attachment_refs:selected});
+      else result = await api('/tasks',{request_id:requestId(),objective:message,input_refs:selected,
         harness_mode:harness,context_classification:'private',requested_metrics:[],requested_method_id:null,
         constraints:scope==='full'?{}:{allowed_capabilities:scopeCapabilities(scope,customCaps)},output_preferences:{report_language:'zh'}});
-      setActive(await api<Task>(`/tasks/${result.task_id}`)); setText(''); await refresh();
+      setActive(await api<Task>(`/tasks/${result.task_id}`)); setText('');setSelected([]);setPendingSources([]);await refresh();
     }); setBusy(false);
   };
   const control = async (operation:string) => {
@@ -186,16 +193,8 @@ export default function App() {
   };
   const selectSourceFile = async (source:Resource) => {
     if(currentSession.current!==sessionKey)return;
-    if(active) {
-      const current=await api<Task>(`/tasks/${active.task_id}`);
-      await api(`/tasks/${active.task_id}/sources`,{request_id:requestId(),expected_spec_revision:current.spec_revision,add_refs:[source.resource_id]});
-      const [state,sources]=await Promise.all([api<Task>(`/tasks/${active.task_id}`),api<Resource[]>(`/tasks/${active.task_id}/sources`)]);
-      if(currentSession.current!==sessionKey)return;
-      setActive(state);setResources(sources);
-    }else {
-      setResources(old=>[...old.filter(r=>r.resource_id!==source.resource_id),source]);
-      setSelected(old=>[...new Set([...old,source.resource_id])]);
-    }
+    setPendingSources(old=>[...old.filter(r=>r.resource_id!==source.resource_id),source]);
+    setSelected(old=>[...new Set([...old,source.resource_id])]);
     setShowSource(false);
   };
   const removeSource = async (id:string) => {
@@ -273,19 +272,24 @@ export default function App() {
       expected_spec_revision:candidate.candidate.spec_revision,candidate_sha256:candidate.candidate_sha256,
       verdict,comment:acceptComment})}); setCandidate(null); await refresh();}); setBusy(false);
   };
+  const processing = events.filter(e=>e.payload.turn_id===active?.active_turn_id&&e.type==='action.started').map(e=>{const a=e.payload.arguments||{};if(a.message)return a.message;const names:Record<string,string>={'fs.read':'读取文件','document.read':'阅读附件','fs.list':'浏览目录','fs.write_workspace':'生成文件','code.execute':'处理数据','role.delegate':'委派独立工作','job.observe':'检查作业'};return names[e.payload.tool]||'处理当前请求';});
   const tools = events.filter(e=>e.type === 'action.started' || e.type === 'action.observed');
-  const liveText = events.filter(e=>e.type === 'model.text' && !e.payload.assignment_id).map(e=>e.payload.text).join('');
+  const liveText = [...events].reverse().find(e=>e.type==='assistant.draft'&&e.payload.turn_id===active?.active_turn_id)?.payload.text||'';
+  useEffect(()=>{followLatest.current=true;},[active?.task_id]);
+  useEffect(()=>{
+    if(followLatest.current&&conversation.current)conversation.current.scrollTop=conversation.current.scrollHeight;
+  },[active?.task_id,active?.messages.length,liveText]);
 
   return <div className="app-shell">
     <aside className="sidebar">
       <div className="brand"><div className="brand-icon"><Leaf size={23}/></div><div><strong>林遥</strong><span>ForestryUAV Agent</span></div><span className="version">V1</span></div>
-      <button className="new-task" disabled={busy} onClick={newTask}><Plus size={18}/>新建任务</button>
+      <button className="new-task" disabled={busy} onClick={newTask}><Plus size={18}/>新建会话</button>
       <div className="section-caption">工作空间</div>
       <button className="nav-item selected" onClick={()=>input.current?.focus()}><MessageSquare size={18}/>Agent 工作台</button>
       <button className="nav-item" onClick={()=>setPanel('sources')}><FolderOpen size={18}/>会话数据源<span className="small-count">{sessionResources.length}</span></button>
       <button className="nav-item" onClick={()=>setShowKnowledge(true)}><File size={18}/>本地知识</button>
-      <div className="section-caption history-title">最近任务<button title="刷新任务" onClick={()=>void guarded(refresh)}><RefreshCw size={13}/></button></div>
-      <div className="history">{tasks.length===0?<p className="muted empty-small">任务会保存在这台电脑上</p>:tasks.map(task=><button key={task.task_id}
+      <div className="section-caption history-title">最近会话<button title="刷新任务" onClick={()=>void guarded(refresh)}><RefreshCw size={13}/></button></div>
+      <div className="history">{tasks.length===0?<p className="muted empty-small">在这里继续以前的会话</p>:tasks.map(task=><button key={task.task_id}
         disabled={busy} className={`history-item ${active?.task_id===task.task_id?'current':''}`} onClick={()=>selectTask(task)}>
         <span className={`status-dot ${task.status}`}/><span>{task.objective}</span></button>)}</div>
       <div className="sidebar-bottom"><button className="nav-item" onClick={openSettings}><Settings size={18}/>设置</button></div>
@@ -296,9 +300,11 @@ export default function App() {
       <main>
         <div className="workspace-heading"><div><h1>从一个目标，开始工作。</h1><p>让 Agent 查阅文件、整理证据并交付可检查的结果。</p></div></div>
         <div className="workspace-grid"><section className="conversation-card">
-          <div className="card-heading"><div className="heading-icon"><MessageSquare size={17}/></div><strong>{active?'当前任务':'新的任务'}</strong>
+          <div className="card-heading"><div className="heading-icon"><MessageSquare size={17}/></div><strong>{active?'当前会话':'新的会话'}</strong>
             <span className={`task-status ${active?.status||''}`}>{active?currentStatus:'准备开始'}</span></div>
-          <div className="conversation-content">
+          <div className="conversation-content" ref={conversation} onScroll={()=>{
+            const pane=conversation.current;if(pane)followLatest.current=pane.scrollHeight-pane.scrollTop-pane.clientHeight<80;
+          }}>
             {!active?<><div className="welcome-emblem"><Leaf size={32}/></div><h2>你希望完成什么？</h2><p className="welcome-description">描述目标，上传或拖入需要处理的文件。</p>
               <div className="suggestions">{[
                 ['整理文件与证据','阅读已选文件，提取重点，并保存一份有来源说明的中文 Markdown 报告。',FolderOpen],
@@ -306,12 +312,12 @@ export default function App() {
                 ['编写处理脚本','阅读已选数据文件，编写可复现的数据处理 Python 脚本；执行后保存脚本与结果，无法完成时说明原因。',Terminal]
               ].map(([title,prompt,Icon])=>{const Symbol=Icon as typeof File; return <button key={String(title)} onClick={()=>{setText(String(prompt));input.current?.focus();}}><Symbol size={17}/><span>{String(title)}</span><ArrowUpRight size={14}/></button>;})}</div>
               </>:
-              <><div className="user-message"><span className="message-label">你的目标</span><p>{active.objective}</p>
+              <><div className="user-message"><span className="message-label">你</span><p>{active.objective}</p><MessageAttachments files={active.initial_attachments||[]} onBrowse={()=>setShowSource(true)}/>
                 {editable&&active.status!=='completed'&&showDiagnostics&&<button className="scope-edit" disabled={busy} onClick={openAmendment}>修改目标与输入</button>}</div>
-                {active.messages.map(message=><div key={message.id} className={`message ${message.role}`}><span className="message-label">{message.role==='assistant'?'林遥 Agent':'你的补充'}</span><div className="message-text">{message.text}</div>
-                  {message.limitations?.length?<div className="limitations">{message.limitations.map((l,i)=><p key={i}>{l}</p>)}</div>:null}</div>)}
-                {live&&<div className="running"><div className="pulse-ring"/><div><strong>Agent 正在工作</strong><p>{tools.length?'正在处理文件与生成结果…':'正在连接本地模型…'}</p></div></div>}
-                {live&&liveText&&<pre className="stream-text">{liveText}</pre>}
+                {active.messages.map(message=><div key={message.id} className={`message ${message.role}`}><span className="message-label">{message.role==='assistant'?'林遥 Agent':'你'}</span><div className={`message-text ${message.role==='assistant'?'rendered':''}`}>{message.role==='assistant'?<MarkdownMessage text={message.text}/>:message.text}</div><MessageAttachments files={message.attachments||[]} onBrowse={()=>setShowSource(true)}/>{message.process_summary&&<details className="public-process"><summary>处理说明</summary><p>{message.process_summary}</p></details>}
+                  {message.limitations?.length?<details className="limitations"><summary>本次结果说明</summary>{message.limitations.map((l,i)=><p key={i}>{l}</p>)}</details>:null}</div>)}
+                {live&&<div className="running"><div className="pulse-ring"/><div><strong>Agent 正在工作</strong><p>{processing.length?'正在处理当前请求…':'正在组织回答…'}</p></div></div>}
+                {live&&<details className="public-process" open><summary>处理过程</summary><ol>{processing.map((step,i)=><li key={i}>{step}</li>)}<li>{liveText?'正在输出回答':'正在理解消息并组织回答'}</li></ol></details>}{live&&liveText&&<div className="draft-answer"><MarkdownMessage text={liveText}/></div>}
                 {active.blockers.filter(b=>b.code!=='ACCEPTANCE_REQUIRED').map((b,i)=><div key={i} className="blocker"><CircleHelp size={16}/><span>{b.message}</span></div>)}
                 {approvals.some(a=>a.request.kind==='environment.acquire'&&['pending','approved'].includes(a.status))&&<section className="network-approvals" aria-label="网络请求审批"><h3>网络请求审批</h3>
                   <p>核对完整载荷、目的地和来源版本，每次批准仅用于这一项请求。依赖下载成功仍须经过容器安装与结果检查。</p>
@@ -332,14 +338,11 @@ export default function App() {
               </>}
           </div>
           <div className="composer" onDragOver={event=>event.preventDefault()} onDrop={event=>{event.preventDefault();void uploadFiles(event.dataTransfer.files);}}>
-            {sessionResources.length>0&&<div className="source-chips" aria-label="本会话输入">{sessionResources.map(r=><button key={r.resource_id}
-              disabled={!editable||active?.status==='completed'||busy} aria-label={`移除 ${r.name}`} onClick={()=>void guarded(()=>removeSource(r.resource_id))}>
-              <File size={13}/>{r.name}{r.kind==='directory'?'（目录）':''}<X size={12}/></button>)}</div>}
-            {selectedDirectory&&<p className="queue-note" role="note">{directoryInputNote}</p>}
-            <textarea ref={input} value={text} onChange={e=>setText(e.target.value)} placeholder={active?'补充信息或提出后续问题…':'描述你的目标，例如：阅读这份数据，整理重点并生成报告…'}
+            {pendingSources.length>0&&<div className="source-chips draft-attachments" aria-label="待发送附件">{pendingSources.map(r=><button key={r.resource_id} disabled={busy} aria-label={`移除待发送 ${r.name}`} onClick={()=>{setSelected(old=>old.filter(id=>id!==r.resource_id));setPendingSources(old=>old.filter(file=>file.resource_id!==r.resource_id));}}><File size={13}/>{r.name}{r.kind==='directory'?'（文件夹）':''}<X size={12}/></button>)}</div>}
+            <textarea ref={input} value={text} onChange={e=>setText(e.target.value)} placeholder="发送消息、文件、图片、文件夹或本地路径…"
               onKeyDown={e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();void send();}}}/>
-            {live&&<p className="queue-note">补充消息会依次处理。</p>}
-            <div className="composer-footer"><button className="source-button" onClick={()=>setShowSource(true)}><Plus size={16}/>添加文件</button><input ref={uploadInput} type="file" multiple hidden aria-label="上传文件" onChange={event=>{if(event.target.files)void uploadFiles(event.target.files);}}/><div><span className="key-hint">Ctrl + Enter 发送</span><button className="send-button" title="发送任务" disabled={!text.trim()||busy||active?.cancellation_requested||['failed','cancelled','publishing'].includes(active?.status||'')} onClick={()=>void send()}><Send size={16}/></button></div></div>
+            {live&&<p className="queue-note">消息会依次处理。</p>}
+            <div className="composer-footer"><button className="source-button" onClick={()=>setShowSource(true)}><Plus size={16}/>添加文件</button><input ref={uploadInput} type="file" multiple hidden aria-label="上传文件" onChange={event=>{if(event.target.files)void uploadFiles(event.target.files);}}/><div><span className="key-hint">Ctrl + Enter 发送</span><button className="send-button" title="发送消息" disabled={(!text.trim()&&!selected.length)||busy||cancelling||active?.status==='publishing'} onClick={()=>void send()}><Send size={16}/></button></div></div>
           </div>
         </section>
         <aside className="inspector"><section className="inspector-card">
@@ -358,11 +361,11 @@ export default function App() {
                 {a.result.limitations.map((l,i)=><p className="limitations" key={i}>{l}</p>)}</>}
               <p className="muted">独立结果供协调者检查与整合，任务仍须由你验收。</p></details>):<div className="inspector-empty"><ShieldCheck size={26}/><p>需要独立工作时才会委派。<br/>这里显示实际范围、状态和结果。</p></div>}</div>}
         </section>
-        {active&&<section className="control-card"><div><span className={`status-dot ${active.status}`}/><strong>{currentStatus}</strong></div><div className="task-controls">
-          <button disabled={!live||cancelling} onClick={()=>void control('pause')}><Pause size={14}/>暂停</button>
-          <button disabled={active.status!=='paused'||!!active.cancellation_requested} onClick={()=>void control('resume')}><Play size={14}/>恢复</button>
-          <button disabled={!!active.cancellation_requested||['cancelled','completed','failed','publishing'].includes(active.status)} onClick={()=>void control('cancel')}><Square size={13}/>取消</button></div>
-          {cancelling&&<p className="control-policy">{cancelling?'已请求取消，正在确认所有作业停止；任务不会继续执行。':'暂停停止新操作，已启动的作业继续运行。取消会停止作业，确认后才显示“已取消”。修改目标后，旧结果仅作历史保留。'}</p>}</section>}
+        {active&&(live||active.status==='waiting_job'||active.status==='paused'||cancelling)&&<section className="control-card"><div><span className={`status-dot ${active.status}`}/><strong>{currentStatus}</strong></div><div className="task-controls">
+          <button disabled={!live||cancelling} onClick={()=>void control('pause')} title="暂停后续处理，已启动计算继续运行"><Pause size={14}/>暂停</button>
+          <button disabled={active.status!=='paused'||!!active.cancellation_requested} onClick={()=>void control('resume')}><Play size={14}/>继续</button>
+          <button disabled={!!active.cancellation_requested||['cancelled','completed','failed','publishing'].includes(active.status)} title="停止本次执行，保留会话" onClick={()=>void control('cancel')}><Square size={13}/>停止</button></div>
+          {cancelling&&<p className="control-policy">正在确认本次执行停止。会话和文件保留，确认后可继续发送消息。</p>}</section>}
         </aside></div>
         {error&&<div className="error-banner" role="alert"><CircleHelp size={17}/>{error}<button onClick={()=>setError('')}><X size={16}/></button></div>}
 
@@ -370,17 +373,17 @@ export default function App() {
     </div>
     {showNavigation&&<div className="modal-backdrop"><nav className="modal compact-navigation-panel" role="dialog" aria-label="任务与资源">
       <div className="modal-heading"><h2>任务与资源</h2><button aria-label="关闭任务与资源" onClick={()=>setShowNavigation(false)}><X size={20}/></button></div>
-      <button className="new-task" disabled={busy} onClick={()=>{newTask();setShowNavigation(false);}}><Plus size={18}/>新建任务</button>
+      <button className="new-task" disabled={busy} onClick={()=>{newTask();setShowNavigation(false);}}><Plus size={18}/>新建会话</button>
       <button className="nav-item" onClick={()=>{setShowNavigation(false);setPanel('sources');}}><FolderOpen size={18}/>会话数据源<span className="small-count">{sessionResources.length}</span></button>
       <button className="nav-item" onClick={()=>{setShowNavigation(false);setShowKnowledge(true);}}><File size={18}/>本地知识</button>
-      <div className="section-caption history-title">最近任务<button aria-label="刷新最近任务" onClick={()=>void guarded(refresh)}><RefreshCw size={13}/></button></div>
-      <div className="history">{tasks.length===0?<p className="muted">任务会保存在这台电脑上</p>:tasks.map(task=><button key={task.task_id}
+      <div className="section-caption history-title">最近会话<button aria-label="刷新最近会话" onClick={()=>void guarded(refresh)}><RefreshCw size={13}/></button></div>
+      <div className="history">{tasks.length===0?<p className="muted">在这里继续以前的会话</p>:tasks.map(task=><button key={task.task_id}
         disabled={busy} className={`history-item ${active?.task_id===task.task_id?'current':''}`} onClick={()=>{selectTask(task);setShowNavigation(false);}}>
         <span className={`status-dot ${task.status}`}/><span>{task.objective}</span></button>)}</div>
     </nav></div>}
     {amending&&<div className="modal-backdrop"><div className="modal scope-modal" role="dialog" aria-label="修改任务规范">
       <div className="modal-heading"><h2>修改任务规范</h2><button disabled={busy} onClick={()=>setAmending(null)}><X size={20}/></button></div>
-      <p>保存为修订 {amending.spec_revision+1}，暂停当前执行并保留历史。核对已登记动作后，使用“恢复”继续。补充消息不会修改工具范围。</p>
+      <p>保存为修订 {amending.spec_revision+1}，暂停当前执行并保留历史。核对已登记动作后，使用“恢复”继续。普通消息不会修改工具权限。</p>
       <label>任务目标<textarea aria-label="修订任务目标" value={amendObjective} onChange={e=>setAmendObjective(e.target.value)} maxLength={32000}/></label>
       <fieldset><legend>本次授权输入</legend><div className="capability-grid">{amendmentResources.map(r=><label key={r.resource_id}><input type="checkbox" checked={amendInputs.includes(r.resource_id)} disabled={amending.config_snapshot?.context_classification==='public'&&r.classification!=='public'} onChange={e=>setAmendInputs(old=>e.target.checked?[...old,r.resource_id]:old.filter(id=>id!==r.resource_id))}/>{r.name}{r.kind==='directory'?'（目录）':''}</label>)}</div></fieldset>
       {resources.some(r=>r.kind==='directory'&&amendInputs.includes(r.resource_id))&&<p role="note">{directoryInputNote}</p>}
@@ -388,20 +391,20 @@ export default function App() {
       <div className="modal-actions"><button disabled={busy} onClick={()=>setAmending(null)}>返回</button><button className="primary" disabled={busy||!amendObjective.trim()} onClick={()=>void saveAmendment()}>保存规范修订</button></div>
     </div></div>}
     {showSource&&<div className="modal-backdrop"><div className="modal source-modal" role="dialog" aria-label="会话数据源"><div className="modal-heading"><h2>会话文件</h2><button aria-label="关闭本地数据源" onClick={()=>setShowSource(false)}><X size={20}/></button></div>
-      {editable&&<><button className="primary" disabled={busy} onClick={()=>uploadInput.current?.click()}>选择文件上传</button><p>也可以把文件拖入输入框。每个文件上限128 MiB。</p><button disabled={busy} onClick={()=>void pickLocal(false)}>选择大文件引用</button><button disabled={busy} onClick={()=>void pickLocal(true)}>选择目录引用</button>
-        <details><summary>大文件或目录：添加本地路径引用</summary><p>保持文件在原位置，适用于大型点云与目录。</p><label>本地路径<input value={path} onChange={e=>setPath(e.target.value)} placeholder="C:\数据\样地文件"/></label><button className="primary" disabled={busy||!path.trim()} onClick={()=>void addSource()}>添加只读引用</button></details></>}
+      {editable&&<><div className="attachment-menu"><button disabled={busy} onClick={()=>void pickLocal(false)}>文件</button><button disabled={busy} onClick={()=>void pickLocal(true)}>文件夹</button><button disabled={busy} onClick={()=>uploadInput.current?.click()}>上传文件</button></div><p>选择后随下一条消息发送；也可以拖入文件，或直接在消息中给出本地路径。</p>
+        <details><summary>输入文件或文件夹路径</summary><p>保持文件在原位置，适用于大型点云与目录。</p><label>本地路径<input value={path} onChange={e=>setPath(e.target.value)} placeholder="C:\数据\样地文件"/></label><button className="primary" disabled={busy||!path.trim()} onClick={()=>void addSource()}>添加到消息</button></details></>}
       <SourceBrowser key={active?.task_id||'draft'} resources={sessionResources} activeTask={!!active} allowRegistration={editable&&!busy} onRegistered={selectSourceFile}/></div></div>}
     {showKnowledge&&<div className="modal-backdrop"><div className="modal settings-modal"><div className="modal-heading"><h2>本地知识与来源</h2><button aria-label="关闭本地知识" onClick={()=>setShowKnowledge(false)}><X size={20}/></button></div>
       <KnowledgePanel resources={sessionResources} tasks={tasks} onError={setError}/></div></div>}
-    {showSettings&&<div className="modal-backdrop"><div className="modal settings-modal" role="dialog" aria-label="Agent 设置"><div className="modal-heading"><h2>模型与执行环境</h2><button aria-label="关闭设置" onClick={()=>setShowSettings(false)}><X size={20}/></button></div><p>后续新任务使用选定模型，当前任务保留自己的配置快照。</p><label>默认本地模型<select value={settings?.default_model||'small'} onChange={e=>void guarded(async()=>{
+    {showSettings&&<div className="modal-backdrop"><div className="modal settings-modal" role="dialog" aria-label="Agent 设置"><div className="modal-heading"><h2>模型与执行环境</h2><button aria-label="关闭设置" onClick={()=>setShowSettings(false)}><X size={20}/></button></div><p>新会话使用选定模型，当前会话保留自己的模型。</p><label>默认本地模型<select value={settings?.default_model||'small'} onChange={e=>void guarded(async()=>{
       if(!settings)return; await api('/settings',{request_id:requestId(),expected_version:settings.version,default_model:e.target.value},'PUT');setSettings(await api('/settings'));})}>
       <option value="small">Qwen3.5 · 4B</option><option value="large">Qwen3.8 · 27B</option></select></label>
       <details className="agent-preferences"><summary>Agent 高级设置</summary><h3>新会话默认设置</h3><p>默认使用完整能力，由 Agent 在授权范围内选择工具。以下偏好保存在此浏览器，不改变已有会话。</p>
         <label>工作方式<select aria-label="工作方式" value={harness} onChange={event=>setHarness(event.target.value)}><option value="H2">H2 · 按需独立复核</option><option value="H1">H1 · 单个助手持续处理</option><option value="H0">H0 · 基础工具对照</option></select></label>
         <label>工具权限上限<select aria-label="工具权限上限" value={scope} onChange={event=>setScope(event.target.value as Scope)}><option value="full">全部已启用能力</option><option value="files">文件与报告</option><option value="answer">仅回答</option><option value="custom">自定义</option></select></label>
         {scope==='custom'&&<div className="capability-grid">{Object.entries(capabilityLabels).map(([cap,label])=><label key={cap}><input type="checkbox" checked={customCaps.includes(cap)} onChange={event=>setCustomCaps(old=>event.target.checked?[...old,cap]:old.filter(value=>value!==cap))}/>{label}</label>)}</div>}
-        {active&&<section className="current-task-settings"><h3>当前会话</h3><p>工作方式：{active.config_snapshot?.harness_mode||'H1'}（创建时固定）</p><label>本会话工具范围<select aria-label="本会话工具范围" disabled={!editable||active?.status==='completed'||busy} value={currentScopeCaps===null?'full':scopeName(currentScopeCaps)==='文件与报告'?'files':currentScopeCaps.length===0?'answer':'custom'} onChange={event=>setCurrentScopeCaps(scopeCapabilities(event.target.value as Scope,currentScopeCaps??[]))}><option value="full">全部已启用能力</option><option value="files">文件与报告</option><option value="answer">仅回答</option><option value="custom">自定义</option></select></label>
-          {currentScopeCaps!==null&&<div className="capability-grid">{Object.entries(capabilityLabels).map(([cap,label])=><label key={cap}><input type="checkbox" disabled={!editable||active?.status==='completed'||busy} checked={currentScopeCaps.includes(cap)} onChange={event=>setCurrentScopeCaps(old=>event.target.checked?[...(old??[]),cap]:(old??[]).filter(value=>value!==cap))}/>{label}</label>)}</div>}
+        {active&&<section className="current-task-settings"><h3>当前会话</h3><p>工作方式：{active.config_snapshot?.harness_mode||'H1'}（创建时固定）</p><label>本会话工具范围<select aria-label="本会话工具范围" disabled={!editable||['completed','cancelled','failed'].includes(active?.status||'')||busy} value={currentScopeCaps===null?'full':scopeName(currentScopeCaps)==='文件与报告'?'files':currentScopeCaps.length===0?'answer':'custom'} onChange={event=>setCurrentScopeCaps(scopeCapabilities(event.target.value as Scope,currentScopeCaps??[]))}><option value="full">全部已启用能力</option><option value="files">文件与报告</option><option value="answer">仅回答</option><option value="custom">自定义</option></select></label>
+          {currentScopeCaps!==null&&<div className="capability-grid">{Object.entries(capabilityLabels).map(([cap,label])=><label key={cap}><input type="checkbox" disabled={!editable||['completed','cancelled','failed'].includes(active?.status||'')||busy} checked={currentScopeCaps.includes(cap)} onChange={event=>setCurrentScopeCaps(old=>event.target.checked?[...(old??[]),cap]:(old??[]).filter(value=>value!==cap))}/>{label}</label>)}</div>}
           <p>保存权限变更会暂停本会话并保留历史，核对后可显式恢复。</p><button disabled={!editable||busy||JSON.stringify(currentScopeCaps?.slice().sort()??null)===JSON.stringify(active.constraints?.allowed_capabilities?.slice().sort()??null)} onClick={()=>void saveCurrentScope()}>保存本会话工具范围</button></section>}
       </details>
       <label className="checkbox"><input type="checkbox" checked={showDiagnostics} onChange={e=>{setShowDiagnostics(e.target.checked);if(!e.target.checked)setPanel('artifacts');}}/>显示执行诊断面板</label>

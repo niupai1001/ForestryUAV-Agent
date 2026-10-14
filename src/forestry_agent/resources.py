@@ -7,6 +7,7 @@ import os
 import shutil
 from contextlib import nullcontext
 from pathlib import Path
+from uuid import NAMESPACE_URL, uuid5
 
 from .contracts import Failure
 from .store import Store, encode, now, uid
@@ -50,7 +51,7 @@ class Resources:
             if path != granted_file or not path.is_file():
                 raise Failure("PERMISSION_DENIED", "单文件不再位于已授权来源范围", 403)
         internal = self.workspace / ".forestry"
-        if path == Path(path.anchor) or path.is_relative_to(internal) or internal.is_relative_to(path):
+        if path == Path(path.anchor) or path.is_relative_to(internal) or '.forestry' in path.parts:
             raise Failure("PERMISSION_DENIED", "不接受整个磁盘或应用内部状态目录作为数据源", 403)
         resource = {"schema_version": 1, "resource_id": uid(), "name": path.name,
             "locator": str(path), "kind": "directory" if path.is_dir() else "file",
@@ -79,9 +80,14 @@ class Resources:
             row = connection.execute("SELECT payload FROM resources WHERE id=?", (resource_id,)).fetchone()
             if not row:
                 raise Failure("PERMISSION_DENIED", "资源未授权或已撤销", 403)
-            if task_id and resource_id not in self.store.read_task(connection, task_id)["input_refs"]:
-                raise Failure("PERMISSION_DENIED", "资源不属于当前任务的输入范围", 403)
             resource = json.loads(row["payload"])
+            authorized = self.store.read_task(connection,task_id)['input_refs'] if task_id else None
+            if authorized is not None and resource_id not in authorized and resource.get('parent_resource_id') not in authorized:
+                raise Failure("PERMISSION_DENIED", "资源不属于当前任务的输入范围", 403)
+            if resource.get('parent_resource_id'):
+                parent_path = self.resolve(resource['parent_resource_id'],resource['relative_path'],task_id,db=connection)
+                if parent_path != Path(resource['locator']):
+                    raise Failure('PERMISSION_DENIED','派生文件已脱离原文件夹范围',403)
         root = Path(resource["locator"])
         # A replaced link must not redirect a previously granted root.
         if root.resolve() != root:
@@ -90,7 +96,44 @@ class Resources:
             if relative not in {"", ".", root.name}:
                 raise Failure("PERMISSION_DENIED", "仅授权了该文件", 403)
             return root
-        return inside(root, relative)
+        target = inside(root, relative)
+        if '.forestry' in target.parts or target.is_relative_to(self.workspace/'.forestry'):
+            raise Failure('PERMISSION_DENIED','应用内部状态不属于会话文件范围',403)
+        return target
+
+    def grant_root(self, ref, task_id, *, db):
+        state = self.store.read_task(db,task_id)
+        if ref in state['input_refs']:
+            return ref
+        row = db.execute('SELECT payload FROM resources WHERE id=?',(ref,)).fetchone()
+        value = json.loads(row['payload']) if row else {}
+        if value.get('parent_resource_id') in state['input_refs']:
+            self.resolve(ref,task_id=task_id,db=db)
+            return value['parent_resource_id']
+        return ref
+
+    def select_files(self, task_id, parent_ref, relative_paths):
+        if not 1<=len(relative_paths)<=100:
+            raise Failure('INPUT_LIMIT','每次选择1至100个文件夹内文件',422)
+        root = self.resolve(parent_ref,task_id=task_id)
+        if not root.is_dir():
+            raise Failure('SCHEMA_INVALID','来源须为已发送的文件夹')
+        with self.store.transaction() as db:
+            parent = db.execute('SELECT payload,event_id FROM resources WHERE id=?',(parent_ref,)).fetchone()
+            payload = json.loads(parent['payload'])
+            selected = []
+            for relative in relative_paths:
+                path = self.resolve(parent_ref,relative,task_id,db=db)
+                if not path.is_file():
+                    raise Failure('PRECONDITION_MISSING','选择项须为文件夹内单文件',422)
+                source_version = version(path)
+                ref = str(uuid5(NAMESPACE_URL,parent_ref+'|'+str(path)+'|'+source_version))
+                value = {'schema_version':1,'resource_id':ref,'name':path.name,'locator':str(path),'kind':'file',
+                         'classification':payload['classification'],'read_only':True,'version':source_version,'created_at':now(),
+                         'parent_resource_id':parent_ref,'relative_path':relative}
+                db.execute('INSERT OR IGNORE INTO resources VALUES(?,?,?)',(ref,encode(value),parent['event_id']))
+                selected.append({k:v for k,v in value.items() if k!='locator'})
+            return selected
 
     def task_root(self, task_id: str) -> Path:
         self.store.task(task_id)
@@ -104,7 +147,7 @@ class Resources:
         with self.store.transaction() if db is None else nullcontext(db) as connection:
             state = self.store.read_task(connection, task_id)
             for ref in dict.fromkeys(refs):
-                if ref in state['input_refs']:
+                if self.grant_root(ref,task_id,db=connection) in state['input_refs']:
                     inputs.append(ref)
                 elif ref in state['artifact_ids'] and connection.execute(
                         'SELECT 1 FROM artifacts WHERE id=? AND task_id=?', (ref, task_id)).fetchone():
@@ -127,7 +170,11 @@ class Resources:
         entries = []
         more = False
         with os.scandir(path) as scan:
-            for index, entry in enumerate(scan):
+            index = -1
+            for entry in scan:
+                if entry.name=='.forestry':
+                    continue
+                index += 1
                 if index < offset:
                     continue
                 if len(entries) >= limit:

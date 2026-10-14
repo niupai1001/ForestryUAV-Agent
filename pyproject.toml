@@ -18,6 +18,7 @@ dependencies = [
   "resolvelib>=1.2,<2",
   "laspy>=2.7,<3",
   "pyproj>=3.7,<4",
+  "pillow>=11,<13",
 ]
 
 [project.scripts]

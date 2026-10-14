@@ -19,6 +19,9 @@ CAPABILITY_NAMES = {"list_inputs": "fs.inputs", "list_files": "fs.list", "read_f
 CAPABILITY_NAMES["process_lidar_terrain"] = "code.execute"
 CAPABILITY_NAMES["process_lidar_canopy"] = "code.execute"
 CAPABILITY_NAMES["apply_lidar_roi"] = "code.execute"
+CAPABILITY_NAMES['view_image'] = 'document.read'
+CAPABILITY_NAMES['report_progress'] = 'task.plan'
+CAPABILITY_NAMES['select_input_files'] = 'fs.inputs'
 
 
 class Boundary(BaseModel):
@@ -63,6 +66,14 @@ class Message(Boundary):
     text: str = Field(min_length=1, max_length=32000)
     expected_spec_revision: int = Field(ge=1)
     correlation_id: str | None = None
+    attachment_refs: list[str] = Field(default_factory=list, max_length=100)
+
+    @model_serializer(mode='wrap')
+    def serialize(self, handler):
+        value = handler(self)
+        if not value['attachment_refs']:
+            value.pop('attachment_refs')
+        return value
 
 
 class Amendment(Boundary):

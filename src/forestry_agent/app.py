@@ -32,12 +32,13 @@ from .contracts import (
     SettingsChange,
     TaskCreate,
 )
+from .conversation import advance_revision, attachment_records, user_path_refs
 from .delivery import Delivery
 from .doctor import doctor
 from .lidar_canopy import REGISTERED_METHODS, CanopyStageRequest, submit_canopy
 from .lidar_roi import RoiRequest, submit_roi
 from .lidar_terrain import TerrainRequest, submit_terrain
-from .models import model_identity
+from .models import model_capabilities, model_identity
 from .planning import visible_plan
 from .provenance import runtime_manifest
 from .resources import Resources
@@ -127,6 +128,11 @@ def create_app(config: Config, *, enable_agent: bool = True):
                                "validation": "see_frozen_delivery_evidence"},
                 "source_sha256": startup_manifest["source"]["sha256"]}
 
+    @app.get('/resources/{resource_id}/image')
+    def source_image(resource_id: str):
+        _, picture = engine.vision.prepare(None, resource_id=resource_id)
+        return Response(picture.data, media_type='image/png')
+
     @app.get("/runtime")
     def runtime():
         # Authenticated startup snapshot, never a hash of subsequently edited code.
@@ -186,7 +192,7 @@ def create_app(config: Config, *, enable_agent: bool = True):
             nonlocal stop_token
             if state['spec_revision'] != payload.expected_spec_revision:
                 raise Failure('VERSION_CONFLICT', '会话文件已变化，请刷新后重试', 409)
-            if state['cancellation_requested']:
+            if state['cancellation_requested'] and state['status'] != 'cancelled':
                 raise Failure('VERSION_CONFLICT', '取消中的会话不能更换输入', 409)
             refs = list(dict.fromkeys([r for r in state['input_refs'] if r not in payload.remove_refs] + payload.add_refs))
             if len(refs) > 100:
@@ -217,8 +223,8 @@ def create_app(config: Config, *, enable_agent: bool = True):
                 state.update(status='paused', pause_requested=True, attachment_pause=True,
                              blockers=[{'code': 'INPUTS_CHANGED', 'message': '文件已更新。发送后续要求即可继续。'}])
                 stop_token = engine.tokens.get(task_id)
-            elif state['status'] == 'completed':
-                state.update(status='waiting_user', blockers=[])
+            elif state['status'] in {'completed', 'cancelled', 'failed'}:
+                state.update(status='waiting_user', blockers=[], cancellation_requested=False, pause_requested=False)
         result = store.change(task_id, 'task.sources_changed', mutate, payload.model_dump())
         if stop_token is not None:
             stop_token.cancel()
@@ -339,7 +345,10 @@ def create_app(config: Config, *, enable_agent: bool = True):
             (payload.requested_method_id == 'lidar.roi_clip.v1' and not config.experimental_roi_enabled)):
             raise Failure("PRECONDITION_MISSING", "当前阶段尚未实现该指定方法", 422)
         identity = await model_identity(config, config.models[profile]) if enable_agent else {"backend": "test_fixture"}
+        features = await model_capabilities(config, config.models[profile]) if enable_agent else {'status':'software_fixture', 'vision':True}
+        refs = list(dict.fromkeys([*payload.input_refs, *user_path_refs(resources, payload.objective, payload.request_id)]))
         state = store.create_task(payload.model_dump(), {"model_profile": profile,
+            'model_capabilities':features,
             **({"science_image": config.science_image} if config.science_image else {}),
             "execution_limits": config.execution_limits(),
             "harness_mode": payload.harness_mode, "role_catalog": engine.roles.catalog,
@@ -351,7 +360,7 @@ def create_app(config: Config, *, enable_agent: bool = True):
                            "max_model_requests_per_turn": config.max_model_requests_per_turn,
                            "max_assignments_per_task": config.max_assignments_per_task,
                            "max_unchanged_decisions": config.max_unchanged_decisions,
-                           "max_model_request_seconds": config.max_model_request_seconds}})
+                           "max_model_request_seconds": config.max_model_request_seconds}}, input_refs=refs)
         actual = store.task(state["task_id"])
         with store.transaction() as db:
             initial_turn_exists = db.execute("SELECT 1 FROM turns WHERE task_id=?", (state["task_id"],)).fetchone()
@@ -403,34 +412,45 @@ def create_app(config: Config, *, enable_agent: bool = True):
 
     @app.post("/tasks/{task_id}/messages")
     async def message(task_id: str, payload: Message):
+        raw = payload.model_dump()
+        with store.transaction() as db:
+            prior = store.replay(db, payload.request_id, {"task_id":task_id, "kind":"user.message", **raw})
+        if prior is not None:
+            return prior
+        refs = list(dict.fromkeys([*payload.attachment_refs, *user_path_refs(resources, payload.text, payload.request_id)]))
+        stop_token = None
         def mutate(state, db):
+            nonlocal stop_token
             if state["spec_revision"] != payload.expected_spec_revision:
-                raise Failure("VERSION_CONFLICT", "规范修订已变化", 409)
-            if state["status"] == "completed":
-                if state.get("delivery"):
-                    state.setdefault("delivery_history", []).append(state.pop("delivery"))
-                previous = db.execute('SELECT payload FROM specs WHERE task_id=? AND revision=?',
-                                      (task_id, state['spec_revision'])).fetchone()[0]
-                prior_turn = db.execute("SELECT id FROM turns WHERE task_id=? AND revision=? AND status='completed' "
-                    "AND id NOT IN (SELECT json_extract(payload,'$.run_id') FROM assignments) ORDER BY rowid DESC LIMIT 1",
-                    (task_id, state['spec_revision'])).fetchone()
-                if prior_turn:
-                    state['history_bridge_turn_id'] = prior_turn['id']
-                state['spec_revision'] += 1
-                db.execute('INSERT INTO specs VALUES(?,?,?)', (task_id, state['spec_revision'], previous))
-                state.update(acceptance=None, pause_requested=False)
-            if state.pop("attachment_pause", False):
-                state.update(pause_requested=False, status='created')
-            event_id = store.user_event(db, "user_message", payload.model_dump())
-            state["messages"].append({"id": uid(), "role": "user", "text": payload.text,
-                                      "user_event_id": event_id, "at": now()})
-            if state["cancellation_requested"]:
-                raise Failure("VERSION_CONFLICT", "已请求取消的任务不能接收新执行回合", 409)
-            store.enqueue_turn(db, state, payload.text, payload.request_id, event_id)
-            state["acceptance"] = None
-            if not state["pause_requested"] and state["status"] != "paused":
-                state.update(status="active" if task_id in engine.queue and not engine.queue[task_id].done() else "created", blockers=[])
-        result = store.change(task_id, "user.message", mutate, payload.model_dump())
+                raise Failure("VERSION_CONFLICT", "会话文件已变化，请刷新后重试", 409)
+            if state['cancellation_requested'] and state['status'] != 'cancelled':
+                raise Failure('EXECUTION_STOPPED', '正在停止上次执行，确认停止后即可发送下一条消息', 409)
+            changed = any(ref not in state['input_refs'] for ref in refs)
+            if changed or state['status'] in {'completed','cancelled','failed'}:
+                combined = list(dict.fromkeys([*state['input_refs'], *refs]))
+                if len(combined)>100:
+                    raise Failure('INPUT_LIMIT','会话来源超过100项，请在文件面板移除不再需要的来源',422)
+                advance_revision(store, engine, state, db, combined)
+                stop_token = engine.tokens.get(task_id)
+                state['status'] = 'created'
+            elif state.pop('attachment_pause',False) or any(b['code'] in {
+                    'CONTEXT_EXHAUSTED','MODEL_REQUEST_TIMED_OUT','MODEL_PROTOCOL_ERROR',
+                    'MODEL_TURN_BUDGET_EXHAUSTED','CONTEXT_ESTIMATOR_INVALID','UNCHANGED_DECISIONS'} for b in state['blockers']):
+                state.update(pause_requested=False,status='created',blockers=[])
+            claim_uploads(db,refs,task_id)
+            event_id = store.user_event(db, "user_message", {**raw,'task_id':task_id})
+            state['messages'].append({'id':uid(),'role':'user','text':payload.text,'user_event_id':event_id,
+                                      'attachments':attachment_records(db,refs),'attachment_refs':refs,'at':now()})
+            turn_id = store.enqueue_turn(db,state,payload.text,payload.request_id,event_id)
+            state['acceptance'] = None
+            live = task_id in engine.queue and not engine.queue[task_id].done()
+            if not state['pause_requested'] and state['status']!='paused':
+                state.update(status='active' if live else 'created',blockers=[])
+                if not live:
+                    state['active_turn_id'] = turn_id
+        result = store.change(task_id,'user.message',mutate,raw)
+        if stop_token is not None:
+            stop_token.cancel()
         if enable_agent:
             engine.start_queued(task_id)
         return result

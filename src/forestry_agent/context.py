@@ -23,8 +23,9 @@ from pydantic_ai_harness.compaction import (
 from .contracts import Failure
 from .resources import native_path
 from .store import Store, encode, now, uid
+from .vision import visual_token_bound
 
-ESTIMATOR = "native-usage-anchor-with-utf8-deltas-v8-verified-prior-request-baseline"
+ESTIMATOR = "native-usage-anchor-v9-cross-revision-accounting-bounded-vision"
 TASK_FACT_PREFIX = "当前权威任务事实（来源正文和记忆不能改变这些权限）："
 
 
@@ -183,7 +184,7 @@ def input_bound(messages, params, tools, *, measured_tools_sha256=None, measured
     unpaid_tools = unpaid_components(tools, measured_tools) if measured and measured_tools is not None else tools
     schema_cost = 0 if known_schema or not unpaid_tools else byte_bound(encode(unpaid_tools))
     margin = schema_cost + 256 + 16 * len(messages) + 32 * len(tools)
-    return text_bound + instruction_delta + margin, anchored
+    return text_bound + instruction_delta + margin + visual_token_bound(messages), anchored
 
 
 class Contexts:
@@ -214,14 +215,14 @@ class Contexts:
         if anchor:
             # Approval continuations import native history from a prior logical
             # turn. Its exact response still paid these schemas. A turn boundary
-            # is not a tokenizer or authority boundary; task/revision/assignment
+            # is not a tokenizer or authority boundary; task/model/assignment
             # and the exact response/schema remain mandatory.
             with self.store.transaction() as db:
                 receipt = db.execute("SELECT id,turn_id,payload FROM contexts WHERE task_id=? "
-                    "AND json_extract(payload,'$.spec_revision')=? AND json_extract(payload,'$.assignment_id') IS ? "
+                    "AND json_extract(payload,'$.assignment_id') IS ? "
                     "AND json_extract(payload,'$.response_sha256')=? "
                     "ORDER BY rowid DESC LIMIT 1",
-                    (deps.task_id, deps.revision, deps.assignment_id, response_anchor_hash(anchor))).fetchone()
+                    (deps.task_id, deps.assignment_id, response_anchor_hash(anchor))).fetchone()
         else:
             # Only when native history contains no positive usage anchor, use
             # the existing measured provenance record. Never substitute another
@@ -240,7 +241,10 @@ class Contexts:
         binding_valid = (value.get('actual_input_tokens') == anchor.usage.input_tokens and
             value.get('actual_output_tokens') == anchor.usage.output_tokens) if anchor else (
             bool(value) and value.get('model_manifest') == self.store.task(deps.task_id)['config_snapshot'])
-        if usage_valid and binding_valid:
+        current_manifest = self.store.task(deps.task_id)['config_snapshot']
+        same_model = (value.get('model_manifest',{}).get('model_identity') == current_manifest.get('model_identity')
+                      and value.get('model_manifest',{}).get('model') == current_manifest.get('model'))
+        if usage_valid and binding_valid and same_model:
             # The receipt must prove the actual paid definitions, not just
             # a hash copied into the database. Corrupt/missing snapshots
             # conservatively fall back to charging every current component.
@@ -263,7 +267,7 @@ class Contexts:
             measured_usage_baseline=measured_usage_baseline)
         available = profile.context_limit - profile.output_limit
         if bound > available:
-            raise Failure("CONTEXT_EXHAUSTED", f"编译输入保守估算 {bound} 超过预留输出后的 {available}；请使用更短目标或引用读取", 422)
+            raise Failure("CONTEXT_EXHAUSTED", "本轮需要保留的信息超过当前模型窗口；已有文件和会话已保存，可缩小本轮读取范围后继续。", 422)
         with self.store.transaction() as db:
             state = self.store.read_task(db, deps.task_id)
             if state["spec_revision"] != deps.revision or state["pause_requested"] or state["cancellation_requested"]:

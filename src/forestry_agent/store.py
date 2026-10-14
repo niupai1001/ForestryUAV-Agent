@@ -161,11 +161,14 @@ class Store:
         if result.rowcount != 1:
             raise Failure("VERSION_CONFLICT", "状态版本已变化，请刷新", 409)
 
-    def create_task(self, payload: dict, snapshot: dict):
+    def create_task(self, payload: dict, snapshot: dict, *, input_refs=None):
         with self.transaction() as db:
             replay = self.replay(db, payload["request_id"], {"kind": "task.create", **payload})
             if replay is not None:
                 return replay
+            request_payload = {"kind": "task.create", **payload}
+            if input_refs is not None:
+                payload = {**payload, 'input_refs':input_refs}
             for resource_id in payload["input_refs"]:
                 resource = db.execute("SELECT payload FROM resources WHERE id=?", (resource_id,)).fetchone()
                 if not resource:
@@ -182,11 +185,13 @@ class Store:
                 "pause_requested": False, "action_count": 0, "model_requests": 0, "acceptance": None}
             from .attachments import claim_uploads
             claim_uploads(db, payload['input_refs'], state['task_id'])
+            from .conversation import attachment_records
+            state['initial_attachments'] = attachment_records(db, payload['input_refs'])
             db.execute("INSERT INTO tasks VALUES(?,?,?,?,?,?)",
                 (state["task_id"], 1, 1, "created", encode(state), now()))
             db.execute("INSERT INTO specs VALUES(?,?,?)", (state["task_id"], 1, encode(payload)))
             self.event(db, state["task_id"], "task.created", {"objective": state["objective"]})
-            return self.receipt(db, payload["request_id"], {"kind": "task.create", **payload}, state)
+            return self.receipt(db, payload["request_id"], request_payload, state)
 
     def change(self, task_id: str, kind: str, mutate, payload: dict | None = None, expected: int | None = None):
         with self.transaction() as db:
@@ -200,7 +205,8 @@ class Store:
             if expected is not None and expected != version:
                 raise Failure("VERSION_CONFLICT", "状态版本已变化，请刷新", 409)
             if state["status"] in {"completed", "failed", "cancelled", "publishing"} and not (
-                    state["status"] == "completed" and kind in {"user.message", "task.sources_changed"}):
+                    (state["status"] in {"completed", "cancelled", "failed"} and kind == 'user.message') or
+                    (state["status"] in {"completed", "cancelled", "failed"} and kind == 'task.sources_changed')):
                 raise Failure("VERSION_CONFLICT", "终态或正在封存的任务不能修改", 409)
             mutate(state, db)
             self.save_task(db, state, version)

@@ -174,7 +174,7 @@ def test_prepared_budget_anchors_measured_tokens_and_counts_new_instructions_and
     assert no_usage == unbound
 
 
-def test_schema_discount_requires_exact_response_schema_task_revision_and_role(client, app):
+def test_schema_discount_requires_exact_response_schema_task_model_and_role(client, app):
     state, _ = task(client)
     foreign, _ = task(client, request_id="foreign-schema")
     engine = app.state.engine
@@ -215,7 +215,7 @@ def test_schema_discount_requires_exact_response_schema_task_revision_and_role(c
     assert compile_for()["schema_cost_accounting"] == "full_current_schema"
     request.messages[1] = response
     engine.store.change(state["task_id"], "fixture.new-revision", lambda s, _: s.update(spec_revision=2))
-    assert compile_for(Deps(engine, state["task_id"], deps.turn_id, 2))["schema_cost_accounting"] == "full_current_schema"
+    assert compile_for(Deps(engine, state["task_id"], deps.turn_id, 2))["schema_cost_accounting"] == "bound_measured_schema"
     engine.store.change(state["task_id"], "fixture.restore-revision", lambda s, _: s.update(spec_revision=1))
     with engine.store.transaction() as db:
         old = json.loads(db.execute("SELECT payload FROM contexts WHERE id=?", (manifest_id,)).fetchone()[0])

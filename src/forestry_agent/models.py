@@ -1,9 +1,32 @@
 from __future__ import annotations
 
+import time
+
 import httpx
 
 from .config import Config, ModelProfile
 from .contracts import Failure
+
+_FEATURES = {}
+
+
+async def model_capabilities(config, profile):
+    key = (config.ollama_base_url, profile.served_name)
+    cached = _FEATURES.get(key)
+    if cached and time.monotonic() - cached[0] < 60:
+        return cached[1]
+    try:
+        async with httpx.AsyncClient(timeout=10, trust_env=False) as client:
+            response = await client.post(config.ollama_base_url+'/api/show', json={'model':profile.served_name})
+            response.raise_for_status()
+            value = response.json()
+        caps = value.get('capabilities', [])
+        result = {'status':'observed', 'vision':'vision' in caps, 'thinking':'thinking' in caps,
+                  'tools':'tools' in caps}
+        _FEATURES[key] = (time.monotonic(), result)
+        return result
+    except (httpx.HTTPError, ValueError):
+        return {'status':'unavailable', 'vision':False}
 
 
 async def model_identity(config: Config, profile: ModelProfile):
