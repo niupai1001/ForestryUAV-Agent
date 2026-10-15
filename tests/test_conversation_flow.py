@@ -124,7 +124,7 @@ async def test_new_message_recovers_model_timeout_without_restarting_failed_turn
     assert reply.status_code==200,reply.text
     assert reply.json()['status']=='created' and reply.json()['model_requests']==12
     agent,connection=engine.make_agent('small','settings',state['config_snapshot'],state['task_id'])
-    assert agent.model_settings['openai_reasoning_effort']=='none'
+    assert agent.model_settings['openai_reasoning_effort']=='medium'
     await connection.aclose()
 
 
@@ -208,7 +208,7 @@ async def test_public_text_preserves_created_artifact_metadata(client,app):
             result=await agent.run(state['objective'],deps=Deps(engine,state['task_id'],'public-file',1))
         assert len(result.output.artifact_ids)==1
         assert engine.resources.artifact(result.output.artifact_ids[0])['name']=='answer.md'
-        assert result.output.process_summary=='本轮实际操作：生成文件。'
+        assert 'process_summary' not in result.output.model_dump()
     finally:
         await connection.aclose()
 

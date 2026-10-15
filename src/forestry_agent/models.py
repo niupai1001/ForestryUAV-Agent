@@ -22,11 +22,27 @@ async def model_capabilities(config, profile):
             value = response.json()
         caps = value.get('capabilities', [])
         result = {'status':'observed', 'vision':'vision' in caps, 'thinking':'thinking' in caps,
-                  'tools':'tools' in caps}
+                  'tools':'tools' in caps, 'thinking_controls':value.get('thinking')}
         _FEATURES[key] = (time.monotonic(), result)
         return result
     except (httpx.HTTPError, ValueError):
         return {'status':'unavailable', 'vision':False}
+
+
+def thinking_effort(features):
+    """Enable observed native thinking, preserving model-defined named levels."""
+    if features.get('thinking') is False:
+        return 'none'
+    controls = features.get('thinking_controls') or {}
+    default, values = controls.get('default'), controls.get('values',[])
+    if isinstance(default,str) and default in values:
+        return default
+    names = [value for value in values if isinstance(value,str) and value!='none']
+    if names:
+        return 'medium' if 'medium' in names else names[0]
+    if values == [False]:
+        return 'none'
+    return 'medium'
 
 
 async def model_identity(config: Config, profile: ModelProfile):

@@ -17,8 +17,7 @@ test('continuous conversation: rendered answer, stopped followup and message-own
   await expect(page.locator('.message.assistant table')).toHaveCount(1);
   await expect(page.locator('.message.assistant pre code')).toHaveText('print(42)\n');
   await expect(page.locator('.limitations p')).not.toBeVisible();
-  await page.locator('.message.assistant .public-process summary').click();
-  await expect(page.getByText('已检查当前工具。',{exact:true})).toBeVisible();
+  await expect(page.getByText('处理说明',{exact:true})).toHaveCount(0);
   await page.locator('.composer textarea').fill('停止后可以继续聊');
   await expect(page.locator('.send-button')).toBeEnabled();
   const resumed=page.waitForResponse(r=>new URL(r.url()).pathname===`/tasks/${fixture.stopped_task_id}/messages`);

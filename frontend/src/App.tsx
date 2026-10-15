@@ -7,6 +7,7 @@ import SourceBrowser from './SourceBrowser';
 import { api } from './api';
 import MarkdownMessage from './MarkdownMessage';
 import MessageAttachments, { type Attachment } from './MessageAttachments';
+import NativeThinking from './NativeThinking';
 import { ArrowDownToLine, ArrowUpRight, Check, ChevronDown, CircleHelp, File, FolderOpen,
   Leaf, MessageSquare, Pause, Play, Plus, RefreshCw, Send, Settings,
   ShieldCheck, Square, Terminal, X } from 'lucide-react';
@@ -16,7 +17,7 @@ type Task = {task_id: string; objective: string; status: string; state_version: 
   requested_method_id?:string|null; constraints?:{allowed_capabilities?:string[]|null}; cancellation_requested?:boolean;
   config_snapshot?: {harness_mode?: string;context_classification?:string;science_image?:string};
   active_turn_id?:string; initial_attachments?:Attachment[];
-  messages: {id: string; role: string; text: string; limitations?: string[];attachments?:Attachment[];process_summary?:string;turn_id?:string}[];
+  messages: {id: string; role: string; text: string; attachments?:Attachment[];thinking?:string;turn_id?:string}[];
   blockers: {code: string; message: string}[]; action_count: number;
   last_usage?: {requests: number; input_tokens: number; output_tokens: number}};
 type Resource = {resource_id: string; name: string; locator: string; kind: string; classification: string};
@@ -35,7 +36,7 @@ type Assignment = {assignment_id:string;role_id:string;status:string;model_reque
   blocker?:{message:string}|null};
 type Plan = {task_id:string;spec_revision:number;turn_id:string|null;authority:string;acceptance:string;
   items:{id:string;content:string;status:string;active_form:string}[]};
-const planLabels:Record<string,string> = {pending:'待处理',in_progress:'进行中',completed:'助手标记完成',cancelled:'已取消'};
+const planLabels:Record<string,string> = {pending:'待处理',in_progress:'进行中',completed:'已完成',cancelled:'已取消'};
 const roleNames:Record<string,string> = {environment:'环境检查',data:'数据准备',code_experiment:'代码实验',quality:'质量复核'};
 const assignmentLabels:Record<string,string> = {queued:'等待开始',running:'运行中',waiting:'等待恢复',succeeded:'已返回',partial:'部分结果',failed:'失败',cancelled:'已取消'};
 const labels: Record<string,string> = {created:'等待运行', active:'运行中', paused:'已暂停',
@@ -78,6 +79,8 @@ export default function App() {
   const [artifacts,setArtifacts] = useState<Artifact[]>([]), [events,setEvents] = useState<Event[]>([]);
   const [assignments,setAssignments] = useState<Assignment[]>([]), [harness,setHarness] = useState(()=>taskPreferences().harness);
   const [plan,setPlan] = useState<Plan|null>(null);
+  const [nativeThinking,setNativeThinking]=useState<Record<string,string>>({});
+  const thinkingKeys=useRef<Record<string,string>>({}), planSeen=useRef('');
   const [approvals,setApprovals] = useState<Approval[]>([]);
   const [text,setText] = useState(''), [error,setError] = useState(''), [busy,setBusy] = useState(false);
   const [settings,setSettings] = useState<{version:number; default_model:string; models:Record<string,any>}|null>(null);
@@ -115,7 +118,7 @@ export default function App() {
   useEffect(()=>{
     if(!active) {setArtifacts([]); setEvents([]); setAssignments([]); setApprovals([]); setPlan(null); return;}
     localStorage.setItem('forestry.task',active.task_id);
-    seen.current = new Set(); setEvents([]);
+    seen.current = new Set(); setEvents([]);setNativeThinking({});thinkingKeys.current={};
     setPlan(null);
     const id = active.task_id;
     let current=true, loading=false, reloadPending=false;
@@ -139,12 +142,18 @@ export default function App() {
       const event:Event = JSON.parse(message.data);
       if(seen.current.has(event.event_id)) return;
       seen.current.add(event.event_id); setEvents(previous => [...previous,event].slice(-500));
-      if(!['model.text','assistant.draft'].includes(event.type)) void guarded(loadDetails);
+      if(event.type==='assistant.thinking.delta') {
+        const turn=event.payload.turn_id, key=`${event.payload.request_id}:${event.payload.part_index}`;
+        const boundary=thinkingKeys.current[turn]&&thinkingKeys.current[turn]!==key?'\n\n':'';
+        thinkingKeys.current[turn]=key;
+        setNativeThinking(previous=>({...previous,[turn]:(previous[turn]||'')+boundary+event.payload.delta}));
+      }
+      if(!['model.text','assistant.draft','assistant.thinking.delta'].includes(event.type)) void guarded(loadDetails);
     };
     void guarded(loadDetails);
     return ()=>{current=false;source.close();};
   },[active?.task_id]);
-  const selectTask = (task:Task|null) => {if(busy)return;setSelected([]);setPendingSources([]);setArtifacts([]);setAssignments([]);setEvents([]);setApprovals([]);setPlan(null);setResources([]);setActive(task);};
+  const selectTask = (task:Task|null) => {if(busy)return;setSelected([]);setPendingSources([]);setArtifacts([]);setAssignments([]);setEvents([]);setNativeThinking({});setApprovals([]);setPlan(null);planSeen.current='';setResources([]);setActive(task);};
   const newTask = () => {if(busy)return;selectTask(null);draftId.current=requestId();setSelected([]); setText(''); setPanel('artifacts'); localStorage.removeItem('forestry.task'); input.current?.focus();};
   const send = async () => {
     if((!text.trim()&&!selected.length) || busy) return;
@@ -272,13 +281,20 @@ export default function App() {
       expected_spec_revision:candidate.candidate.spec_revision,candidate_sha256:candidate.candidate_sha256,
       verdict,comment:acceptComment})}); setCandidate(null); await refresh();}); setBusy(false);
   };
-  const processing = events.filter(e=>e.payload.turn_id===active?.active_turn_id&&e.type==='action.started').map(e=>{const a=e.payload.arguments||{};if(a.message)return a.message;const names:Record<string,string>={'fs.read':'读取文件','document.read':'阅读附件','fs.list':'浏览目录','fs.write_workspace':'生成文件','code.execute':'处理数据','role.delegate':'委派独立工作','job.observe':'检查作业'};return names[e.payload.tool]||'处理当前请求';});
   const tools = events.filter(e=>e.type === 'action.started' || e.type === 'action.observed');
   const liveText = [...events].reverse().find(e=>e.type==='assistant.draft'&&e.payload.turn_id===active?.active_turn_id)?.payload.text||'';
+  const currentThinking=nativeThinking[active?.active_turn_id||'']||'';
+  const showCurrentThinking=!!currentThinking&&!active?.messages.some(m=>m.role==='assistant'&&m.turn_id===active.active_turn_id);
+  useEffect(()=>{
+    if(plan?.items.length) {
+      const key=`${plan.task_id}:${plan.turn_id}`;
+      if(planSeen.current!==key){planSeen.current=key;setPanel('plan');}
+    }else if(panel==='plan')setPanel('artifacts');
+  },[plan?.turn_id,plan?.items.length,panel]);
   useEffect(()=>{followLatest.current=true;},[active?.task_id]);
   useEffect(()=>{
     if(followLatest.current&&conversation.current)conversation.current.scrollTop=conversation.current.scrollHeight;
-  },[active?.task_id,active?.messages.length,liveText]);
+  },[active?.task_id,active?.messages.length,liveText,currentThinking]);
 
   return <div className="app-shell">
     <aside className="sidebar">
@@ -314,10 +330,9 @@ export default function App() {
               </>:
               <><div className="user-message"><span className="message-label">你</span><p>{active.objective}</p><MessageAttachments files={active.initial_attachments||[]} onBrowse={()=>setShowSource(true)}/>
                 {editable&&active.status!=='completed'&&showDiagnostics&&<button className="scope-edit" disabled={busy} onClick={openAmendment}>修改目标与输入</button>}</div>
-                {active.messages.map(message=><div key={message.id} className={`message ${message.role}`}><span className="message-label">{message.role==='assistant'?'林遥 Agent':'你'}</span><div className={`message-text ${message.role==='assistant'?'rendered':''}`}>{message.role==='assistant'?<MarkdownMessage text={message.text}/>:message.text}</div><MessageAttachments files={message.attachments||[]} onBrowse={()=>setShowSource(true)}/>{message.process_summary&&<details className="public-process"><summary>处理说明</summary><p>{message.process_summary}</p></details>}
-                  {message.limitations?.length?<details className="limitations"><summary>本次结果说明</summary>{message.limitations.map((l,i)=><p key={i}>{l}</p>)}</details>:null}</div>)}
-                {live&&<div className="running"><div className="pulse-ring"/><div><strong>Agent 正在工作</strong><p>{processing.length?'正在处理当前请求…':'正在组织回答…'}</p></div></div>}
-                {live&&<details className="public-process" open><summary>处理过程</summary><ol>{processing.map((step,i)=><li key={i}>{step}</li>)}<li>{liveText?'正在输出回答':'正在理解消息并组织回答'}</li></ol></details>}{live&&liveText&&<div className="draft-answer"><MarkdownMessage text={liveText}/></div>}
+                {active.messages.map(message=><div key={message.id} className={`message ${message.role}`}><span className="message-label">{message.role==='assistant'?'林遥 Agent':'你'}</span>{message.role==='assistant'&&<NativeThinking text={message.thinking||nativeThinking[message.turn_id||'']||''}/>}<div className={`message-text ${message.role==='assistant'?'rendered':''}`}>{message.role==='assistant'?<MarkdownMessage text={message.text}/>:message.text}</div><MessageAttachments files={message.attachments||[]} onBrowse={()=>setShowSource(true)}/></div>)}
+                {live&&<div className="running"><div className="pulse-ring"/><strong>Agent 正在工作</strong></div>}
+                {showCurrentThinking&&<NativeThinking text={currentThinking} streaming={live}/>} {live&&liveText&&<div className="draft-answer"><MarkdownMessage text={liveText}/></div>}
                 {active.blockers.filter(b=>b.code!=='ACCEPTANCE_REQUIRED').map((b,i)=><div key={i} className="blocker"><CircleHelp size={16}/><span>{b.message}</span></div>)}
                 {approvals.some(a=>a.request.kind==='environment.acquire'&&['pending','approved'].includes(a.status))&&<section className="network-approvals" aria-label="网络请求审批"><h3>网络请求审批</h3>
                   <p>核对完整载荷、目的地和来源版本，每次批准仅用于这一项请求。依赖下载成功仍须经过容器安装与结果检查。</p>
@@ -346,13 +361,13 @@ export default function App() {
           </div>
         </section>
         <aside className="inspector"><section className="inspector-card">
-          <div className="inspector-tabs">{active?.config_snapshot?.science_image&&<button className={panel==='lidar'?'active':''} onClick={()=>setPanel('lidar')}>林业结果</button>}<button className={panel==='sources'?'active':''} onClick={()=>setPanel('sources')}>数据源<span>{sessionResources.length}</span></button><button className={panel==='artifacts'?'active':''} onClick={()=>setPanel('artifacts')}>产物<span>{artifacts.length}</span></button>{showDiagnostics&&<><button className={panel==='trace'?'active':''} onClick={()=>setPanel('trace')}>执行记录</button><button className={panel==='jobs'?'active':''} onClick={()=>setPanel('jobs')}>作业</button><button className={panel==='roles'?'active':''} onClick={()=>setPanel('roles')}>委派<span>{assignments.length}</span></button></>}<button className={panel==='plan'?'active':''} onClick={()=>setPanel('plan')}>进度</button></div>
+          <div className="inspector-tabs">{active?.config_snapshot?.science_image&&<button className={panel==='lidar'?'active':''} onClick={()=>setPanel('lidar')}>林业结果</button>}<button className={panel==='sources'?'active':''} onClick={()=>setPanel('sources')}>数据源<span>{sessionResources.length}</span></button><button className={panel==='artifacts'?'active':''} onClick={()=>setPanel('artifacts')}>产物<span>{artifacts.length}</span></button>{showDiagnostics&&<><button className={panel==='trace'?'active':''} onClick={()=>setPanel('trace')}>执行记录</button><button className={panel==='jobs'?'active':''} onClick={()=>setPanel('jobs')}>作业</button><button className={panel==='roles'?'active':''} onClick={()=>setPanel('roles')}>委派<span>{assignments.length}</span></button></>}{!!plan?.items.length&&<button className={panel==='plan'?'active':''} onClick={()=>setPanel('plan')}>任务</button>}</div>
           {panel==='sources'?<section className="session-source-list" aria-label="会话数据源列表"><p>{active?'此会话选择的只读输入。':'发送目标后，这些输入将保存到新会话。'}</p>
             {sessionResources.length?sessionResources.map(resource=><article key={resource.resource_id}><strong><FolderOpen size={16}/>{resource.name}{resource.kind==='directory'?'（目录）':''}</strong><small>只读引用</small><p>{resource.locator}</p>{editable&&<button disabled={busy} onClick={()=>void guarded(()=>removeSource(resource.resource_id))}>从本会话移除</button>}</article>):<div className="inspector-empty"><FolderOpen size={26}/><strong>此会话还没有数据源</strong><p>添加需要处理的文件或目录。</p></div>}
             <button className="primary" onClick={()=>setShowSource(true)}>{editable?'添加或浏览数据源':'浏览会话数据源'}</button>
           </section>:panel==='artifacts'?<div className="artifact-list">{active?.status==='waiting_user'&&active.messages.some(m=>m.role==='assistant')&&artifacts.length>0&&!approvals.some(a=>['pending','approved'].includes(a.status)&&a.spec_revision===active.spec_revision)&&<button onClick={()=>void guarded(async()=>{setCandidate(await api(`/tasks/${active.task_id}/acceptance-candidate`));setAcceptComment('');})}>保存交付快照</button>}{artifacts.length?artifacts.map(a=><div className="artifact-item" key={a.artifact_id}><div className="file-icon"><File size={20}/></div><div><button onClick={()=>void openPreview(a)}>{a.name}</button><span>{(a.size_bytes/1024).toFixed(1)} KB</span></div><a title="下载产物" href={a.download_url}><ArrowDownToLine size={15}/></a></div>):<div className="inspector-empty"><div><FolderOpen size={26}/></div><strong>结果会出现在这里</strong><p>真实生成的报告、代码与表格<br/>支持预览和下载。</p></div>}</div>:
             panel==='trace'?<div className="trace-list">{tools.length?tools.map(e=><details key={e.event_id}><summary><span className={e.type==='action.observed'?'observed':'started'}/>{e.payload.tool}<small>{e.type==='action.observed'?'已返回':'调用'}</small></summary><pre>{JSON.stringify(e.payload.arguments||e.payload.result,null,2)}</pre></details>):<div className="inspector-empty"><Terminal size={26}/><p>工具调用后显示真实参数和结果</p></div>}</div>:
-            panel==='lidar'?<LidarPanel taskId={active?.task_id||''} artifacts={artifacts} onError={setError}/>:panel==='jobs'?<JobsPanel key={active?.task_id||'empty'} taskId={active?.task_id||''} refreshKey={events.filter(e=>e.type.startsWith('job.')).slice(-1)[0]?.event_id||''} onError={setError}/>:panel==='plan'?<div className="plan-list"><p className="muted">助手的工作安排与自报进度；完成状态仍须实际检查和验收。</p>{plan?.items.length?<ol>{plan.items.map(item=><li key={item.id} data-status={item.status}><strong>{item.content}</strong><span>{planLabels[item.status]||item.status}</span></li>)}</ol>:<p className="empty-small">当前回合尚未保存计划。</p>}</div>:
+            panel==='lidar'?<LidarPanel taskId={active?.task_id||''} artifacts={artifacts} onError={setError}/>:panel==='jobs'?<JobsPanel key={active?.task_id||'empty'} taskId={active?.task_id||''} refreshKey={events.filter(e=>e.type.startsWith('job.')).slice(-1)[0]?.event_id||''} onError={setError}/>:panel==='plan'?<div className="plan-list"><ol>{plan?.items.map(item=><li key={item.id} data-status={item.status}><strong>{item.content}</strong><span>{planLabels[item.status]||item.status}</span></li>)}</ol></div>:
             <div className="assignment-list">{assignments.length?assignments.map(a=><details key={a.assignment_id} className="assignment-item"><summary><strong>{roleNames[a.role_id]||a.role_id}</strong><span>{assignmentLabels[a.status]||a.status}</span></summary>
               <p>{a.request.objective}</p><small>{a.model_requests} 次模型请求 · {a.actions} 次动作 · {a.effective_input_refs.length} 个授权输入</small>
               {a.blocker&&<p className="limitations">{a.blocker.message}</p>}{a.result&&<><p>{a.result.summary}</p>

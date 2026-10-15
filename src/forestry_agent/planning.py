@@ -73,7 +73,8 @@ async def visible_plan(engine, task_id):
         state = engine.store.read_task(db, task_id)
         row = db.execute("SELECT id FROM turns WHERE task_id=? AND revision=? "
             "AND id NOT IN (SELECT json_extract(payload,'$.run_id') FROM assignments WHERE task_id=?) "
-            "ORDER BY rowid DESC LIMIT 1", (task_id, state["spec_revision"], task_id)).fetchone()
+            "ORDER BY CASE WHEN id=? THEN 0 ELSE 1 END,rowid DESC LIMIT 1",
+            (task_id, state["spec_revision"], task_id,state.get('active_turn_id'))).fetchone()
     turn_id = row["id"] if row else None
     items = await ScopedPlanStore(engine, task_id, state["spec_revision"], turn_id).get_items() if turn_id else []
     return {"task_id": task_id, "spec_revision": state["spec_revision"], "turn_id": turn_id,

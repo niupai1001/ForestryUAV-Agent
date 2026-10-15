@@ -20,7 +20,6 @@ CAPABILITY_NAMES["process_lidar_terrain"] = "code.execute"
 CAPABILITY_NAMES["process_lidar_canopy"] = "code.execute"
 CAPABILITY_NAMES["apply_lidar_roi"] = "code.execute"
 CAPABILITY_NAMES['view_image'] = 'document.read'
-CAPABILITY_NAMES['report_progress'] = 'task.plan'
 CAPABILITY_NAMES['select_input_files'] = 'fs.inputs'
 
 
