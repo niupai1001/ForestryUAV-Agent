@@ -35,6 +35,7 @@ from .contracts import (
 from .conversation import advance_revision, attachment_records, user_path_refs
 from .delivery import Delivery
 from .doctor import doctor
+from .jobs import CleanupRequest
 from .lidar_canopy import REGISTERED_METHODS, CanopyStageRequest, submit_canopy
 from .lidar_roi import RoiRequest, submit_roi
 from .lidar_terrain import TerrainRequest, submit_terrain
@@ -42,6 +43,7 @@ from .models import model_capabilities, model_identity
 from .planning import visible_plan
 from .provenance import runtime_manifest
 from .resources import Resources
+from .sessions import DeleteSession, Sessions
 from .store import Store, encode, now, uid
 
 
@@ -51,6 +53,7 @@ def create_app(config: Config, *, enable_agent: bool = True):
     resources = Resources(store, config.workspace_root)
     engine = Engine(config, store, resources)
     delivery = Delivery(store, resources)
+    sessions = Sessions(engine)
     key_file = config.workspace_root / ".forestry" / "local.key"
     if not key_file.exists():
         key_file.write_text(secrets.token_urlsafe(32), encoding="utf-8")
@@ -58,6 +61,7 @@ def create_app(config: Config, *, enable_agent: bool = True):
 
     @asynccontextmanager
     async def lifespan(app):
+        await asyncio.to_thread(sessions.recover)
         engine.reconcile_startup()
         engine.network.disable_web_grants()
         await asyncio.to_thread(delivery.recover)
@@ -71,6 +75,7 @@ def create_app(config: Config, *, enable_agent: bool = True):
     app.state.store, app.state.resources, app.state.engine = store, resources, engine
     app.state.key = key
     app.state.delivery = delivery
+    app.state.sessions = sessions
     initial = {"default_model": config.default_model}
 
     @app.exception_handler(Failure)
@@ -128,6 +133,18 @@ def create_app(config: Config, *, enable_agent: bool = True):
                                "validation": "see_frozen_delivery_evidence"},
                 "source_sha256": startup_manifest["source"]["sha256"]}
 
+    @app.post('/maintenance/cleanup')
+    def cleanup_runtime(payload: CleanupRequest):
+        request={'kind':'runtime.cleanup',**payload.model_dump()}
+        with store.transaction() as db:
+            prior=store.replay(db,payload.request_id,request)
+            if prior is not None:return prior
+        result=engine.jobs.cleanup_batch(payload.max_jobs)
+        with store.transaction() as db:
+            prior=store.replay(db,payload.request_id,request)
+            if prior is not None:return prior
+            return store.receipt(db,payload.request_id,request,result)
+
     @app.get('/resources/{resource_id}/image')
     def source_image(resource_id: str):
         _, picture = engine.vision.prepare(None, resource_id=resource_id)
@@ -171,8 +188,10 @@ def create_app(config: Config, *, enable_agent: bool = True):
 
     @app.post('/uploads', status_code=201)
     async def upload_file(request: Request, filename: str = Query(max_length=180),
-                          draft_id: str = Query(max_length=80), request_id: str = Query(max_length=80)):
-        return await upload(resources, request, filename, draft_id, request_id)
+                          draft_id: str = Query(max_length=80), request_id: str = Query(max_length=80),
+                          task_id: str | None = Query(default=None,max_length=80)):
+        if task_id:store.task(task_id)
+        return await upload(resources, request, filename, draft_id, request_id, owner_task_id=task_id)
 
     @app.post('/resources/pick')
     def pick_files(payload: LocalSelection):
@@ -323,6 +342,10 @@ def create_app(config: Config, *, enable_agent: bool = True):
     @app.get("/tasks")
     def tasks():
         return store.tasks()
+
+    @app.delete('/tasks/{task_id}')
+    def delete_session(task_id: str, payload: DeleteSession):
+        return sessions.delete(task_id,payload)
 
     @app.get("/tasks/{task_id}/plan")
     async def task_plan(task_id: str):
@@ -592,7 +615,11 @@ def create_app(config: Config, *, enable_agent: bool = True):
         async def stream():
             nonlocal after
             while not await request.is_disconnected():
-                rows = store.events(task_id, after)
+                try:
+                    rows = store.events(task_id, after)
+                except Failure as error:
+                    if error.code in {'NOT_FOUND','SESSION_DELETING'}:return
+                    raise
                 for row in rows:
                     after = row["sequence"]
                     yield f"id: {after}\ndata: {encode(row)}\n\n"

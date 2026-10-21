@@ -33,8 +33,7 @@ test('native thinking stream and history; no synthetic explanations or empty pla
   await expect(page.locator('.message.assistant').last()).toContainText('完整回答。');
   await expect(page.locator('.message.assistant').last().locator('.message-text')).not.toContainText('原生片段');
   await page.reload();
-  await expect(page.getByLabel('模型思考')).not.toHaveAttribute('open','');
-  await page.getByLabel('模型思考').locator('summary').click();
+  await expect(page.getByLabel('模型思考')).toHaveAttribute('open','');
   await expect(page.getByLabel('模型思考')).toContainText('原生片段000。');
   await expect(page.getByLabel('模型思考')).toContainText('原生片段619。');
   await phase('plan');

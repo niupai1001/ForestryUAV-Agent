@@ -59,8 +59,9 @@ class Resources:
             "version": version(path), "created_at": now()}
         if payload.get('upload_draft_id'):
             resource.update(upload_draft_id=payload['upload_draft_id'], upload_sha256=payload['upload_sha256'],
-                            owner_task_id=None)
+                            owner_task_id=payload.get('owner_task_id'))
         with self.store.transaction() as db:
+            if payload.get('owner_task_id'):self.store.read_task(db,payload['owner_task_id'])
             request = {"kind": "resource.register", **payload}
             replay = self.store.replay(db, payload["request_id"], request)
             if replay is not None:

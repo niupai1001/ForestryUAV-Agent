@@ -7,17 +7,25 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 from datetime import UTC, datetime
 from pathlib import Path, PureWindowsPath
 
+from pydantic import Field
+
 from .admission import assess, execution_profile, limited_code
 from .config import Config
-from .contracts import Failure, ResourceRequest
+from .contracts import Boundary, Failure, ResourceRequest
 from .environments import execution_code
 from .resources import Resources, native_path, version
 from .store import Store, encode, now, uid
 
 TERMINAL = {"succeeded", "failed", "cancelled", "timed_out"}
+
+
+class CleanupRequest(Boundary):
+    request_id: str = Field(min_length=1,max_length=200)
+    max_jobs: int = Field(default=100,ge=1,le=200)
 
 
 class Docker:
@@ -98,6 +106,7 @@ class Jobs:
         self.source_build_resolver = None
         self.source_requirements_resolver = None
         self.input_artifact_validator = None
+        self.cleanup_lock = threading.RLock()
 
     def read(self, job_id: str, task_id: str | None = None):
         with self.store.transaction() as db:
@@ -560,9 +569,90 @@ class Jobs:
                     state.update(status="cancelled", blockers=[])
                     self.store.save_task(db, state, state["state_version"])
                     self.store.event(db, task_id, "task.terminal", {"status": "cancelled"})
+        # A bounded maintenance pass; it neither submits jobs nor invokes a model.
+        if not active:
+            with self.store.transaction() as db:
+                row=db.execute("SELECT payload FROM jobs WHERE status IN ('succeeded','failed','cancelled','timed_out') "
+                    "AND json_extract(payload,'$.cleanup.done') IS NOT 1 "
+                    "AND (json_extract(payload,'$.cleanup.retry_after') IS NULL OR json_extract(payload,'$.cleanup.retry_after')<?) "
+                    "ORDER BY updated_at LIMIT 1",(now(),)).fetchone()
+            if row:
+                try:self.cleanup_terminal(json.loads(row[0]))
+                except (Failure,OSError,ValueError,KeyError) as error:
+                    job=self.read(json.loads(row[0])['job_id'])
+                    from datetime import timedelta
+                    job['cleanup']={**job.get('cleanup',{}),'error':str(error)[:500],
+                        'retry_after':(datetime.now(UTC)+timedelta(minutes=5)).isoformat()}
+                    self.save(job,'job.cleanup_pending')
+
+    def cleanup_terminal(self, job, *, discard=False):
+        """Archive bounded logs, verify sealed outputs, remove only our stopped container."""
+        with self.cleanup_lock:
+            job=self.read(job['job_id'])
+            if job['status'] not in TERMINAL or job.get('cleanup',{}).get('done'):return False
+            expected=self.config.workspace_root.resolve()/'tasks'/job['task_id']/'jobs'/job['job_id']
+            directory=Path(job['directory'])
+            if directory!=expected or directory.resolve()!=expected:
+                raise Failure('PERMISSION_DENIED','作业清理目录不符合归属，未执行删除',409)
+            for ref in (job.get('artifact_ids',[]) if not discard else []):
+                artifact=self.resources.artifact(ref,job['task_id'])
+                if artifact['producer_action_id']!=job['action_id']:
+                    raise Failure('RECONCILIATION_REQUIRED','产物生产身份不匹配，保留作业目录',409)
+            cleanup=job.get('cleanup',{})
+            container=self.docker.inspect(job['container_name'])
+            if container:
+                self.matches(job,container)
+                if container['State']['Running']:
+                    raise Failure('RECONCILIATION_REQUIRED','终态记录对应容器仍在运行，拒绝清理',409)
+                if not discard and not cleanup.get('logs_sha256'):
+                    captured=self.docker.call('logs','--tail','200',container['Id'])
+                    if captured['code']!=0:
+                        raise Failure('EXECUTOR_UNAVAILABLE','无法归档容器日志，保留容器',503,True)
+                    logs={'text':captured['stdout'],'stderr':captured['stderr'],'bounded':True,
+                        'window':captured.get('window','tail'),'stdout_truncated':captured.get('stdout_truncated',False),
+                        'stderr_truncated':captured.get('stderr_truncated',False)}
+                    data=encode(logs).encode()
+                    native_path(directory).mkdir(parents=True,exist_ok=True)
+                    native_path(directory/'logs.json').write_bytes(data)
+                    cleanup={**cleanup,'logs_sha256':hashlib.sha256(data).hexdigest(),'container_id':container['Id']}
+                    job['cleanup']=cleanup
+                    self.save(job,'job.cleanup_intent')
+                removed=self.docker.call('rm',container['Id'])
+                if removed['code']!=0:
+                    raise Failure('EXECUTOR_UNAVAILABLE','容器清理未确认，将稍后重试',503,True)
+            elif not discard and job.get('container_id') and not cleanup.get('logs_sha256'):
+                raise Failure('RECONCILIATION_REQUIRED','容器丢失且未归档日志，不将其标记为已清理',409)
+            output=directory/'output'
+            if output.resolve()!=output or not output.resolve().is_relative_to(expected):
+                raise Failure('PERMISSION_DENIED','作业输出目录发生重定向，未执行递归清理',409)
+            used_as_source=any(Path(source['locator']).is_relative_to(output) for source in self.resources.all())
+            if output.exists() and not used_as_source:shutil.rmtree(native_path(output))
+            job['cleanup']={**cleanup,'done':True,'completed_at':now(),'output_retained_as_source':used_as_source}
+            self.save(job,'job.cleaned')
+            return True
+
+    def cleanup_batch(self,limit):
+        with self.store.transaction() as db:
+            jobs=[json.loads(row[0]) for row in db.execute("SELECT payload FROM jobs WHERE status IN "
+                "('succeeded','failed','cancelled','timed_out') AND json_extract(payload,'$.cleanup.done') IS NOT 1 "
+                "ORDER BY updated_at LIMIT ?",(limit,))]
+        cleaned=0;pending=[]
+        for job in jobs:
+            try:cleaned+=bool(self.cleanup_terminal(job))
+            except (Failure,OSError,ValueError,KeyError) as error:
+                pending.append({'job_id':job['job_id'],'message':str(error)[:300]})
+        return {'cleaned':cleaned,'pending':pending}
 
     def logs(self, job_id, task_id):
         job = self.read(job_id, task_id)
+        if job.get('cleanup',{}).get('logs_sha256'):
+            path=self.config.workspace_root.resolve()/'tasks'/task_id/'jobs'/job_id/'logs.json'
+            if path.resolve()!=path or path.stat().st_size>512*1024:
+                raise Failure('VERIFICATION_FAILED','归档日志路径或大小不合法',409)
+            data=native_path(path).read_bytes()
+            if hashlib.sha256(data).hexdigest()!=job['cleanup']['logs_sha256']:
+                raise Failure('VERIFICATION_FAILED','归档日志校验失败',409)
+            return json.loads(data)
         if not job["container_id"]:
             return {"text": "", "bounded": True}
         container = self.docker.inspect(job["container_name"])

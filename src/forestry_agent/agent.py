@@ -818,7 +818,11 @@ class Engine:
                 "service_recovery": recovery,
                 "current_turn_user_request": None if request_is_objective else turn_request,
                 "current_turn_user_request_is_objective": request_is_objective,
-                "input_refs": state["input_refs"], "constraints": spec.get("constraints", {}),
+                "input_refs": state["input_refs"][:8],
+                **({'input_count':len(state['input_refs']),'input_refs_truncated':True,
+                    'input_listing':'list_inputs(offset,limit)返回完整授权来源分页，未展示不表示未授权'}
+                   if len(state['input_refs'])>8 else {}),
+                "constraints": spec.get("constraints", {}),
                 "output_preferences": spec.get("output_preferences", {}),
                 "context_classification": state["config_snapshot"].get("context_classification", "private"),
                 "network_approvals": self.network.model_facts(ctx.deps.task_id, ctx.deps.revision),
@@ -879,13 +883,17 @@ class Engine:
                     "已到原生结果末尾；不要继续读取相同末尾。请继续任务或使用原工具返回的产物ID读取正文。"}
 
         @agent.tool
-        def list_inputs(ctx: RunContext[Deps]) -> dict:
-            """列出当前任务获授权的输入资源 ID 与文件名，不授予新权限。"""
+        def list_inputs(ctx: RunContext[Deps], offset: int = 0, limit: int = 20) -> dict:
+            """分页列出当前任务获授权的输入ID/文件名，offset从0开始，每页1–20项；不授予新权限。"""
+            if offset<0 or not 1<=limit<=20:
+                raise Failure('SCHEMA_INVALID','来源分页offset须非负，每页1至20项')
             def operation(_):
                 refs = assignment["effective_input_refs"] if assignment else self.store.task(ctx.deps.task_id)["input_refs"]
+                page=refs[offset:offset+limit]
                 return {"resources": [{k: r[k] for k in ["resource_id", "name", "kind", "classification"]}
-                    for r in self.resources.all() if r["resource_id"] in refs]}
-            return execute(ctx, "fs.inputs", {}, operation)
+                    for r in self.resources.all() if r["resource_id"] in page],
+                    'next':offset+len(page),'has_more':offset+len(page)<len(refs),'total':len(refs)}
+            return execute(ctx, "fs.inputs", {'offset':offset,'limit':limit}, operation)
 
         @agent.tool
         def select_input_files(ctx: RunContext[Deps], resource_id: str, relative_paths: list[str]) -> dict:
@@ -1308,7 +1316,6 @@ class Engine:
                     await self.model_events(deps, stream)
 
                 if prompt is not None:
-                    from .conversation import IMAGE_SUFFIXES
                     with self.store.transaction() as db:
                         association = db.execute('SELECT user_event_id FROM turn_requests WHERE turn_id=?', (turn_id,)).fetchone()
                     message = next((m for m in state['messages'] if association and m.get('user_event_id')==association['user_event_id']), None)
@@ -1319,13 +1326,8 @@ class Engine:
                         attached = attachment_records(db,refs)
                     if attached:
                         prompt += '\n本条消息附件：'+encode(attached)
-                    image_refs = [a['resource_id'] for a in attached if PurePosixPath(a['name']).suffix.lower() in IMAGE_SUFFIXES]
-                    if image_refs and features.get('vision'):
-                        content = [prompt]
-                        for ref in image_refs[:2]:
-                            metadata,picture = self.vision.prepare(task_id,resource_id=ref)
-                            content.extend(['实际图像：'+encode(metadata),picture])
-                        prompt = content
+                    prompt=self.vision.message_input(task_id,prompt,attached,enabled=features.get('vision'),
+                        original_prompt=turn['prompt'])
 
                 coordinator = self.roles.configurations(state).get("coordinator")
                 try:

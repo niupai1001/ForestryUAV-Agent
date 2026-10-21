@@ -7,10 +7,10 @@ import SourceBrowser from './SourceBrowser';
 import { api } from './api';
 import MarkdownMessage from './MarkdownMessage';
 import MessageAttachments, { type Attachment } from './MessageAttachments';
-import NativeThinking from './NativeThinking';
+import NativeThinking, { ModelWait } from './NativeThinking';
 import { ArrowDownToLine, ArrowUpRight, Check, ChevronDown, CircleHelp, File, FolderOpen,
   Leaf, MessageSquare, Pause, Play, Plus, RefreshCw, Send, Settings,
-  ShieldCheck, Square, Terminal, X } from 'lucide-react';
+  ShieldCheck, Square, Terminal, Trash2, X } from 'lucide-react';
 
 type Task = {task_id: string; objective: string; status: string; state_version: number;
   spec_revision: number; model_profile: string; input_refs: string[]; artifact_ids: string[];
@@ -40,7 +40,7 @@ const planLabels:Record<string,string> = {pending:'待处理',in_progress:'进�
 const roleNames:Record<string,string> = {environment:'环境检查',data:'数据准备',code_experiment:'代码实验',quality:'质量复核'};
 const assignmentLabels:Record<string,string> = {queued:'等待开始',running:'运行中',waiting:'等待恢复',succeeded:'已返回',partial:'部分结果',failed:'失败',cancelled:'已取消'};
 const labels: Record<string,string> = {created:'等待运行', active:'运行中', paused:'已暂停',
-  completed:'已保存', failed:'失败', cancelled:'已停止', waiting_user:'等待你的消息', waiting_job:'处理中', publishing:'正在封存'};
+  completed:'已保存', failed:'失败', cancelled:'已停止', waiting_user:'等待你的消息', waiting_job:'处理中', publishing:'正在封存',deleting:'清理未完成'};
 const requestId = () => crypto.randomUUID();
 const capabilityLabels:Record<string,string> = {'fs.inputs':'查看任务输入','fs.list':'列出源文件','fs.read':'读取源文件',
   'fs.write_workspace':'写入产物','artifact.inspect':'检查产物','artifact.read':'读回产物','action.inspect':'查看动作证据',
@@ -94,6 +94,7 @@ export default function App() {
   const [path,setPath] = useState('');
   const [diagnostics,setDiagnostics] = useState<any>(null), [panel,setPanel] = useState<'sources'|'artifacts'|'trace'|'roles'|'plan'|'jobs'|'lidar'>('artifacts');
   const [preview,setPreview] = useState<Artifact|null>(null), [previewText,setPreviewText] = useState('');
+  const [deleteTarget,setDeleteTarget]=useState<Task|null>(null),[deleteError,setDeleteError]=useState('');
   const [candidate,setCandidate] = useState<Candidate|null>(null), [acceptComment,setAcceptComment] = useState('');
   const [showDiagnostics,setShowDiagnostics] = useState(false);
   const uploadInput=useRef<HTMLInputElement>(null), draftId=useRef(requestId());
@@ -155,6 +156,23 @@ export default function App() {
   },[active?.task_id]);
   const selectTask = (task:Task|null) => {if(busy)return;setSelected([]);setPendingSources([]);setArtifacts([]);setAssignments([]);setEvents([]);setNativeThinking({});setApprovals([]);setPlan(null);planSeen.current='';setResources([]);setActive(task);};
   const newTask = () => {if(busy)return;selectTask(null);draftId.current=requestId();setSelected([]); setText(''); setPanel('artifacts'); localStorage.removeItem('forestry.task'); input.current?.focus();};
+  const confirmDelete = (task:Task) => {setDeleteError('');setDeleteTarget(task);setShowNavigation(false);};
+  const deleteSession = async () => {
+    if(!deleteTarget||busy)return;
+    setBusy(true);setDeleteError('');
+    try {
+      await api(`/tasks/${deleteTarget.task_id}`,{request_id:requestId(),expected_state_version:deleteTarget.state_version,confirm_delete:true},'DELETE');
+      if(active?.task_id===deleteTarget.task_id) {
+        setActive(null);setSelected([]);setPendingSources([]);setText('');setPreview(null);setCandidate(null);
+        draftId.current=requestId();localStorage.removeItem('forestry.task');setPanel('artifacts');
+      }
+      setDeleteTarget(null);await refresh();
+    }catch(e) {
+      setDeleteError((e as Error).message);
+      try {const remaining=await api<Task[]>('/tasks');setTasks(remaining);
+        setDeleteTarget(remaining.find(task=>task.task_id===deleteTarget.task_id)||null);}catch{/* Keep retry available. */}
+    }finally{setBusy(false);}
+  };
   const send = async () => {
     if((!text.trim()&&!selected.length) || busy) return;
     setBusy(true);
@@ -236,6 +254,7 @@ export default function App() {
         if(currentSession.current!==sessionKey)return;
         if(file.size>128*1024**2)throw new Error('文件超过128 MiB，请通过“添加文件”中的本地路径引用添加。');
         const params=new URLSearchParams({filename:file.name,draft_id:uploadDraft,request_id:requestId()});
+        if(active)params.set('task_id',active.task_id);
         const response=await fetch(`/uploads?${params}`,{method:'POST',body:file});
         const result=await response.json();
         if(!response.ok)throw new Error(result.error?.message||'文件上传失败');
@@ -284,6 +303,7 @@ export default function App() {
   const tools = events.filter(e=>e.type === 'action.started' || e.type === 'action.observed');
   const liveText = [...events].reverse().find(e=>e.type==='assistant.draft'&&e.payload.turn_id===active?.active_turn_id)?.payload.text||'';
   const currentThinking=nativeThinking[active?.active_turn_id||'']||'';
+  const latestRequest=[...events].reverse().find(e=>e.type==='model.request_started'&&e.payload.turn_id===active?.active_turn_id);
   const showCurrentThinking=!!currentThinking&&!active?.messages.some(m=>m.role==='assistant'&&m.turn_id===active.active_turn_id);
   useEffect(()=>{
     if(plan?.items.length) {
@@ -305,9 +325,9 @@ export default function App() {
       <button className="nav-item" onClick={()=>setPanel('sources')}><FolderOpen size={18}/>会话数据源<span className="small-count">{sessionResources.length}</span></button>
       <button className="nav-item" onClick={()=>setShowKnowledge(true)}><File size={18}/>本地知识</button>
       <div className="section-caption history-title">最近会话<button title="刷新任务" onClick={()=>void guarded(refresh)}><RefreshCw size={13}/></button></div>
-      <div className="history">{tasks.length===0?<p className="muted empty-small">在这里继续以前的会话</p>:tasks.map(task=><button key={task.task_id}
+      <div className="history">{tasks.length===0?<p className="muted empty-small">在这里继续以前的会话</p>:tasks.map(task=><div className="history-row" key={task.task_id} data-task-id={task.task_id}><button
         disabled={busy} className={`history-item ${active?.task_id===task.task_id?'current':''}`} onClick={()=>selectTask(task)}>
-        <span className={`status-dot ${task.status}`}/><span>{task.objective}</span></button>)}</div>
+        <span className={`status-dot ${task.status}`}/><span>{task.objective}</span></button><button className="history-delete" aria-label={`删除会话：${task.objective.trim()}`} title="删除会话" disabled={busy} onClick={()=>confirmDelete(task)}><Trash2 size={14}/></button></div>)}</div>
       <div className="sidebar-bottom"><button className="nav-item" onClick={openSettings}><Settings size={18}/>设置</button></div>
     </aside>
     <div className="main-shell">
@@ -330,8 +350,8 @@ export default function App() {
               </>:
               <><div className="user-message"><span className="message-label">你</span><p>{active.objective}</p><MessageAttachments files={active.initial_attachments||[]} onBrowse={()=>setShowSource(true)}/>
                 {editable&&active.status!=='completed'&&showDiagnostics&&<button className="scope-edit" disabled={busy} onClick={openAmendment}>修改目标与输入</button>}</div>
-                {active.messages.map(message=><div key={message.id} className={`message ${message.role}`}><span className="message-label">{message.role==='assistant'?'林遥 Agent':'你'}</span>{message.role==='assistant'&&<NativeThinking text={message.thinking||nativeThinking[message.turn_id||'']||''}/>}<div className={`message-text ${message.role==='assistant'?'rendered':''}`}>{message.role==='assistant'?<MarkdownMessage text={message.text}/>:message.text}</div><MessageAttachments files={message.attachments||[]} onBrowse={()=>setShowSource(true)}/></div>)}
-                {live&&<div className="running"><div className="pulse-ring"/><strong>Agent 正在工作</strong></div>}
+                {active.messages.map(message=><div key={message.id} className={`message ${message.role}`}><span className="message-label">{message.role==='assistant'?'林遥 Agent':'你'}</span>{message.role==='assistant'&&<NativeThinking text={message.thinking||nativeThinking[message.turn_id||'']||''} expanded={message.turn_id===active.active_turn_id&&!!currentThinking}/>}<div className={`message-text ${message.role==='assistant'?'rendered':''}`}>{message.role==='assistant'?<MarkdownMessage text={message.text}/>:message.text}</div><MessageAttachments files={message.attachments||[]} onBrowse={()=>setShowSource(true)}/></div>)}
+                {live&&<div className="running"><div className="pulse-ring"/><strong>Agent 正在工作</strong>{!currentThinking&&!liveText&&<ModelWait startedAt={latestRequest?.at}/>}</div>}
                 {showCurrentThinking&&<NativeThinking text={currentThinking} streaming={live}/>} {live&&liveText&&<div className="draft-answer"><MarkdownMessage text={liveText}/></div>}
                 {active.blockers.filter(b=>b.code!=='ACCEPTANCE_REQUIRED').map((b,i)=><div key={i} className="blocker"><CircleHelp size={16}/><span>{b.message}</span></div>)}
                 {approvals.some(a=>a.request.kind==='environment.acquire'&&['pending','approved'].includes(a.status))&&<section className="network-approvals" aria-label="网络请求审批"><h3>网络请求审批</h3>
@@ -392,10 +412,17 @@ export default function App() {
       <button className="nav-item" onClick={()=>{setShowNavigation(false);setPanel('sources');}}><FolderOpen size={18}/>会话数据源<span className="small-count">{sessionResources.length}</span></button>
       <button className="nav-item" onClick={()=>{setShowNavigation(false);setShowKnowledge(true);}}><File size={18}/>本地知识</button>
       <div className="section-caption history-title">最近会话<button aria-label="刷新最近会话" onClick={()=>void guarded(refresh)}><RefreshCw size={13}/></button></div>
-      <div className="history">{tasks.length===0?<p className="muted">在这里继续以前的会话</p>:tasks.map(task=><button key={task.task_id}
+      <div className="history">{tasks.length===0?<p className="muted">在这里继续以前的会话</p>:tasks.map(task=><div className="history-row" key={task.task_id} data-task-id={task.task_id}><button
         disabled={busy} className={`history-item ${active?.task_id===task.task_id?'current':''}`} onClick={()=>{selectTask(task);setShowNavigation(false);}}>
-        <span className={`status-dot ${task.status}`}/><span>{task.objective}</span></button>)}</div>
+        <span className={`status-dot ${task.status}`}/><span>{task.objective}</span></button><button className="history-delete" aria-label={`删除会话：${task.objective.trim()}`} disabled={busy} onClick={()=>confirmDelete(task)}><Trash2 size={14}/></button></div>)}</div>
     </nav></div>}
+    {deleteTarget&&<div className="modal-backdrop"><div className="modal" role="dialog" aria-label="删除会话">
+      <div className="modal-heading"><h2>删除会话</h2><button aria-label="关闭删除确认" disabled={busy} onClick={()=>setDeleteTarget(null)}><X size={20}/></button></div>
+      <p className="delete-objective">{deleteTarget.objective}</p>
+      <p>将永久删除此会话的消息、上传副本、中间文件、结果和缓存。路径引用的原始文件及其他会话仍使用的数据保留。</p>
+      {deleteError&&<div className="error-banner" role="alert">{deleteError}</div>}
+      <div className="modal-actions"><button disabled={busy} onClick={()=>setDeleteTarget(null)}>取消</button><button className="danger" disabled={busy} onClick={()=>void deleteSession()}>{busy?'正在清理…':'永久删除'}</button></div>
+    </div></div>}
     {amending&&<div className="modal-backdrop"><div className="modal scope-modal" role="dialog" aria-label="修改任务规范">
       <div className="modal-heading"><h2>修改任务规范</h2><button disabled={busy} onClick={()=>setAmending(null)}><X size={20}/></button></div>
       <p>保存为修订 {amending.spec_revision+1}，暂停当前执行并保留历史。核对已登记动作后，使用“恢复”继续。普通消息不会修改工具权限。</p>

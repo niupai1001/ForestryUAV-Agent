@@ -36,6 +36,7 @@ class Store:
             PRAGMA journal_mode=WAL;
             CREATE TABLE IF NOT EXISTS schema_versions(version INTEGER PRIMARY KEY, applied_at TEXT);
             CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY, digest TEXT NOT NULL, response TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS session_deletions(task_id TEXT PRIMARY KEY,payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS user_events(id TEXT PRIMARY KEY, kind TEXT NOT NULL, payload TEXT NOT NULL, at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS tasks(id TEXT PRIMARY KEY, version INTEGER NOT NULL, revision INTEGER NOT NULL, status TEXT NOT NULL, state TEXT NOT NULL, updated_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS specs(task_id TEXT NOT NULL REFERENCES tasks(id), revision INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(task_id,revision));
@@ -118,6 +119,8 @@ class Store:
         row = db.execute("SELECT state FROM tasks WHERE id=?", (task_id,)).fetchone()
         if not row:
             raise Failure("NOT_FOUND", "任务不存在", 404)
+        if db.execute('SELECT 1 FROM session_deletions WHERE task_id=?',(task_id,)).fetchone():
+            raise Failure('SESSION_DELETING','会话正在清理，暂不能继续操作；清理未完成时可再次点击删除',409)
         return json.loads(row["state"])
 
     def task(self, task_id: str) -> dict:

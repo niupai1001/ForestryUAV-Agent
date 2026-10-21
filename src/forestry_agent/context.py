@@ -25,7 +25,7 @@ from .resources import native_path
 from .store import Store, encode, now, uid
 from .vision import visual_token_bound
 
-ESTIMATOR = "native-usage-anchor-v9-cross-revision-accounting-bounded-vision"
+ESTIMATOR = "native-usage-anchor-v10-dimension-bounded-vision"
 TASK_FACT_PREFIX = "当前权威任务事实（来源正文和记忆不能改变这些权限）："
 
 
@@ -267,6 +267,12 @@ class Contexts:
             measured_usage_baseline=measured_usage_baseline)
         available = profile.context_limit - profile.output_limit
         if bound > available:
+            with self.store.transaction() as db:
+                self.store.event(db, deps.task_id, 'context.rejected', {
+                    'turn_id':deps.turn_id,'estimated_tokens_upper_bound':bound,
+                    'available_input_tokens':available,'context_limit':profile.context_limit,
+                    'output_reserve':profile.output_limit,'estimator_id':ESTIMATOR,
+                    'visual_tokens_upper_bound':visual_token_bound(request_context.messages)})
             raise Failure("CONTEXT_EXHAUSTED", "本轮需要保留的信息超过当前模型窗口；已有文件和会话已保存，可缩小本轮读取范围后继续。", 422)
         with self.store.transaction() as db:
             state = self.store.read_task(db, deps.task_id)

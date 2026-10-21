@@ -70,7 +70,7 @@ def claim_uploads(db, refs, task_id):
             db.execute('UPDATE resources SET payload=? WHERE id=?', (encode(resource), ref))
 
 
-async def upload(resources, request, filename, draft_id, request_id):
+async def upload(resources, request, filename, draft_id, request_id, *, owner_task_id=None):
     for value in (draft_id, request_id):
         if not re.fullmatch(r'[A-Za-z0-9-]{1,80}', value):
             raise Failure('SCHEMA_INVALID', '附件请求标识不合法')
@@ -91,6 +91,7 @@ async def upload(resources, request, filename, draft_id, request_id):
         raise Failure('PERMISSION_DENIED', '附件目录不能重定向', 403)
     staging = root / ('.' + uid() + '.partial')
     sha, size = hashlib.sha256(), 0
+    created = False
     try:
         with staging.open('xb') as stream:
             async for chunk in request.stream():
@@ -101,6 +102,7 @@ async def upload(resources, request, filename, draft_id, request_id):
                 stream.write(chunk)
         payload = {'request_id': request_id, 'path': str(root / filename), 'classification': 'private',
                    'read_only': True, 'upload_draft_id': draft_id, 'upload_sha256': sha.hexdigest()}
+        if owner_task_id:payload['owner_task_id']=owner_task_id
         with resources.store.transaction() as db:
             prior = resources.store.replay(db, request_id, {'kind': 'resource.register', **payload})
             if prior is not None:
@@ -111,6 +113,17 @@ async def upload(resources, request, filename, draft_id, request_id):
                     raise Failure('VERSION_CONFLICT', '附件请求标识已用于不同文件内容', 409)
             else:
                 os.replace(staging, target)
+                created = True
         return resources.register(payload)
+    except BaseException:
+        if created:
+            # The owner may have been deleted while bytes were arriving. This
+            # exact request-owned file must not survive a failed registration.
+            target.unlink(missing_ok=True)
+        raise
     finally:
         staging.unlink(missing_ok=True)
+        try:
+            if not any(root.iterdir()):root.rmdir()
+        except FileNotFoundError:
+            pass  # A concurrent confirmed session deletion already removed it.

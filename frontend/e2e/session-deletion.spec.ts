@@ -1,0 +1,38 @@
+import { test, expect } from '@playwright/test';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+test('explicit deletion clears active session and owned files on desktop and mobile',async({page})=>{
+  test.skip(process.env.RUN_SESSION_DELETION_UI!=='1','Only an isolated fixture; no real sessions are deleted.');
+  const fixture=JSON.parse(readFileSync(resolve('../workspace/session-deletion-ui-20261021/metadata.json'),'utf8'));
+  expect(fixture.enable_agent).toBe(false);
+  expect(test.info().project.use.baseURL).toBe(fixture.url);
+  const errors:string[]=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  await page.addInitScript(id=>localStorage.setItem('forestry.task',id),fixture.task_ids[0]);
+  await page.goto('/ui/index.html');
+  await expect(page.locator('.user-message')).toContainText('删除流程夹具0');
+  await page.getByRole('button',{name:'删除会话：删除流程夹具0',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'删除会话',exact:true});
+  await expect(dialog).toContainText('中间文件、结果和缓存');
+  await dialog.getByRole('button',{name:'取消',exact:true}).click();
+  await expect(page.locator(`[data-task-id="${fixture.task_ids[0]}"]`)).toBeVisible();
+  await page.getByRole('button',{name:'删除会话：删除流程夹具0',exact:true}).click();
+  await dialog.getByRole('button',{name:'永久删除',exact:true}).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator(`[data-task-id="${fixture.task_ids[0]}"]`)).toHaveCount(0);
+  await expect(page.getByText('新的会话',{exact:true})).toBeVisible();
+  const evidence=async()=>page.evaluate(async()=>{const response=await fetch('/fixture/evidence');return response.json();});
+  expect((await evidence()).uploads_exist).toEqual([false,true]);
+  expect((await evidence()).results_exist).toEqual([false,true]);
+  await page.setViewportSize({width:390,height:844});
+  await page.getByRole('button',{name:'打开任务与资源',exact:true}).click();
+  await page.getByRole('dialog',{name:'任务与资源'}).getByRole('button',{name:'删除会话：删除流程夹具1',exact:true}).click();
+  await dialog.getByRole('button',{name:'永久删除',exact:true}).click();
+  await expect(dialog).toHaveCount(0);
+  const result=await evidence();
+  expect(result.remaining).toEqual([]);expect(result.uploads_exist).toEqual([false,false]);
+  expect(result.results_exist).toEqual([false,false]);expect(errors).toEqual([]);
+  await page.screenshot({path:resolve('../workspace/evidence/session-deletion-ui-20261021.png'),fullPage:true});
+  writeFileSync(resolve('../workspace/evidence/session-deletion-ui-20261021.json'),JSON.stringify({...result,status:'passed',page_errors:errors,new_model_requests:0},null,2));
+});

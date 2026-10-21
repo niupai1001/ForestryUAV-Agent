@@ -14,7 +14,7 @@ test('deployed native thinking can be reopened without generating another answer
   const message=page.locator('.message.assistant').last();
   await expect(message.locator('.message-text')).toContainText(reply.text.split('\n')[0]);
   const thought=message.getByLabel('模型思考');
-  await thought.locator('summary').click();
+  if(await thought.getAttribute('open')===null)await thought.locator('summary').click();
   await expect.poll(()=>thought.locator('.thinking-text').textContent()).toBe(reply.thinking);
   await expect(page.getByRole('button',{name:'任务',exact:true})).toHaveCount(0);
   await expect(page.getByText('处理说明',{exact:true})).toHaveCount(0);

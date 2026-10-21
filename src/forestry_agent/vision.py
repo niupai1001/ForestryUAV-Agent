@@ -20,6 +20,22 @@ class Vision:
     def __init__(self, resources):
         self.resources = resources
 
+    def message_input(self, task_id, prompt, attachments, *, enabled, original_prompt):
+        """A batch is a bounded index, never silently truncated image content."""
+        from .conversation import IMAGE_SUFFIXES
+        from .store import encode
+        images=[a for a in attachments if Path(a['name']).suffix.lower() in IMAGE_SUFFIXES]
+        if len(images)>1 or len(attachments)>8:
+            listing=[{k:a[k] for k in ('resource_id','name','kind')} for a in attachments[:8]]
+            return (original_prompt+'\n本条消息有'+str(len(attachments))+'个附件，其中'+str(len(images))+
+                '张图片。这里只是前8项文件清单，尚未读取任何图像：'+encode(listing)+
+                '\n使用list_inputs按offset分页取得全部来源，再按任务需要逐张或小批view_image。'
+                '没有读到的图片不能声称看过。大量航片交给领域作业，不将整批像素持续放入对话。')
+        if images and enabled:
+            metadata,picture=self.prepare(task_id,resource_id=images[0]['resource_id'])
+            return [prompt,'实际图像：'+encode(metadata),picture]
+        return prompt
+
     def prepare(self, task_id, *, resource_id=None, artifact_id=None, relative_path=''):
         if bool(resource_id) == bool(artifact_id):
             raise Failure('SCHEMA_INVALID', '请选择一个来源图片或本会话图片产物')
@@ -48,9 +64,10 @@ class Vision:
         if version(path) != before or file_hash(path) != sha:
             raise Failure('VERSION_CONFLICT', '读图期间文件发生变化，请重新发送', 409)
         data = out.getvalue()
-        cache = self.resources.workspace / '.forestry' / 'image-previews' / sha / 'preview.png'
-        native_path(cache.parent).mkdir(parents=True, exist_ok=True)
-        native_path(cache).write_bytes(data)
+        if task_id:
+            cache = self.resources.workspace / '.forestry' / 'image-previews' / task_id / sha / 'preview.png'
+            native_path(cache.parent).mkdir(parents=True, exist_ok=True)
+            native_path(cache).write_bytes(data)
         metadata = {'name':path.name, 'resource_id':resource_id, 'artifact_id':artifact_id,
                     'relative_path':relative_path, 'source_sha256':sha, 'source_version':before,
                     'original_size':original_size, 'preview_size':list(image.size), 'preview_media_type':'image/png',
@@ -62,11 +79,24 @@ def visual_token_bound(messages):
     """Only images after the most recent measured response are unpaid."""
     from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart
     start = max((i+1 for i,m in enumerate(messages) if isinstance(m,ModelResponse) and m.usage.input_tokens>0), default=0)
-    count = 0
+    tokens = 0
     for message in messages[start:]:
         if isinstance(message, ModelRequest):
             for part in message.parts:
                 if isinstance(part,UserPromptPart) and isinstance(part.content,(list,tuple)):
-                    count += sum(isinstance(item,BinaryContent) and item.media_type.startswith('image/') for item in part.content)
-    # Fixed previews are at most1024², on the observed local qwen35 vision backend.
-    return count * 4096
+                    for item in part.content:
+                        if not isinstance(item,BinaryContent) or not item.media_type.startswith('image/'):
+                            continue
+                        bound = 4096
+                        try:
+                            with Image.open(io.BytesIO(item.data)) as image:
+                                width,height = image.size
+                                if 0 < width <= MAX_EDGE and 0 < height <= MAX_EDGE:
+                                    # Qwen3.5's 16px patches merge2x2 before entering the
+                                    # language context: one token per padded32px cell.
+                                    # Keep a minimum and128 tokens of framing headroom.
+                                    bound = max(256, ((width+31)//32)*((height+31)//32)+128)
+                        except (OSError, ValueError, Image.DecompressionBombError):
+                            pass
+                        tokens += bound
+    return tokens
