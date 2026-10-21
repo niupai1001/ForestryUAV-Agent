@@ -41,6 +41,10 @@ class Config(BaseModel):
     code_image: str = "python:3.12-slim"
     science_image: str | None = Field(default=None,
         pattern=r"^(?:sha256:[0-9a-f]{64}|[^\s]+@sha256:[0-9a-f]{64})$")
+    imagery_image: str | None = Field(default=None,
+        pattern=r"^(?:sha256:[0-9a-f]{64}|[^\s]+@sha256:[0-9a-f]{64})$")
+    orthomosaic_image: str | None = Field(default=None,
+        pattern=r"^(?:sha256:[0-9a-f]{64}|[^\s]+@sha256:[0-9a-f]{64})$")
     docker_host: str = "npipe:////./pipe/dockerDesktopLinuxEngine"
     docker_distribution: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
     max_code_seconds: int = Field(default=14400, ge=1)

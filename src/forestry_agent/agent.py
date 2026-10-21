@@ -211,6 +211,8 @@ class Engine:
                 'native_thinking':thinking_effort(features)!='none',
                 'web_search':self.config.search_enabled,
                 'science_configured':bool(state['config_snapshot'].get('science_image')),
+                'imagery_configured':bool(state['config_snapshot'].get('imagery_image')),
+                'orthomosaic_configured':bool(state['config_snapshot'].get('orthomosaic_image')),
                 'inputs_received':len(state['input_refs'])}
 
     async def observe_async(self, deps, kind, action_id, attempt_id, operation):
@@ -506,6 +508,8 @@ class Engine:
                 tool_defs = [t for t in tool_defs if t.name != 'view_image']
             if not state["config_snapshot"].get("science_image"):
                 tool_defs = [t for t in tool_defs if t.name not in {"process_lidar_terrain", "process_lidar_canopy", "apply_lidar_roi"}]
+            if not any(state["config_snapshot"].get(k) for k in ("imagery_image", "orthomosaic_image")):
+                tool_defs = [t for t in tool_defs if t.name != "process_imagery"]
             # Native overflow readers only inspect this run's already-owned tool results.
             # They do not expose new source, filesystem, network or execution authority.
             if restricted:
@@ -1133,6 +1137,38 @@ class Engine:
             receipt = await asyncio.to_thread(execute, ctx, "code.execute", arguments,
                 lambda action_id: self.jobs.submit(ctx.deps.task_id, ctx.deps.revision, action_id,
                     code, input_refs, seconds, environment_artifact_id=environment_artifact_id))
+            return self.jobs.model_receipt(receipt)
+
+        @agent.tool
+        async def process_imagery(ctx: RunContext[Deps], operation: Literal["inspect", "build_lut", "invert", "orthomosaic"],
+                                  input_refs: dict[str, str], declaration_ref: str | None = None,
+                                  seconds: int = 900, resume_job_id: str | None = None) -> dict:
+            """科学影像按文件引用处理，不把整批像素注入模型。
+            inspect:raster；build_lut:空输入+参数声明JSON；invert:raster/lut+定标/波段声明JSON；
+            orthomosaic:flight→已发送文件夹ID，或逐航片角色→资源ID；另需ODM声明JSON。
+            文件夹由后端展开（当前≤200张顶层航片），不将影像清单/像素塞进上下文。
+            沿用Jobs/只读输入/同会话产物/取消和恢复；返回job_id后wait_job，正确LUT/结果直接复用。
+            不猜反射率、波段或模型参数，不把光谱残差当现场LAI精度。
+            缺少声明时返回所需JSON Schema，不启动作业。
+            """
+            from .imagery import ImageryRequest, submit_imagery
+            if operation != "inspect" and not declaration_ref:
+                from .imagery_schema import InversionDeclaration, LutDeclaration, OdmDeclaration
+                schema = {"build_lut": LutDeclaration, "invert": InversionDeclaration, "orthomosaic": OdmDeclaration}[operation]
+                recipe = {}
+                if operation == "build_lut":
+                    from .imagery_schema import LEGACY_RANGES
+                    recipe = {"legacy_ranges": LEGACY_RANGES, "seed": 20260914, "lut_size": 500,
+                        "parameter_source": "迁移自旧run_prosail.py的探索性先验，不是本航次现场标定",
+                        "required_evidence": "当前航次太阳/观测几何、波段及响应来源仍须读取；不得套用旧太阳角度。"}
+                return {"status": "declaration_required", "schema": schema.model_json_schema(), "legacy_recipe": recipe,
+                        "next": "依据元数据/用户资料构建声明JSON，write_file保存为本会话产物后传入declaration_ref；缺少依据先说明，禁止猜测定标/波段。"}
+            payload = ImageryRequest(request_id="native-imagery", expected_spec_revision=ctx.deps.revision,
+                operation=operation, input_refs=input_refs, declaration_ref=declaration_ref, seconds=seconds,
+                resume_job_id=resume_job_id)
+            arguments = {**payload.model_dump(), "input_refs": [*input_refs.values(), *([declaration_ref] if declaration_ref else [])]}
+            receipt = await asyncio.to_thread(execute, ctx, "code.execute", arguments,
+                lambda action_id: submit_imagery(self, ctx.deps, action_id, payload))
             return self.jobs.model_receipt(receipt)
 
         @agent.tool

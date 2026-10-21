@@ -72,6 +72,9 @@ async def doctor(config: Config, *, probe_search: bool = True) -> dict:
     report["capabilities"]["file_tools"] = {"status": "available"}
     report["capabilities"]["domain"] = {"status": "configured" if config.science_image else "not_configured",
         "image": config.science_image, "validation": "see_frozen_delivery_evidence", "stage": 2}
+    report["capabilities"]["imagery"] = {"status": "configured" if config.imagery_image else "not_configured",
+        "image": config.imagery_image, "orthomosaic_image": config.orthomosaic_image,
+        "validation": "see_IMAGERY-PROSAIL-MIGRATION-20261021-zh.md"}
     installed_profiles = {key for key, value in report["models"].items()
                           if value["status"] == "available_not_tool_verified"}
     report["startup_ready"] = config.default_model in installed_profiles

@@ -1,0 +1,22 @@
+# Local migration profile. Image availability/configuration is not scientific acceptance.
+host: 127.0.0.1
+port: 8765
+workspace_root: workspace/imagery-runtime
+docker_distribution: forestry-uav-agent-runtime
+docker_host: unix:///var/run/docker.sock
+code_image: public.ecr.aws/docker/library/python@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f
+# Existing local 1.0 image; export/restore this exact image for another device.
+imagery_image: sha256:d54664352b9d40d8d4d21cc38349dbd4623f1202177b41ff7dadc9756ca33969
+orthomosaic_image: opendronemap/odm@sha256:c0d9a0c56fcb97277b9a9f0c30f2c274afb14344ec378c9bb1d231623017596b
+max_code_seconds: 14400
+max_code_cpus: 4
+max_code_memory_bytes: 6442450944
+max_code_output_bytes: 8589934592
+search_enabled: false
+default_model: small
+models:
+  small:
+    repository: Qwen/Qwen3.5-4B
+    served_name: qwen3.5:4b
+    context_limit: 32768
+    output_limit: 4096

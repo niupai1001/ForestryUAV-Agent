@@ -10,6 +10,7 @@ from typing import Literal
 from uuid import UUID
 
 from .contracts import Control, Failure
+from .resources import native_path
 from .store import encode, now
 
 
@@ -91,8 +92,8 @@ class Sessions:
         if (not path.is_absolute() or not any(path!=r and path.is_relative_to(r) for r in roots)
                 or path.resolve()!=path or not path.resolve().is_relative_to(self.root)):
             raise Failure('PERMISSION_DENIED','会话清理路径发生重定向，已停止删除',409)
-        if path.is_dir():shutil.rmtree(path)
-        elif path.exists():path.unlink()
+        if path.is_dir():shutil.rmtree(native_path(path, force=True))
+        elif path.exists():native_path(path, force=True).unlink()
 
     def _erase_rows(self, db, plan):
         task_id=plan['task_id']

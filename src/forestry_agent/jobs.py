@@ -84,9 +84,18 @@ class Docker:
             return value
 
     def inspect(self, name: str):
-        result = self.call("container", "inspect", name)
+        # Full inspect repeats every bind mount in multiple fields. A flight with
+        # many readonly inputs can exceed the bounded stdout buffer and corrupt
+        # JSON. Ask Docker for identity/state/limits, independent of mount count.
+        projection = ('{"Id":{{json .Id}},"Image":{{json .Image}},"State":{{json .State}},'
+            '"Config":{"Labels":{{json .Config.Labels}}},"HostConfig":{'
+            '"NetworkMode":{{json .HostConfig.NetworkMode}},"ReadonlyRootfs":{{json .HostConfig.ReadonlyRootfs}},'
+            '"CapDrop":{{json .HostConfig.CapDrop}},"Memory":{{json .HostConfig.Memory}},'
+            '"MemorySwap":{{json .HostConfig.MemorySwap}},"NanoCpus":{{json .HostConfig.NanoCpus}},'
+            '"PidsLimit":{{json .HostConfig.PidsLimit}}}}')
+        result = self.call("container", "inspect", name, "--format", projection)
         if result["code"] == 0:
-            return json.loads(result["stdout"])[0]
+            return json.loads(result["stdout"])
         if "No such container" in result["stderr"] or "No such object" in result["stderr"]:
             return None
         raise Failure("EXECUTOR_UNAVAILABLE", result["stderr"], 503, True)
@@ -166,9 +175,10 @@ class Jobs:
                input_refs: list[str], seconds: int = 300, *, environment_artifact_id=None,
                job_kind="code.execute", environment_recipe=None, input_artifact_ids=None, source_recipe=None,
                source_build_only=False, source_inspection=None, runtime_profile=None, reuse_equivalent=False):
-        if type(reuse_equivalent) is not bool or (reuse_equivalent and runtime_profile != "scientific"):
+        domain_profile = runtime_profile in {"scientific", "imagery", "orthomosaic"}
+        if type(reuse_equivalent) is not bool or (reuse_equivalent and not domain_profile):
             raise Failure("SCHEMA_INVALID", "相同配方复用仅用于固定科学作业")
-        if runtime_profile not in {None, "scientific"}:
+        if runtime_profile not in {None, "scientific", "imagery", "orthomosaic"}:
             raise Failure("SCHEMA_INVALID", "未知执行环境配置")
         if runtime_profile and (job_kind != "code.execute" or environment_artifact_id or source_recipe):
             raise Failure("SCHEMA_INVALID", "科学环境不能混用通用依赖准备或环境产物")
@@ -186,7 +196,7 @@ class Jobs:
         if seconds < 1 or seconds > self.config.max_code_seconds:
             raise Failure("RESOURCE_EXHAUSTED", "作业时限超出配置", 422)
         mounts = []
-        if runtime_profile == 'scientific':
+        if domain_profile:
             input_refs, scientific_artifacts = self.resources.partition_refs(input_refs, task_id)
             input_artifact_ids = list(dict.fromkeys([*(input_artifact_ids or []), *scientific_artifacts]))
         for ref in dict.fromkeys(input_refs):
@@ -197,7 +207,7 @@ class Jobs:
             mounts.append({"resource_id": ref, "source": str(source), "target": f"/inputs/{ref}",
                            "version": version(source)})
         for ref in dict.fromkeys(input_artifact_ids or []):
-            if runtime_profile == 'scientific':
+            if domain_profile:
                 self.resources.partition_refs([ref], task_id)
                 artifact = self.resources.artifact(ref, task_id)
             elif job_kind == 'environment.prepare' and self.input_artifact_validator:
@@ -223,9 +233,10 @@ class Jobs:
                 raise Failure("EXECUTION_STOPPED", "任务规范或控制状态不允许新作业", 409)
             self.store.authorize_capability(db, state, job_kind)
             image_reference = self.config.code_image
-            if runtime_profile == "scientific":
-                image_reference = state["config_snapshot"].get("science_image")
-                if not self.config.science_image or not image_reference:
+            if domain_profile:
+                image_key = {"scientific": "science_image", "imagery": "imagery_image", "orthomosaic": "orthomosaic_image"}[runtime_profile]
+                image_reference = state["config_snapshot"].get(image_key)
+                if not getattr(self.config, image_key) or not image_reference:
                     raise Failure("PRECONDITION_MISSING", "任务未冻结可用科学镜像；请明确配置并创建新任务", 422)
             if reuse_equivalent:
                 equivalent = db.execute("SELECT payload FROM jobs WHERE task_id=? AND revision=? "
@@ -352,7 +363,7 @@ class Jobs:
     def verify_inputs(self, job):
         for mount in job["mounts"]:
             if mount.get("artifact_id"):
-                if job.get('runtime_profile') == 'scientific':
+                if job.get('runtime_profile') in {'scientific', 'imagery', 'orthomosaic'}:
                     artifact = self.resources.artifact(mount['artifact_id'], job['task_id'])
                     if artifact['sha256'] != mount['sha256']:
                         raise Failure('VERSION_CONFLICT', '科学输入产物校验和已变化', 409)
@@ -454,7 +465,11 @@ class Jobs:
                         # nodev and present only for a validated dependency archive.
                         args.extend(["--tmpfs", f"/environment:rw,exec,nosuid,nodev,mode=1777,size={job['environment_tmpfs_bytes']}"])
                         args.extend(["--mount", f"type=bind,src={job['environment']['source']},dst=/environment.zip,readonly"])
-                    result = self.docker.call(*args, job["image_id"], "python", "-I", "-B", "/run.py")
+                    if job.get('runtime_profile') in {'imagery', 'orthomosaic'}:
+                        args.extend(["--entrypoint", "python3" if job['runtime_profile'] == 'orthomosaic' else "python"])
+                        result = self.docker.call(*args, job["image_id"], "-I", "-B", "/run.py")
+                    else:
+                        result = self.docker.call(*args, job["image_id"], "python", "-I", "-B", "/run.py")
                     if result["code"] != 0:
                         raise Failure("RECONCILIATION_REQUIRED", result["stderr"], 409)
                     container = self.docker.inspect(job["container_name"])
@@ -626,7 +641,7 @@ class Jobs:
             if output.resolve()!=output or not output.resolve().is_relative_to(expected):
                 raise Failure('PERMISSION_DENIED','作业输出目录发生重定向，未执行递归清理',409)
             used_as_source=any(Path(source['locator']).is_relative_to(output) for source in self.resources.all())
-            if output.exists() and not used_as_source:shutil.rmtree(native_path(output))
+            if output.exists() and not used_as_source:shutil.rmtree(native_path(output, force=True))
             job['cleanup']={**cleanup,'done':True,'completed_at':now(),'output_retained_as_source':used_as_source}
             self.save(job,'job.cleaned')
             return True

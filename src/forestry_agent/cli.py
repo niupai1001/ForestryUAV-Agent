@@ -23,6 +23,10 @@ def main():
     check.add_argument("--output", default="workspace/deployment.lock.json")
     serve = commands.add_parser("serve")
     serve.add_argument("--config", default="config/app.example.yaml")
+    imagery = commands.add_parser("imagery", help="授权影像/声明→现有Jobs检查、拼接或PROSAIL反演")
+    imagery.add_argument("--config", default="config/app.local.yaml")
+    imagery.add_argument("--task", required=True)
+    imagery.add_argument("--request", required=True, type=Path, help="ImageryRequest JSON；相同请求ID读取原作业")
     run = commands.add_parser("run")
     source = run.add_mutually_exclusive_group(required=True)
     source.add_argument("--objective")
@@ -115,6 +119,8 @@ def main():
         from .lidar_canopy import CanopyStageRequest
         from .lidar_roi import RoiDefinition, RoiRequest
         from .lidar_terrain import TerrainRequest
+        from .imagery import ImageryRequest
+        from .imagery_schema import InversionDeclaration, LutDeclaration, OdmDeclaration
         from .roles import AssignmentRequest, AssignmentResult, RoleCatalog
         target = Path(args.output)
         target.mkdir(parents=True, exist_ok=True)
@@ -124,7 +130,7 @@ def main():
                 json.dumps(model.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf-8")
         for model in [RoleCatalog, AssignmentRequest, AssignmentResult, PlanItem, WheelRequest, PackageRequest,
                       EvaluationSuite, EvaluationReview, EvaluationDiagnosticReview, TerrainRequest, CanopyStageRequest,
-                      RoiDefinition, RoiRequest]:
+                      RoiDefinition, RoiRequest, ImageryRequest, InversionDeclaration, LutDeclaration, OdmDeclaration]:
             (target / f"{model.__name__}.schema.json").write_text(
                 json.dumps(model.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf-8")
         return
@@ -153,6 +159,19 @@ def main():
         finally:
             if client:
                 client.close()
+        return
+    if args.command == "imagery":
+        from .client import LocalClient
+        from .imagery import ImageryRequest
+        payload = ImageryRequest.model_validate_json(args.request.read_bytes())
+        client = LocalClient(config)
+        try:
+            result = client.request("POST", f"/tasks/{args.task}/imagery", payload.model_dump())
+            print(json.dumps(result, ensure_ascii=False, indent=2))
+        finally:
+            client.close()
+        if result.get("kind") == "failed":
+            raise SystemExit(2)
         return
     if args.command == "lidar-terrain":
         from .client import LocalClient

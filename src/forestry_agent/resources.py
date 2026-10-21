@@ -13,12 +13,12 @@ from .contracts import Failure
 from .store import Store, encode, now, uid
 
 
-def native_path(path: Path) -> Path:
+def native_path(path: Path, *, force: bool = False) -> Path:
     """Use the Windows extended form for I/O without changing stored logical paths."""
     if os.name != "nt":
         return path
     value = os.path.abspath(path)
-    if value.startswith("\\\\?\\") or len(value) < 240:
+    if value.startswith("\\\\?\\") or (len(value) < 240 and not force):
         return Path(value)
     if value.startswith("\\\\"):
         return Path("\\\\?\\UNC\\" + value[2:])

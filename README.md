@@ -1,5 +1,7 @@
 # 林遥 · ForestryUAV-Agent V1
 
+**当前1.57：旧版多光谱正射与PROSAIL工具链已迁入现有Jobs，80张M3M真实航片已产生正射/DSM、LAI/Cab/光谱残差与报告。** 科学文件以引用进入计算，不自动占用视觉上下文。见[交付入口](docs/DELIVERY-TRACKER.md)、[操作](docs/IMAGERY-USAGE-zh.md)、[实跑结果与质量边界](docs/IMAGERY-RESULT-20261021-zh.md)。点云后续暂缓，联网搜索与领域峰值资源/吞吐评估取消；以下旧批次保留为历史。
+
 **Windows 日常入口：双击项目目录 `Start-Agent.cmd`，或上级目录 `启动林业Agent.cmd`，检查/启动 Ollama、配置指定的 WSL/Docker 与 Agent，并打开工作台。** 已运行服务直接复用，保留原任务；使用说明见[一键启动](docs/ONE-CLICK-START-zh.md)。
 
 1.50新增真实lidR冠层实例交付与结果视图：复用地形/HAG，独立CHM/种子/分割Jobs，原始Z分割LAZ、精确ID/UID、矢量/指标/中文partial报告；[操作与范围](docs/LIDAR-CANOPY-zh.md)。边界分块、独立精度、ODM与阶段3未完成。

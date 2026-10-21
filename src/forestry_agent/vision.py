@@ -24,7 +24,15 @@ class Vision:
         """A batch is a bounded index, never silently truncated image content."""
         from .conversation import IMAGE_SUFFIXES
         from .store import encode
-        images=[a for a in attachments if Path(a['name']).suffix.lower() in IMAGE_SUFFIXES]
+        # TIFFs are scientific files: inspect/process via Jobs unless explicitly
+        # requested as a bounded visual preview. Never auto-decode a GeoTIFF.
+        scientific=[a for a in attachments if Path(a['name']).suffix.lower() in {'.tif', '.tiff', '.dng'}]
+        images=[a for a in attachments if Path(a['name']).suffix.lower() in IMAGE_SUFFIXES and a not in scientific]
+        if scientific:
+            listing=[{k:a[k] for k in ('resource_id','name','kind')} for a in attachments[:8]]
+            return (prompt+'\n科学影像以文件引用处理，未自动读取像素：'+encode(listing)+
+                '\n使用list_inputs分页取得完整清单；元数据/拼接/反演交给process_imagery。'
+                '普通图片可用view_image显式查看。不能把原始DN当反射率，不能猜波段。')
         if len(images)>1 or len(attachments)>8:
             listing=[{k:a[k] for k in ('resource_id','name','kind')} for a in attachments[:8]]
             return (original_prompt+'\n本条消息有'+str(len(attachments))+'个附件，其中'+str(len(images))+
