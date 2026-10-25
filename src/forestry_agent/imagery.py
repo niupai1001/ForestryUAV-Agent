@@ -75,6 +75,10 @@ def prepare_imagery(engine, task_id, request):
 
 
 def submit_imagery(engine, deps, action_id, request):
+    from .imagery_catalog import reuse_verified
+    reused = reuse_verified(engine, deps, action_id, request)
+    if reused is not None:
+        return reused
     if request.resume_job_id:
         from .imagery_resume import resume_archive
         archive = resume_archive(engine, deps.task_id, action_id, request)
@@ -102,3 +106,24 @@ def submit_imagery(engine, deps, action_id, request):
     result = engine.jobs.submit(deps.task_id, deps.revision, action_id, code, refs, request.seconds,
         runtime_profile="orthomosaic" if request.operation == "orthomosaic" else "imagery", reuse_equivalent=True)
     return {**result, "science_status": "queued_not_validated", "operation": request.operation}
+
+
+def automatic_imagery_inputs(engine, task_id, operation):
+    """Use an unambiguous granted flight or completed orthomosaic; never sample it."""
+    state = engine.store.task(task_id)
+    candidates = []
+    if operation == 'orthomosaic':
+        for ref in state['input_refs']:
+            if engine.resources.resolve_input(ref, task_id).is_dir():
+                candidates.append(ref)
+        role = 'flight'
+    elif operation == 'invert':
+        for ref in [*state['artifact_ids'], *state['input_refs']]:
+            if engine.resources.resolve_input(ref, task_id).name == 'odm_orthophoto.tif':
+                candidates.append(ref)
+        role = 'raster'
+    else:
+        return {}
+    if len(candidates) != 1:
+        raise Failure('PRECONDITION_MISSING', '没有唯一可选的整航次目录/正射成果，请明确input_refs；不能猜测或截取航片', 422)
+    return {role: candidates[0]}

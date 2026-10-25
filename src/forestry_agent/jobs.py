@@ -143,7 +143,49 @@ class Jobs:
                 job["cancel_requested"] |= json.loads(current["payload"])["cancel_requested"]
             db.execute("UPDATE jobs SET status=?,payload=?,updated_at=? WHERE id=?",
                 (job["status"], encode(job), job["updated_at"], job["job_id"]))
-            self.store.event(db, job["task_id"], kind, self.public(job))
+            payload = self.public(job)
+            if kind == "job.terminal":
+                # 终态通知按事件身份去重：同一个作业的同一个终态只通知一次，
+                # 重复的结算、迟到回调和重启对账都不会再次唤醒会话。
+                key = f"{job['job_id']}:{job['status']}"
+                if db.execute("SELECT 1 FROM events WHERE task_id=? AND kind='job.terminal' "
+                        "AND json_extract(payload,'$.notification_key')=? LIMIT 1",
+                        (job["task_id"], key)).fetchone():
+                    return
+                payload = {**payload, "notification_key": key}
+            self.store.event(db, job["task_id"], kind, payload)
+
+    @staticmethod
+    def readable_name(kind, runtime_profile=None, source_inspection=None):
+        """作业对用户的可读名称；类型与用途分开，不用内部镜像名代替。"""
+        if kind == "environment.prepare":
+            return "源码检查" if source_inspection else "环境准备"
+        return {"scientific": "科学计算", "imagery": "影像处理",
+                "orthomosaic": "正射拼接"}.get(runtime_profile, "代码作业")
+
+    #: 一个作业对外的登记项：名称、类型、来源消息、逻辑活动、调用/尝试、状态、时间、
+    #: 结果与恢复关系。旧记录缺项一律标未知，不猜历史事实。
+    REGISTERED = ("job_id", "readable_name", "kind", "status", "request_turn_id", "call_id",
+                  "attempt_id", "logical_activity", "created_at", "started_at", "updated_at",
+                  "seconds", "resumed_from")
+
+    @classmethod
+    def job_ref(cls, job, *, full=False):
+        ref = {key: job.get(key) for key in cls.REGISTERED}
+        ref["artifact_count"] = len(job.get("artifact_ids") or [])
+        ref["log_already_saved"] = bool((job.get("cleanup") or {}).get("logs_sha256"))
+        missing = [key for key in cls.REGISTERED if key not in job]
+        if missing:
+            ref["unknown_fields"] = missing
+        if full:
+            ref["blocker"] = job.get("blocker")
+            ref["exit_code"] = job.get("exit_code")
+        return ref
+
+    @classmethod
+    def ref_summary(cls, job):
+        """模型回执里的最小引用：能定位和称呼这个作业，不重复完整登记项。"""
+        return {key: job.get(key) for key in ("job_id", "readable_name", "status", "request_turn_id")}
 
     @staticmethod
     def public(job):
@@ -227,7 +269,8 @@ class Jobs:
         with self.store.transaction() as db:
             existing = db.execute("SELECT payload FROM jobs WHERE action_id=?", (action_id,)).fetchone()
             if existing:
-                return {"job": self.public(json.loads(existing["payload"]))}
+                prior = json.loads(existing["payload"])
+                return {"job": self.public(prior), "job_ref": self.ref_summary(prior)}
             state = self.store.read_task(db, task_id)
             if state["spec_revision"] != revision or state["pause_requested"] or state["cancellation_requested"]:
                 raise Failure("EXECUTION_STOPPED", "任务规范或控制状态不允许新作业", 409)
@@ -248,11 +291,16 @@ class Jobs:
                     if original["mounts"] != mounts:
                         raise Failure("VERSION_CONFLICT", "科学输入版本已变化，请明确保存任务修订；不复用旧结果或自动重算", 409)
                     return {"job": self.public(original), "reused_from_job": original["job_id"],
-                            "original_producer_action_id": original["action_id"]}
+                            "original_producer_action_id": original["action_id"],
+                            "job_ref": self.ref_summary(original)}
             if source_recipe:
                 self.store.authorize_capability(db, state, "code.execute")
             job_id = uid()
             assignment = db.execute("SELECT id FROM assignments WHERE json_extract(payload,'$.run_id')=(SELECT turn_id FROM actions WHERE id=?)", (action_id,)).fetchone()
+            # 来源消息与调用/尝试从动作记录复制：作业要能回答「是谁、在哪条消息上
+            # 发起的」，不能让用户回头找 action_id。
+            source = db.execute("SELECT a.turn_id,a.call_id,(SELECT id FROM attempts WHERE action_id=a.id "
+                "ORDER BY rowid DESC LIMIT 1) AS attempt_id FROM actions a WHERE a.id=?", (action_id,)).fetchone()
             job = {"schema_version": 1, "job_id": job_id, "task_id": task_id,
                 "kind": job_kind, "image_reference": image_reference,
                 "tmpfs_bytes": 1024*1024*1024 if job_kind == "environment.prepare" else 67108864,
@@ -263,7 +311,13 @@ class Jobs:
                 "mounts": mounts, "seconds": seconds, "directory": str(self.config.workspace_root /
                     "tasks" / task_id / "jobs" / job_id), "created_at": now(), "started_at": None,
                 "updated_at": now(), "cancel_requested": False, "exit_code": None,
-                "artifact_ids": [], "blocker": None}
+                "artifact_ids": [], "blocker": None,
+                "request_turn_id": source["turn_id"] if source else None,
+                "call_id": source["call_id"] if source else None,
+                "attempt_id": source["attempt_id"] if source else None,
+                "logical_activity": assignment["id"] if assignment else (source["turn_id"] if source else None),
+                "readable_name": self.readable_name(job_kind, runtime_profile, source_inspection),
+                "resumed_from": None, "registered_at": now()}
             if environment:
                 job["environment"] = environment
                 job["environment_tmpfs_bytes"] = 1024*1024*1024
@@ -282,7 +336,7 @@ class Jobs:
             db.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?)",
                 (job_id, task_id, action_id, revision, "queued", encode(job), now()))
             self.store.event(db, task_id, "job.queued", self.public(job))
-        return {"job": self.public(job)}
+        return {"job": self.public(job), "job_ref": self.ref_summary(job)}
 
     def resource_request(self, job, state):
         limits = state['config_snapshot'].get('execution_limits', self.config.execution_limits())
@@ -341,6 +395,24 @@ class Jobs:
             job["cancel_requested"] = True
             self.save(job, "job.cancel_requested")
         return self.public(job)
+
+    def active(self, task_id):
+        """任务下尚未到达终态的作业；取消整体活动时按它逐个登记取消意图。"""
+        with self.store.transaction() as db:
+            return [json.loads(row[0]) for row in db.execute(
+                "SELECT payload FROM jobs WHERE task_id=? AND status NOT IN ('succeeded','failed','cancelled','timed_out') "
+                "ORDER BY updated_at", (task_id,))]
+
+    def cancel_active(self, task_id, reason="用户取消活动"):
+        """给所属作业登记取消意图；实际停止仍由执行器确认后才记终态。"""
+        results = []
+        for job in self.active(task_id):
+            try:
+                results.append(self.request_cancel(job["job_id"], task_id))
+            except Failure as error:
+                results.append({"job_id": job["job_id"], "error": {"code": error.code, "message": str(error)},
+                                "reason": reason})
+        return results
 
     def matches(self, job, container):
         labels = container.get("Config", {}).get("Labels", {})
@@ -640,11 +712,54 @@ class Jobs:
             output=directory/'output'
             if output.resolve()!=output or not output.resolve().is_relative_to(expected):
                 raise Failure('PERMISSION_DENIED','作业输出目录发生重定向，未执行递归清理',409)
+            # Worker 自己的日志（例如 ODM 的 processing.log）不在容器标准输出里，
+            # 必须在删除可再生产物前先保存，否则「删掉目录」等于销毁唯一诊断材料。
+            if not discard and not cleanup.get('output_logs_sha256'):
+                worker = self.worker_logs(output)
+                if worker['files']:
+                    data=encode(worker).encode()
+                    native_path(directory).mkdir(parents=True,exist_ok=True)
+                    native_path(directory/'output-logs.json').write_bytes(data)
+                    cleanup={**cleanup,'output_logs_sha256':hashlib.sha256(data).hexdigest(),
+                        'output_log_files':[item['name'] for item in worker['files']]}
+                    job['cleanup']=cleanup
+                    self.save(job,'job.output_logs_archived')
             used_as_source=any(Path(source['locator']).is_relative_to(output) for source in self.resources.all())
             if output.exists() and not used_as_source:shutil.rmtree(native_path(output, force=True))
             job['cleanup']={**cleanup,'done':True,'completed_at':now(),'output_retained_as_source':used_as_source}
             self.save(job,'job.cleaned')
             return True
+
+    def worker_logs(self, output, *, limit_files=8, limit_bytes=131072):
+        """收集 Worker 写在输出目录里的日志，供删除目录前保存。
+
+        只读普通文件、不接受链接、有界（文件数/总字节）；内容截断如实标注，不把
+        截断后的文本当成完整日志。
+        """
+        result = {'files': [], 'bounded': True, 'limit_files': limit_files, 'limit_bytes': limit_bytes}
+        if not output.exists():
+            return result
+        root = native_path(output)
+        total = 0
+        for directory, folders, names in os.walk(root, followlinks=False):
+            folders.sort()
+            for name in sorted(names):
+                if not (name.endswith('.log') or name.endswith('.txt')):
+                    continue
+                path = Path(directory) / name
+                if native_path(path).is_symlink() or not native_path(path).is_file():
+                    continue
+                if len(result['files']) >= limit_files or total >= limit_bytes:
+                    result['truncated'] = True
+                    return result
+                data = native_path(path).read_bytes()
+                take = data[:max(0, limit_bytes - total)]
+                total += len(take)
+                result['files'].append({'name': str(path.relative_to(root)).replace('\\', '/'),
+                    'sha256': hashlib.sha256(data).hexdigest(), 'size_bytes': len(data),
+                    'truncated': len(take) < len(data),
+                    'text': take.decode('utf-8', errors='replace')})
+        return result
 
     def cleanup_batch(self,limit):
         with self.store.transaction() as db:
@@ -660,8 +775,26 @@ class Jobs:
 
     def logs(self, job_id, task_id):
         job = self.read(job_id, task_id)
+        result = self._container_logs(job, task_id)
+        worker = self.archived_worker_logs(job, task_id)
+        return {**result, **({'worker': worker} if worker else {})}
+
+    def archived_worker_logs(self, job, task_id):
+        """读回清理前保存的 Worker 日志；哈希不符即视为不可信，不返回内容。"""
+        expected = (job.get('cleanup') or {}).get('output_logs_sha256')
+        if not expected:
+            return None
+        path = self.config.workspace_root.resolve()/'tasks'/task_id/'jobs'/job['job_id']/'output-logs.json'
+        if path.resolve() != path or not path.exists() or path.stat().st_size > 512*1024:
+            raise Failure('VERIFICATION_FAILED','归档 Worker 日志路径或大小不合法',409)
+        data = native_path(path).read_bytes()
+        if hashlib.sha256(data).hexdigest() != expected:
+            raise Failure('VERIFICATION_FAILED','归档 Worker 日志校验失败',409)
+        return json.loads(data)
+
+    def _container_logs(self, job, task_id):
         if job.get('cleanup',{}).get('logs_sha256'):
-            path=self.config.workspace_root.resolve()/'tasks'/task_id/'jobs'/job_id/'logs.json'
+            path=self.config.workspace_root.resolve()/'tasks'/task_id/'jobs'/job['job_id']/'logs.json'
             if path.resolve()!=path or path.stat().st_size>512*1024:
                 raise Failure('VERIFICATION_FAILED','归档日志路径或大小不合法',409)
             data=native_path(path).read_bytes()

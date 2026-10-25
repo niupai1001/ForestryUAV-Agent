@@ -1,0 +1,513 @@
+{
+ "schema": "research-v1",
+ "suite_version": "research-v1.0",
+ "frozen": {
+  "model": "large",
+  "harness": "H2",
+  "repeats": 1,
+  "budget": {
+   "model_requests": 12,
+   "tool_actions": 30,
+   "seconds": 900
+  },
+  "note": "单遍筛查；不用于统计结论。基线模型与Harness在本文件冻结，变更须写明原因。"
+ },
+ "tasks": [
+  {
+   "id": "01",
+   "title": "能力自述与简单追问",
+   "objective": "请用中文说明：你现在这个应用在实际会话里能做什么、不能做什么、有哪些限制？请只根据当前确实可用的能力回答，不要假设可以联网或访问外部服务。",
+   "inputs": [],
+   "checks": [
+    {
+     "type": "status_in",
+     "values": [
+      "waiting_user",
+      "completed"
+     ]
+    },
+    {
+     "type": "answer_min_chars",
+     "value": 200
+    },
+    {
+     "type": "actions_not_used",
+     "values": [
+      "write_plan",
+      "delegate_task"
+     ]
+    }
+   ],
+   "manual": [
+    "回答是否对应当前应用而不是一般性介绍",
+    "是否说明联网不可用"
+   ]
+  },
+  {
+   "id": "02",
+   "title": "中文资料与图片联合提取",
+   "objective": "这次会话附了一份中文外业记录和一张标牌照片。请联合读取这两类输入，提取样地编号、观测日期、优势树种，以及照片中红色三角形和蓝色圆形的数量。每个事实请注明来自记录还是照片；看不清的不要猜。",
+   "inputs": [
+    "fixtures/research/field_note_zh.md",
+    "fixtures/research/plot_marker.png"
+   ],
+   "checks": [
+    {
+     "type": "status_in",
+     "values": [
+      "waiting_user",
+      "completed"
+     ]
+    },
+    {
+     "type": "answer_contains_all",
+     "values": [
+      "P07",
+      "2026-09-18"
+     ]
+    },
+    {
+     "type": "answer_contains_any",
+     "values": [
+      "杨树",
+      "Populus"
+     ]
+    },
+    {
+     "type": "answer_numbers_all",
+     "values": [
+      2,
+      1
+     ],
+     "tolerance": 0
+    },
+    {
+     "type": "input_has_image"
+    }
+   ],
+   "manual": [
+    "来源区分是否清楚",
+    "思考流是否原生展示（如存在）"
+   ]
+  },
+  {
+   "id": "03",
+   "title": "含缺失值与单位的CSV",
+   "objective": "heights_units.csv 是若干样地的树高记录，单位与缺失值并不统一。请把可确认的记录统一换算为米并统计均值与样本数，明确说明缺失值和单位无法确认的记录如何处理；原始文件必须保持不变。最后把统计结果写成一份中文报告文件。",
+   "inputs": [
+    "fixtures/research/heights_units.csv"
+   ],
+   "checks": [
+    {
+     "type": "status_in",
+     "values": [
+      "waiting_user",
+      "completed"
+     ]
+    },
+    {
+     "type": "answer_contains_all",
+     "values": [
+      "9.57"
+     ]
+    },
+    {
+     "type": "answer_numbers_all",
+     "values": [
+      9
+     ],
+     "tolerance": 0
+    },
+    {
+     "type": "answer_contains_any",
+     "values": [
+      "ft",
+      "英尺",
+      "无法确认",
+      "未知单位"
+     ]
+    },
+    {
+     "type": "artifact_name",
+     "pattern": "报告|report|summary",
+     "min": 1
+    },
+    {
+     "type": "input_unchanged"
+    }
+   ],
+   "manual": [
+    "缺失值与未知单位是否分别说明",
+    "报告是否可读"
+   ]
+  },
+  {
+   "id": "04",
+   "title": "修复真实报错的Python脚本并执行",
+   "objective": "buggy 目录里的 height_summary.py 现在运行会报错。请找出真实原因并修复，然后在会话里实际运行出结果，把样地数和平均树高（米）告诉我。只给建议代码不算完成。",
+   "inputs": [
+    "fixtures/research/buggy/height_summary.py",
+    "fixtures/research/buggy/plots.csv"
+   ],
+   "checks": [
+    {
+     "type": "status_in",
+     "values": [
+      "waiting_user",
+      "completed"
+     ]
+    },
+    {
+     "type": "answer_numbers_all",
+     "values": [
+      4,
+      11.23
+     ],
+     "tolerance": 0.02
+    },
+    {
+     "type": "actions_used",
+     "values": [
+      "code_execute"
+     ]
+    },
+    {
+     "type": "jobs_status",
+     "allowed": [
+      "succeeded"
+     ]
+    }
+   ],
+   "manual": [
+    "是否先复现真实错误再修改",
+    "是否实际执行而非只给代码"
+   ]
+  },
+  {
+   "id": "05",
+   "title": "结果正确但报告错误",
+   "objective": "lai_result.json 是已经算好的结果，report_wrong.md 是据它写的草稿报告。草稿里的数值和结论有问题。请核对后直接修正报告，不要重新计算、也不要改动结果文件；告诉我改了哪些地方。",
+   "inputs": [
+    "fixtures/research/lai_result.json",
+    "fixtures/research/report_wrong.md"
+   ],
+   "checks": [
+    {
+     "type": "status_in",
+     "values": [
+      "waiting_user",
+      "completed"
+     ]
+    },
+    {
+     "type": "artifact_text_all",
+     "name": "report_corrected|report.*\\.md",
+     "values": [
+      "3.417",
+      "68.66",
+      "4935083"
+     ]
+    },
+    {
+     "type": "artifact_text_not_asserted",
+     "name": "report_corrected|report.*\\.md",
+     "values": [
+      "92%"
+     ]
+    },
+    {
+     "type": "answer_contains_all",
+     "values": [
+      "3.417",
+      "68.66"
+     ]
+    },
+    {
+     "type": "no_jobs"
+    },
+    {
+     "type": "input_unchanged"
+    }
+   ],
+   "manual": [
+    "是否只修报告",
+    "是否明确删除无依据的精度结论"
+   ]
+  },
+  {
+   "id": "06",
+   "title": "多轮修改目标与约束",
+   "objective": "先记住这个需求：统计 plots_groups.csv 里 A 组的平均树高，按米计算，用中文汇报，保留两位小数。",
+   "followups": [
+    "改一下：不要只看 A 组，改成全部样地；单位仍然统一成米、保留两位小数，用中文汇报。之前“只看 A 组”的要求作废。"
+   ],
+   "inputs": [
+    "fixtures/research/plots_groups.csv"
+   ],
+   "checks": [
+    {
+     "type": "status_in",
+     "values": [
+      "waiting_user",
+      "completed"
+     ]
+    },
+    {
+     "type": "answer_numbers_all",
+     "values": [
+      11.0
+     ],
+     "tolerance": 0.05
+    },
+    {
+     "type": "answer_contains_all",
+     "values": [
+      "6"
+     ]
+    }
+   ],
+   "manual": [
+    "是否使用最新目标",
+    "是否停止执行已撤销的A组要求"
+   ]
+  },
+  {
+   "id": "07",
+   "title": "受控的真实错误后恢复",
+   "objective": "broken 目录里的 plot_stats.py 应当产出 data/plots.csv 的统计结果。请实际执行它；如果失败，请根据真实错误处理并最终产出 out/summary.json，然后告诉我样地数和平均胸径（cm）。不要反复重试同一个失败动作。",
+   "inputs": [
+    "fixtures/research/broken/plot_stats.py",
+    "fixtures/research/broken/data/plots.csv"
+   ],
+   "checks": [
+    {
+     "type": "status_in",
+     "values": [
+      "waiting_user",
+      "completed"
+     ]
+    },
+    {
+     "type": "answer_numbers_all",
+     "values": [
+      3,
+      21.77
+     ],
+     "tolerance": 0.02
+    },
+    {
+     "type": "actions_used",
+     "values": [
+      "code_execute"
+     ]
+    },
+    {
+     "type": "jobs_status",
+     "allowed": [
+      "succeeded"
+     ]
+    }
+   ],
+   "manual": [
+    "失败后是否改变方法而不是重复同一动作"
+   ]
+  },
+  {
+   "id": "08",
+   "title": "持久作业执行中重启后继续",
+   "objective": "请在会话里启动一个持续约三分钟的持久计算作业：每 10 秒记录一次进度，结束时把结果写入 result.json，其中包含 started_at 和 checksum 字段。作业运行期间如果服务重启，请在恢复后继续同一个作业，不要重新创建计算或重复产物。",
+   "inputs": [],
+   "manual_run": "需要人工在作业运行中重启隔离服务，再发送“继续”，并核对同一 job_id 与同一产物。",
+   "checks": [
+    {
+     "type": "status_in",
+     "values": [
+      "waiting_user",
+      "completed"
+     ]
+    },
+    {
+     "type": "jobs_status",
+     "allowed": [
+      "succeeded"
+     ]
+    },
+    {
+     "type": "artifact_name",
+     "pattern": "result",
+     "min": 1
+    }
+   ],
+   "manual": [
+    "是否识别并恢复同一个Job",
+    "是否重复创建计算或产物"
+   ]
+  },
+  {
+   "id": "09",
+   "title": "批量图像引用中的定位与比较",
+   "objective": "batch 目录里是一批影像引用（共100张）。请找出其中带红旗的两张，比较它们的绿色方块数量，并说明你是如何在不把全部图片塞进上下文的前提下定位到这两张的。",
+   "inputs": [
+    "fixtures/research/batch"
+   ],
+   "checks": [
+    {
+     "type": "status_in",
+     "values": [
+      "waiting_user",
+      "completed"
+     ]
+    },
+    {
+     "type": "answer_contains_any",
+     "values": [
+      "037",
+      "37"
+     ]
+    },
+    {
+     "type": "answer_contains_any",
+     "values": [
+      "064",
+      "64"
+     ]
+    },
+    {
+     "type": "answer_numbers_all",
+     "values": [
+      3,
+      6
+     ],
+     "tolerance": 0
+    }
+   ],
+   "manual": [
+    "是否分页/按需读图而非整批入上下文",
+    "是否说明定位方法"
+   ]
+  },
+  {
+   "id": "10",
+   "title": "版本冲突与缺失信息的资料检索",
+   "objective": "conflict 目录里有两份关于同一次反演的说明。请说明 LAI 均值应以哪一份为准、两份的差异是什么，并指出资料中缺失的事实。请引用对应文件，缺失的信息不要编造。",
+   "inputs": [
+    "fixtures/research/conflict"
+   ],
+   "checks": [
+    {
+     "type": "status_in",
+     "values": [
+      "waiting_user",
+      "completed"
+     ]
+    },
+    {
+     "type": "answer_contains_all",
+     "values": [
+      "5.1",
+      "4.2"
+     ]
+    },
+    {
+     "type": "answer_contains_any",
+     "values": [
+      "v2",
+      "V2"
+     ]
+    },
+    {
+     "type": "answer_contains_any",
+     "values": [
+      "缺失",
+      "未知",
+      "没有",
+      "缺"
+     ]
+    }
+   ],
+   "manual": [
+    "是否说明版本取代关系",
+    "是否保留缺失事实为未知"
+   ]
+  },
+  {
+   "id": "11",
+   "title": "既有正射/DSM/LAI产品的核查报告",
+   "objective": "工作区里有本航次冻结的正射、DSM、PROSAIL 反演产品（LAI/Cab/光谱残差）以及参数说明。请检查这些已有成果的波段、网格、坐标系、单位和血缘，不要重跑 ODM 或反演；然后写一份中文核查报告，说明哪些成果可以直接复用、哪些条件尚未被证明。",
+   "inputs": [
+    "workspace/imagery-migration-20261021/real-flight-runtime/tasks/7cbf2d4f-75b8-4439-8076-93b17943e0f1/artifacts/26b500d7-9b7c-4b6b-be00-b64ff051b1e0/odm_orthophoto.tif",
+    "workspace/imagery-migration-20261021/real-flight-runtime/tasks/7cbf2d4f-75b8-4439-8076-93b17943e0f1/artifacts/2811ae51-c704-4bef-9b6f-8576c6bffd74/dsm.tif",
+    "workspace/imagery-migration-20261021/real-flight-runtime/tasks/7cbf2d4f-75b8-4439-8076-93b17943e0f1/artifacts/c9027914-0a9c-45e6-b5a9-8c0dd2b41918/prosail_lai_cab_rmse.tif",
+    "workspace/imagery-migration-20261021/real-flight-runtime/tasks/7cbf2d4f-75b8-4439-8076-93b17943e0f1/artifacts/031051e5-df78-4065-99f8-dadf8b3dd1d2/lai_preview.png",
+    "workspace/imagery-migration-20261021/inversion-declaration.json"
+   ],
+   "checks": [
+    {
+     "type": "status_in",
+     "values": [
+      "waiting_user",
+      "completed"
+     ]
+    },
+    {
+     "type": "answer_contains_all",
+     "values": [
+      "EPSG:32650"
+     ]
+    },
+    {
+     "type": "answer_contains_any",
+     "values": [
+      "0.05",
+      "5 cm",
+      "5cm"
+     ]
+    },
+    {
+     "type": "artifact_name",
+     "pattern": "报告|report",
+     "min": 1
+    },
+    {
+     "type": "no_jobs"
+    }
+   ],
+   "manual": [
+    "波段/网格/坐标系/单位/血缘是否都核对",
+    "是否把未证明条件写清"
+   ]
+  },
+  {
+   "id": "12",
+   "title": "解释Cab接近先验上界",
+   "objective": "已有反演结果中 Cab 均值 68.66，已接近先验上界 70；LAI 均值 3.417，光谱残差均值 0.052。请解释可能的原因，区分哪些判断已有证据支持、哪些仍需验证；给出不超过4条可检验的假设，并说明为什么光谱残差不等于现场精度。",
+   "inputs": [],
+   "checks": [
+    {
+     "type": "status_in",
+     "values": [
+      "waiting_user",
+      "completed"
+     ]
+    },
+    {
+     "type": "answer_contains_any",
+     "values": [
+      "上界",
+      "先验"
+     ]
+    },
+    {
+     "type": "answer_contains_any",
+     "values": [
+      "残差"
+     ]
+    }
+   ],
+   "manual": [
+    "假设是否有限且可检验",
+    "是否把光谱残差与现场精度分开"
+   ]
+  }
+ ]
+}

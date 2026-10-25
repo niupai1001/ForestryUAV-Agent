@@ -83,28 +83,49 @@ class Vision:
         return metadata, BinaryContent(data=data, media_type='image/png', identifier=resource_id or artifact_id)
 
 
-def visual_token_bound(messages):
-    """Only images after the most recent measured response are unpaid."""
+def visual_measure(messages):
+    """未付图像的分项计量：token 上界、张数、以及是否真的按像素量到。
+
+    视觉用量为 0 和「图片过大」是两件事。这里只报事实：没有未付图像时图像项为
+    0；有图像且能解码时按模型模板的补丁尺寸给出上界；解码失败才退回最坏情况
+    并标为未知，让上层解释里能看出是哪一项吃掉了窗口。
+    """
     from pydantic_ai.messages import ModelRequest, ModelResponse, UserPromptPart
-    start = max((i+1 for i,m in enumerate(messages) if isinstance(m,ModelResponse) and m.usage.input_tokens>0), default=0)
+    start = max((i + 1 for i, m in enumerate(messages) if isinstance(m, ModelResponse) and m.usage.input_tokens > 0), default=0)
     tokens = 0
+    images = 0
+    decoded = 0
     for message in messages[start:]:
         if isinstance(message, ModelRequest):
             for part in message.parts:
-                if isinstance(part,UserPromptPart) and isinstance(part.content,(list,tuple)):
+                if isinstance(part, UserPromptPart) and isinstance(part.content, (list, tuple)):
                     for item in part.content:
-                        if not isinstance(item,BinaryContent) or not item.media_type.startswith('image/'):
+                        if not isinstance(item, BinaryContent) or not item.media_type.startswith('image/'):
                             continue
+                        images += 1
                         bound = 4096
                         try:
                             with Image.open(io.BytesIO(item.data)) as image:
-                                width,height = image.size
+                                width, height = image.size
                                 if 0 < width <= MAX_EDGE and 0 < height <= MAX_EDGE:
                                     # Qwen3.5's 16px patches merge2x2 before entering the
                                     # language context: one token per padded32px cell.
                                     # Keep a minimum and128 tokens of framing headroom.
-                                    bound = max(256, ((width+31)//32)*((height+31)//32)+128)
+                                    bound = max(256, ((width + 31) // 32) * ((height + 31) // 32) + 128)
+                                    decoded += 1
                         except (OSError, ValueError, Image.DecompressionBombError):
                             pass
                         tokens += bound
-    return tokens
+    if not images:
+        return {'tokens': 0, 'images': 0, 'decoded': 0, 'status': 'actual',
+                'detail': '本轮没有未付图像'}
+    status = 'estimated' if decoded == images else 'unknown'
+    detail = (f'{images} 张未付图像，按补丁尺寸估算' if status == 'estimated'
+              else f'{images} 张未付图像，其中 {images - decoded} 张无法解码，按最坏情况留位')
+    return {'tokens': tokens, 'images': images, 'decoded': decoded, 'status': status, 'detail': detail}
+
+
+def visual_token_bound(messages):
+    """Only images after the most recent measured response are unpaid."""
+    return visual_measure(messages)['tokens']
+

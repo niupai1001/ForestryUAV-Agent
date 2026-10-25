@@ -1,85 +1,48 @@
+"""应用侧的资源保护：无进展计数、上下文恢复与结构化判定。
+
+判定只读 ``runtime.evidence`` 给出的事实维度（输入身份/版本、读取范围、实际结果、
+失败类别、作业状态），不解析模型可见正文，也不看界面文本。``observation`` 与
+``observation_fingerprint`` 在这里保留导出名，实现已移到 ``runtime.evidence``。
+"""
+
 from __future__ import annotations
 
 import hashlib
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
-
-from pydantic_ai.messages import ToolReturn
-from pydantic_ai_harness.tool_output_limits import indented_json
 
 from .contracts import Failure
 from .resources import native_path
+from .runtime.evidence import (DIMENSIONS, Evidence, facts, fingerprint as observation_fingerprint,
+                               observation)
 from .store import encode, now
 
+__all__ = ["Progress", "Verdict", "observation", "observation_fingerprint", "ordinary_path"]
 
-def observation(tool, result):
-    """Normalize known tool envelopes, leaving source text and user fields intact.
 
-    Novel observations are a bounded engineering signal, not semantic acceptance.
-    New attempt IDs, timestamps and recursive inspections are not new evidence.
-    """
-    if tool in {"write_plan", "read_plan", "task.plan"}:
-        return None  # Model-authored bookkeeping is not newly observed evidence.
-    if isinstance(result, ToolReturn):
-        value = observation(tool, result.return_value)
-        return {"return_value": value, "content": result.content} if result.content is not None else value
-    if tool in {"delegate_task", "role.delegate"} and isinstance(result, str):
-        try:
-            result = json.loads(result)
-        except ValueError:
-            pass
-    if not isinstance(result, dict):
-        return result if result else None
-    value = dict(result)
-    if value.get("kind") in {"failed", "window_required"} or value.get("status") == "failed":
-        return None
-    if tool in {"read_tool_result_window", "read_artifact", "read_file", "artifact.read", "fs.read"} and value.get("text") == "":
-        return None
-    # Ignore only application-owned envelope keys, never arbitrary keys in text.
-    for key in ("action_id", "attempt_id", "producer_action_id", "created_at", "observed_at",
-                "updated_at", "preview_url", "download_url", "locator", "continuation"):
-        value.pop(key, None)
-    if tool in {"acquire_dependencies", "resolve_dependencies", "environment.acquire"} and "wheels" in value:
-        # Re-downloading the same public bytes into fresh artifact IDs is not
-        # new task evidence. Keep release/hash/source facts, not receipt handles.
-        value.pop("wheel_artifact_ids", None)
-        value.pop("source_artifact_ids", None)
-        value.pop('built_wheel_artifact_ids', None)
-        value.pop("lock_artifact_id", None)
-        value.pop("resolution_lock_artifact_id", None)
-        value.pop("target_artifact_id", None)
-        value.pop("metadata_requests", None)
-        value.pop("reused_from_action_id", None)
-        value.pop("recorded_metadata_requests", None)
-        for group in ['wheels', 'source_packages', 'built_wheels']:
-            if group in value:
-                value[group] = [{k: v for k, v in package.items() if k not in
-                    {"artifact_id", "metadata_artifact_id", "hops", "observed_at"}} for package in value[group]]
-    if tool in {"write_file", "inspect_artifact", "fs.write_workspace", "artifact.inspect"}:
-        value.pop("artifact_id", None)
-    if tool in {"read_tool_result_window", "read_tool_result"}:
-        value.pop("handle", None)
-    citation = value.get("citation")
-    if isinstance(citation, dict):
-        value["citation"] = {k: v for k, v in citation.items()
-                             if k not in {"observed_at", "snapshot_artifact_id"}}
-        value.pop("text_artifact_id", None)
-    if tool in {"inspect_action", "action.inspect"} and "result" in value:
-        # Flatten actual inspection envelopes, bounded against adversarial nesting.
-        target = value
-        for _ in range(32):
-            if target.get("tool") != "action.inspect" or not isinstance(target.get("result"), dict):
-                break
-            target = target["result"]
-        else:
-            return None
-        source_tool = target.get("tool", "unknown")
-        source = observation(source_tool, target.get("result"))
-        return {"tool": source_tool, "observation": source} if source is not None else None
-    if isinstance(value.get("job"), dict):
-        value["job"] = {k: v for k, v in value["job"].items()
-                        if k not in {"updated_at", "created_at"}}
-    return value
+@dataclass(frozen=True)
+class Verdict:
+    """一次进展判定的结论；调用方据此投影，不重复计算。"""
+
+    tool: str
+    new: bool
+    stalled: int
+    limit: int
+    changed: tuple[str, ...] = ()
+    evidence: Evidence | None = None
+    replay: bool = False
+    repeated_request: bool = False
+    obstacle_repeats: int = 0
+    recovery: dict = field(default_factory=dict)
+
+    def payload(self) -> dict:
+        return {"new_observation": self.new, "stalled": self.stalled, "limit": self.limit,
+                "changed_dimensions": list(self.changed), "replayed_call": self.replay,
+                "repeated_request": self.repeated_request,
+                **({"obstacle_repeats": self.obstacle_repeats} if self.obstacle_repeats > 1 else {}),
+                **(self.evidence.payload() if self.evidence else {}),
+                **({'context_recovered': True, **self.recovery} if self.recovery else {})}
 
 
 class Progress:
@@ -97,9 +60,16 @@ class Progress:
             (deps.task_id, deps.revision, self.scope(deps), deps.turn_id)).fetchone()
 
     @staticmethod
-    def stopped(stalled, limit):
+    def stopped(stalled, limit, verdict: Verdict | None = None):
         if stalled >= limit:
-            raise Failure("NO_PROGRESS", f"连续{stalled}次工具观察没有新增证据（上限{limit}），已停止本回合。请检查执行记录并调整任务；直接恢复不会重置计数。", 422)
+            detail = ""
+            if verdict is not None and verdict.obstacle_repeats > 1:
+                detail = ("；同一阻碍已重复出现 %d 次（失败类别 %s），换工具或换说法都不算新事实，"
+                          "需要先改变相关条件" % (verdict.obstacle_repeats, verdict.evidence.failure if verdict.evidence else "未知"))
+            elif verdict is not None and verdict.repeated_request:
+                detail = "；最后几次是相同请求的重复，结果与已保存的事实相同"
+            raise Failure("NO_PROGRESS", f"连续{stalled}次工具观察没有新增证据（上限{limit}），已停止本回合。"
+                f"请检查执行记录并调整任务；直接恢复不会重置计数{detail}。", 422)
 
     def check(self, db, deps):
         row = self.latest(db, deps)
@@ -166,8 +136,17 @@ class Progress:
             return None  # Missing/corrupt lineage never weakens the normal guard.
         return None
 
-    def record(self, deps, call_id, tool, args, result):
+    def _obstacles(self, db, deps, obstacle: str, limit: int) -> int:
+        """同一未改变障碍在本活动里已被观察多少次（含本次之外的既有记录）。"""
+        row = db.execute("SELECT COUNT(*) FROM (SELECT 1 FROM events WHERE task_id=? AND kind='progress.observed' "
+            "AND json_extract(payload,'$.turn_id')=? AND json_extract(payload,'$.assignment_id') IS ? "
+            "AND json_extract(payload,'$.obstacle')=? ORDER BY seq DESC LIMIT ?)",
+            (deps.task_id, deps.turn_id, deps.assignment_id, obstacle, max(1, limit * 4))).fetchone()
+        return row[0]
+
+    def record(self, deps, call_id, tool, args, result) -> Verdict:
         value = observation(tool, result)
+        evidence = facts(tool, result)
         fingerprint = observation_fingerprint(tool, value)
         decision = hashlib.sha256(encode({"tool": tool, "args": args}).encode()).hexdigest()
         scope = self.scope(deps)
@@ -180,31 +159,56 @@ class Progress:
             # restoring a pending native call without a new request is a replay.
             prior = db.execute("SELECT * FROM progress_observations WHERE task_id=? AND revision=? AND scope=? AND turn_id=? AND call_id=? AND (?='' OR request_id=?) ORDER BY rowid DESC LIMIT 1",
                 (deps.task_id, deps.revision, scope, deps.turn_id, call_id, request_id, request_id)).fetchone()
+            previous = None if prior else db.execute(
+                "SELECT payload FROM events WHERE task_id=? AND kind='progress.observed' "
+                "AND json_extract(payload,'$.turn_id')=? AND json_extract(payload,'$.assignment_id') IS ? "
+                "ORDER BY seq DESC LIMIT 1",
+                (deps.task_id, deps.turn_id, deps.assignment_id)).fetchone()
             if prior:
                 if prior["decision_sha256"] != decision:
                     raise Failure("VERSION_CONFLICT", "重放的工具观察载荷变化", 409)
                 stalled, limit = prior["stalled"], prior["limit_value"]
-            else:
-                latest = self.latest(db, deps)
-                limit = latest["limit_value"] if latest else state["config_snapshot"].get("generation", {}).get("max_unchanged_decisions", self.config.max_unchanged_decisions)
-                seen = fingerprint is not None and db.execute("SELECT 1 FROM progress_observations WHERE task_id=? AND revision=? AND scope=? AND turn_id=? AND fingerprint=? LIMIT 1",
-                    (deps.task_id, deps.revision, scope, deps.turn_id, fingerprint)).fetchone()
-                progressed = fingerprint is not None and not seen
-                recovery = self.recovery(db, deps, tool, fingerprint) if seen else None
-                stalled = 0 if progressed else (latest["stalled"] if latest else 0) + (0 if recovery else 1)
-                db.execute("INSERT INTO progress_observations VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (deps.task_id, deps.revision, scope, deps.turn_id, call_id, request_id, tool, decision, fingerprint, stalled, limit, now()))
-                self.store.event(db, deps.task_id, "progress.observed", {"turn_id": deps.turn_id,
-                    "assignment_id": deps.assignment_id, "context_manifest_id": request_id or None,
-                    "tool": tool, "new_observation": progressed,
-                    "stalled": stalled, "limit": limit, "observation_sha256": fingerprint,
-                    **({'context_recovered': True, **recovery} if recovery else {})})
+                verdict = Verdict(tool=tool, new=False, stalled=stalled, limit=limit,
+                                  changed=evidence.changed_from(_restore(previous)), evidence=evidence, replay=True)
+                self.stopped(stalled, limit, verdict)
+                return verdict
+            latest = self.latest(db, deps)
+            limit = latest["limit_value"] if latest else state["config_snapshot"].get("generation", {}).get("max_unchanged_decisions", self.config.max_unchanged_decisions)
+            seen = fingerprint is not None and db.execute("SELECT 1 FROM progress_observations WHERE task_id=? AND revision=? AND scope=? AND turn_id=? AND fingerprint=? LIMIT 1",
+                (deps.task_id, deps.revision, scope, deps.turn_id, fingerprint)).fetchone()
+            progressed = fingerprint is not None and not seen
+            recovery = self.recovery(db, deps, tool, fingerprint) if seen else None
+            stalled = 0 if progressed else (latest["stalled"] if latest else 0) + (0 if recovery else 1)
+            repeated = bool(not progressed and db.execute(
+                "SELECT 1 FROM progress_observations WHERE task_id=? AND revision=? AND scope=? AND turn_id=? AND decision_sha256=? LIMIT 1",
+                (deps.task_id, deps.revision, scope, deps.turn_id, decision)).fetchone())
+            repeats = self._obstacles(db, deps, evidence.obstacle, limit) + 1 if evidence.obstacle else 0
+            verdict = Verdict(tool=tool, new=progressed, stalled=stalled, limit=limit,
+                              changed=evidence.changed_from(_restore(previous)) if progressed else (),
+                              evidence=evidence, repeated_request=repeated,
+                              obstacle_repeats=0 if progressed else repeats, recovery=recovery or {})
+            db.execute("INSERT INTO progress_observations VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                (deps.task_id, deps.revision, scope, deps.turn_id, call_id, request_id, tool, decision, fingerprint, stalled, limit, now()))
+            self.store.event(db, deps.task_id, "progress.observed", {"turn_id": deps.turn_id,
+                "assignment_id": deps.assignment_id, "context_manifest_id": request_id or None,
+                "tool": tool, "observation_sha256": fingerprint, **verdict.payload()})
         # Commit the observation before stopping, including successful effects.
-        self.stopped(stalled, limit)
+        self.stopped(stalled, limit, verdict)
+        return verdict
 
 
-def observation_fingerprint(tool, value):
-    return hashlib.sha256(encode(json.loads(indented_json({'tool': tool, 'observation': value}))).encode()).hexdigest() if value is not None else None
+def _restore(row) -> Evidence | None:
+    """Rebuild the previous evidence view from its event; unknown shapes stay unknown."""
+    if not row:
+        return None
+    try:
+        payload = json.loads(row["payload"])
+    except (ValueError, TypeError):
+        return None
+    facets = tuple((name, payload.get("facets", {}).get(name, "")) for name in payload.get("dimensions", ())
+                   if name in DIMENSIONS)
+    return Evidence(tool=payload.get("tool", ""), facets=facets, failure=payload.get("failure_code"),
+                    obstacle=payload.get("obstacle"))
 
 
 def ordinary_path(path):

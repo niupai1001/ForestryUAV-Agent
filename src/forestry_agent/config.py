@@ -31,9 +31,13 @@ class Config(BaseModel):
     search_base_url: str | None = None
     search_provider: Literal["baidu_html", "bing_rss", "searxng"] = "baidu_html"
     roles_path: Path | None = None
+    imagery_result_catalog: Path | None = None
     max_model_requests_per_turn: int = Field(default=30, ge=1, le=1000)
     max_output_retries: int = Field(default=3, ge=0, le=5)
     max_model_request_seconds: int = Field(default=300, ge=1, le=1800)
+    model_keep_alive: str = "30m"
+    # 留空表示使用模型自报的默认思考档位；仅用于定向对照，不改变模型权重。
+    model_thinking_effort: Literal["none", "low", "medium", "xhigh"] | None = None
     max_model_requests_per_task: int = Field(default=1000, ge=1)
     max_actions_per_task: int = Field(default=1000, ge=1)
     max_assignments_per_task: int = Field(default=32, ge=1)

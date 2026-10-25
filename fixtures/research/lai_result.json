@@ -1,0 +1,13 @@
+{
+ "metric": "prosail_lai_cab",
+ "lai_mean": 3.417,
+ "lai_min": 0.322,
+ "lai_max": 6.988,
+ "cab_mean": 68.66,
+ "cab_min": 20.95,
+ "cab_max": 69.7,
+ "n_pixels": 4935083,
+ "spectral_rmse_mean": 0.052,
+ "grid_m": 0.05,
+ "crs": "EPSG:32650"
+}

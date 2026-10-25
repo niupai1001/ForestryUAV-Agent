@@ -35,8 +35,8 @@ class LocalClient:
         self.http = httpx.Client(base_url=f"http://{config.host}:{config.port}", timeout=30,
             trust_env=False, headers={"authorization": "Bearer " + key.read_text(encoding="utf-8").strip()})
 
-    def request(self, method, path, payload=None):
-        response = self.http.request(method, path, json=payload)
+    def request(self, method, path, payload=None, params=None):
+        response = self.http.request(method, path, json=payload, params=params)
         if response.is_error:
             error = response.json().get("error", {})
             raise Failure(error.get("code", "API_ERROR"), error.get("message", response.text), response.status_code)

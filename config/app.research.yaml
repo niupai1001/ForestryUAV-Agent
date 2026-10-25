@@ -1,0 +1,52 @@
+code_image: public.ecr.aws/docker/library/python@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f
+default_model: large
+# 说明：研究实例运行在受管沙箱内时，wsl.exe 在程序黑名单上且不可批准、不可绕过，
+# 容器作业会停在 queued 并把回合墙钟耗光；改成本机 Docker 会被准入层以
+# “无已验证探测器”正确拒绝。这里保留产品默认的 WSL 执行器，
+# 环境限制只记录在 docs/RESEARCH-20261021-zh.md 的 3.8 节，不改产品语义。
+docker_distribution: forestry-uav-agent-runtime
+docker_host: unix:///var/run/docker.sock
+experimental_roi_enabled: false
+host: 127.0.0.1
+imagery_image: sha256:d54664352b9d40d8d4d21cc38349dbd4623f1202177b41ff7dadc9756ca33969
+max_actions_per_task: 1000
+max_assignments_per_task: 32
+max_code_cpus: 4
+max_code_memory_bytes: 6442450944
+max_code_output_bytes: 8589934592
+max_code_seconds: 14400
+max_model_request_seconds: 300
+# 定向对照（单因子，可随时删除本行还原）：任务07在第6个请求以 layer=generation 撞满300秒。
+# 27B 在 32K 上下文下约 11.7 tok/s，300 秒只够约3500个输出token，思考流会先吃掉大半预算。
+# 探针 probe-thinking-effort.json：reasoning_effort=none 使 thinking 291→0 字符，
+# 同样时间内正文 554→1235 字符；think:false 无效。请求上限本身保持300秒不变。
+model_thinking_effort: none
+max_model_requests_per_task: 1000
+max_model_requests_per_turn: 12
+max_output_retries: 3
+max_unchanged_decisions: 3
+model_base_url: http://127.0.0.1:11434/v1
+models:
+  large:
+    context_limit: 32768
+    output_limit: 4096
+    repository: Qwen/Qwen3.8-27B
+    # 同一份权重（父标签 qwen3.8:latest，权重 blob 未变）的派生标签，
+    # 仅仅把 num_ctx 固定为 32768：OpenAI 兼容接口不接受 num_ctx，
+    # 默认 262144 会多占约 11.7GB 显存并把生成速度降到约 2.3 tok/s。
+    served_name: qwen3.8:32k
+  small:
+    context_limit: 32768
+    output_limit: 4096
+    repository: Qwen/Qwen3.5-4B
+    served_name: qwen3.5:4b
+ollama_base_url: http://127.0.0.1:11434
+orthomosaic_image: opendronemap/odm@sha256:c0d9a0c56fcb97277b9a9f0c30f2c274afb14344ec378c9bb1d231623017596b
+port: 8770
+roles_path: null
+schema_version: 1
+science_image: sha256:eae1217fee43492a6b837fcdac35f493b790dcb1b8a7aa3dd51990d64114a6a8
+search_base_url: null
+search_enabled: false
+search_provider: baidu_html
+workspace_root: C:\Users\yzh\WorkBuddy\Agent\forestry-uav-agent-v1\workspace\research-20261021\state

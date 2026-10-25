@@ -573,6 +573,9 @@ def create_app(config: Config, *, enable_agent: bool = True):
                     state["status"] = "cancelled"
             stop_token = engine.tokens.get(task_id)
         result = store.change(task_id, "task.cancel_requested", mutate, payload.model_dump(), payload.expected_state_version)
+        # 取消整体活动：明确给所属作业登记取消意图（排队实例不再启动，运行中的由
+        # 执行器确认退出后才记终态）。放在事务外，避免和状态提交抢同一把写锁。
+        engine.jobs.cancel_active(task_id)
         if stop_token is not None:
             stop_token.cancel()
         return result

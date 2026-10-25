@@ -91,6 +91,22 @@ class Store:
             finally:
                 db.close()
 
+    @contextmanager
+    def snapshot(self):
+        """只读视图：不取写锁，也不参与事务推进。
+
+        WAL 允许读与单个写并发，因此会话事实查询不会把等待写锁的回合卡住；
+        `query_only` 让「只查不改」由连接自己保证，而不是靠调用方自觉。
+        """
+        with self.lock:
+            db = sqlite3.connect(self.path, timeout=10)
+            db.row_factory = sqlite3.Row
+            db.execute("PRAGMA query_only=ON")
+            try:
+                yield db
+            finally:
+                db.close()
+
     def replay(self, db, request_id: str, payload: dict):
         digest = hashlib.sha256(encode(payload).encode()).hexdigest()
         row = db.execute("SELECT * FROM requests WHERE id=?", (request_id,)).fetchone()

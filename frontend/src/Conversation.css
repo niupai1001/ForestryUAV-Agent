@@ -11,3 +11,13 @@
 .native-thinking{margin:12px 0 18px;color:#62776b;font-size:13px;border-left:2px solid #d8e3dc;padding-left:12px}.native-thinking summary{cursor:pointer}.thinking-text{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;padding-top:9px}
 .draft-answer{margin:20px 0}.draft-attachments{margin-bottom:9px}.attachment-menu{display:flex;gap:9px;flex-wrap:wrap;margin:14px 0}.attachment-menu button{padding:10px 16px;border:1px solid #dbe5df;border-radius:8px;background:white;color:#28563d}
 .history-row{display:flex;align-items:center;min-width:0}.history-row .history-item{min-width:0;flex:1}.history-delete{padding:9px 5px;color:#8b968d;flex-shrink:0}.history-delete:hover{color:#a43838;background:#fff0ed;border-radius:5px}.modal-actions .danger{color:white;background:#a43838;border-color:#a43838}.modal p.delete-objective{font-size:14px;color:#294734;overflow-wrap:anywhere;max-height:100px;overflow:auto}
+.conversation-content .message{display:flex;flex-direction:column;align-items:flex-start;margin:24px 0;min-width:0;line-height:1.75}
+.conversation-content .message.user{align-items:flex-end}
+.conversation-content .message-label{font-size:12px;color:#6b8074;margin:0 4px 7px;letter-spacing:0}
+.message-bubble{min-width:0;max-width:100%;overflow-wrap:anywhere}
+.message.user .message-bubble{max-width:88%;border:1px solid #c8dfd0;background:#e9f3ed;padding:12px 16px;border-radius:16px 4px 16px 16px;color:#244d38}
+.conversation-content .message-text{font-size:16px;margin:0;line-height:1.75}
+.message.user .message-attachments{margin:12px 0 0;justify-content:flex-end}
+.message-attachments>div{min-width:0;max-width:100%}.message-attachments span{overflow-wrap:anywhere}
+.conversation-card textarea{font-size:16px;line-height:1.6}
+@media(max-width:600px){.message.user .message-bubble{max-width:95%}.conversation-content .message-text{font-size:15px}}

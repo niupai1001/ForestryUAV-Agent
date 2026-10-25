@@ -6,6 +6,7 @@ import LidarPanel from './LidarPanel';
 import SourceBrowser from './SourceBrowser';
 import { api } from './api';
 import MarkdownMessage from './MarkdownMessage';
+import ChatMessage from './ChatMessage';
 import MessageAttachments, { type Attachment } from './MessageAttachments';
 import NativeThinking, { ModelWait } from './NativeThinking';
 import { ArrowDownToLine, ArrowUpRight, Check, ChevronDown, CircleHelp, File, FolderOpen,
@@ -348,9 +349,9 @@ export default function App() {
                 ['编写处理脚本','阅读已选数据文件，编写可复现的数据处理 Python 脚本；执行后保存脚本与结果，无法完成时说明原因。',Terminal]
               ].map(([title,prompt,Icon])=>{const Symbol=Icon as typeof File; return <button key={String(title)} onClick={()=>{setText(String(prompt));input.current?.focus();}}><Symbol size={17}/><span>{String(title)}</span><ArrowUpRight size={14}/></button>;})}</div>
               </>:
-              <><div className="user-message"><span className="message-label">你</span><p>{active.objective}</p><MessageAttachments files={active.initial_attachments||[]} onBrowse={()=>setShowSource(true)}/>
-                {editable&&active.status!=='completed'&&showDiagnostics&&<button className="scope-edit" disabled={busy} onClick={openAmendment}>修改目标与输入</button>}</div>
-                {active.messages.map(message=><div key={message.id} className={`message ${message.role}`}><span className="message-label">{message.role==='assistant'?'林遥 Agent':'你'}</span>{message.role==='assistant'&&<NativeThinking text={message.thinking||nativeThinking[message.turn_id||'']||''} expanded={message.turn_id===active.active_turn_id&&!!currentThinking}/>}<div className={`message-text ${message.role==='assistant'?'rendered':''}`}>{message.role==='assistant'?<MarkdownMessage text={message.text}/>:message.text}</div><MessageAttachments files={message.attachments||[]} onBrowse={()=>setShowSource(true)}/></div>)}
+              <><ChatMessage role="user" text={active.objective} files={active.initial_attachments||[]} onBrowse={()=>setShowSource(true)}>
+                {editable&&active.status!=='completed'&&showDiagnostics&&<button className="scope-edit" disabled={busy} onClick={openAmendment}>修改目标与输入</button>}</ChatMessage>
+                {active.messages.map(message=><ChatMessage key={message.id} role={message.role} text={message.text} files={message.attachments||[]} thinking={message.thinking||nativeThinking[message.turn_id||'']||''} expanded={message.turn_id===active.active_turn_id&&!!currentThinking} onBrowse={()=>setShowSource(true)}/>)}
                 {live&&<div className="running"><div className="pulse-ring"/><strong>Agent 正在工作</strong>{!currentThinking&&!liveText&&<ModelWait startedAt={latestRequest?.at}/>}</div>}
                 {showCurrentThinking&&<NativeThinking text={currentThinking} streaming={live}/>} {live&&liveText&&<div className="draft-answer"><MarkdownMessage text={liveText}/></div>}
                 {active.blockers.filter(b=>b.code!=='ACCEPTANCE_REQUIRED').map((b,i)=><div key={i} className="blocker"><CircleHelp size={16}/><span>{b.message}</span></div>)}
