@@ -1,0 +1,33 @@
+{
+  "trial": "template-calibration-20261025",
+  "new_requests_dispatched": 1,
+  "calibration_family_request_limit": 2,
+  "scientific_jobs": 0,
+  "scope": "text-chat-template-only",
+  "prior_family_requests": 1,
+  "before": {
+    "models": []
+  },
+  "model_identity": {
+    "backend": "ollama",
+    "digest": "d8b0f5e9760cd1682034f292d7ef72ec46f432149be0df7574bf2d6e92e38c04"
+  },
+  "tokenizer_identity": "qwen35-bpe:12b49ac7bca33ae78cdcceb874a0c37e336c11dc31c36a6c4ae1ba629bc3ca5f+10pct-text-margin",
+  "measurement": {
+    "status": "estimated",
+    "text_tokens": 3155,
+    "text_margin_tokens": 316,
+    "total_tokens": 3471,
+    "vision_tokens_status": "not_present",
+    "template_sha256": "a4aee8afcf2e0711942cf848899be66016f8d14a889ff9ede07bca099c28f715"
+  },
+  "source_sdk_sha256": "6b3f7a4043585e541bb793faa1a1277a9a0a7af70852e8e5c79d225e03d40109",
+  "body_sha256": "8bb6cd3aa24e2564e2469edc129e7d204ee6676546d6d34f990a6336269dd218",
+  "tool_count": 12,
+  "provider_prompt_eval_count": 2938,
+  "exact_template_match": false,
+  "estimate_covers_usage": true,
+  "after": {
+    "models": []
+  }
+}

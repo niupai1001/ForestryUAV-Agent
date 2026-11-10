@@ -1,0 +1,58 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+________ test_cancel_drains_started_effect_and_pairs_unstarted_sibling ________
+
+client = <starlette.testclient.TestClient object at 0x0000021FFFC9DE20>
+app = <fastapi.applications.FastAPI object at 0x0000021FFFCED9D0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000021FFFC9DDC0>
+
+    @pytest.mark.asyncio
+    async def test_cancel_drains_started_effect_and_pairs_unstarted_sibling(client, app, monkeypatch):
+        state, _ = task(client, harness_mode='H0')
+        engine = app.state.engine
+        entered, release = threading.Event(), threading.Event()
+        writes = []
+        original_write = engine.resources.write
+    
+        def write(*args, **kwargs):
+            writes.append(args[2])
+            entered.set()
+            if not release.wait(8):
+                raise RuntimeError('test failed to release started effect')
+            return original_write(*args, **kwargs)
+    
+        monkeypatch.setattr(engine.resources, 'write', write)
+    
+        def model(messages, info):
+            return ModelResponse(parts=[ToolCallPart('write_file', {
+                'relative_path': 'started.txt', 'content': 'real bytes'}, 'started'),
+                ToolCallPart('write_file', {'relative_path': 'never.txt', 'content': 'never'}, 'not-started')])
+    
+        fixture = FixtureFunctionModel(model, stream_function=stream_adapter(model))
+        original_agent = engine.make_agent
+    
+        def make_agent(*args, **kwargs):
+            agent, channel = original_agent(*args, **kwargs)
+            agent.model = fixture
+            return agent, channel
+    
+        monkeypatch.setattr(engine, 'make_agent', make_agent)
+        engine.submit(state['task_id'], '\u4f9d\u6b21\u4fdd\u5b58\u4e24\u4e2a\u6587\u4ef6', 'cancelled-batch')
+        run = engine.queue[state['task_id']]
+        try:
+            assert await asyncio.to_thread(entered.wait, 3)
+            current = engine.store.task(state['task_id'])
+            result = client.post(f"/tasks/{state['task_id']}/pause", json={
+                'request_id': 'pause-batch', 'expected_state_version': current['state_version']})
+            assert result.status_code == 200, result.text
+            await asyncio.sleep(0.05)
+>           assert not run.done(), 'started effect must settle before the exclusive scope is released'
+E           AssertionError: started effect must settle before the exclusive scope is released
+E           assert not True
+E            +  where True = <built-in method done of _asyncio.Task object at 0x0000021F9C01AB00>()
+E            +    where <built-in method done of _asyncio.Task object at 0x0000021F9C01AB00> = <Task finished name='Task-4' coro=<Engine.run() done, defined at C:\Users\yzh\WorkBuddy\Agent\forestry-uav-agent-v1\src\forestry_agent\agent.py:1245> result=None>.done
+
+tests\test_cancelled_batch.py:50: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_cancelled_batch.py::test_cancel_drains_started_effect_and_pairs_unstarted_sibling
+1 failed in 0.98s

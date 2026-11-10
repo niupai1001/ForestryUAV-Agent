@@ -1,0 +1,82 @@
+{
+  "protocol_sha256": "d16c899b5c471c5bb3dffaba8b3129a5a96842cb6de56d58203718821a691088",
+  "executed_script": "docs\\rebuild\\references\\retrieval\\discovery_task_once-6c85efe23b7d72b408adfdb1281b027b64ea20e96abcb6626f70de09631ffb6f.py",
+  "cases": [
+    {
+      "mode": "static",
+      "report_sha256": "e7cc036292ddcc44f404c05604e56afcc5fbde7b1af33e13a46b0988c9e7d119",
+      "task_id": "8ec0230d-2a72-4dc9-87bc-6115e3241ddb",
+      "status": "waiting_user",
+      "requests": 6,
+      "actions": 6,
+      "artifacts": [],
+      "wall_seconds": 40.094000000011874,
+      "input_tokens": 42575,
+      "output_tokens": 4728,
+      "window": [
+        {
+          "name": "forestry-v2-4b-ctx32768-20261026:latest",
+          "model": "forestry-v2-4b-ctx32768-20261026:latest",
+          "size": 4220549856,
+          "digest": "49144205011ed15f4437f33a19f5c46c677a0aac93c30e287734bfd0c7bdf6e8",
+          "details": {
+            "parent_model": "",
+            "format": "gguf",
+            "family": "qwen35",
+            "families": [
+              "qwen35"
+            ],
+            "parameter_size": "4.2B",
+            "quantization_level": "Q4_K_M"
+          },
+          "expires_at": "2026-10-25T23:19:05.8080195-04:00",
+          "size_vram": 4220549856,
+          "context_length": 32768,
+          "runner": "llamacpp"
+        }
+      ],
+      "jobs": 0,
+      "after": {
+        "models": []
+      }
+    },
+    {
+      "mode": "native_bm25",
+      "report_sha256": "70791597702f1355c3427dfbe125216e94804158f1b285b5bc8b33d0138a920e",
+      "task_id": "feb8e53f-5832-41c0-a3fa-991663231ac1",
+      "status": "waiting_user",
+      "requests": 3,
+      "actions": 2,
+      "artifacts": [],
+      "wall_seconds": 19.0,
+      "input_tokens": 11520,
+      "output_tokens": 1778,
+      "window": [
+        {
+          "name": "forestry-v2-4b-ctx32768-20261026:latest",
+          "model": "forestry-v2-4b-ctx32768-20261026:latest",
+          "size": 4220549856,
+          "digest": "49144205011ed15f4437f33a19f5c46c677a0aac93c30e287734bfd0c7bdf6e8",
+          "details": {
+            "parent_model": "",
+            "format": "gguf",
+            "family": "qwen35",
+            "families": [
+              "qwen35"
+            ],
+            "parameter_size": "4.2B",
+            "quantization_level": "Q4_K_M"
+          },
+          "expires_at": "2026-10-25T23:20:06.9810175-04:00",
+          "size_vram": 4220549856,
+          "context_length": 32768,
+          "runner": "llamacpp"
+        }
+      ],
+      "jobs": 0,
+      "after": {
+        "models": []
+      }
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_serializer
+from pydantic import Field, model_serializer, model_validator
 
 from .contracts import Boundary, Failure
 
@@ -16,13 +16,27 @@ class ImageryRequest(Boundary):
     input_refs: dict[str, str] = Field(default_factory=dict, max_length=5000)
     declaration_ref: str | None = None
     resume_job_id: str | None = None
+    reuse_candidate_id: str | None = Field(default=None, pattern=r'^[0-9a-f]{64}$')
+    adoption_note: str | None = Field(default=None, min_length=20, max_length=2000)
     seconds: int = Field(default=900, ge=1, le=14400)
+
+    @model_validator(mode='after')
+    def legacy_adoption(self):
+        if bool(self.reuse_candidate_id) != bool(self.adoption_note):
+            raise ValueError('采用旧候选需要候选ID及说明其适用性和未知项的依据')
+        if self.reuse_candidate_id and (
+                not self.declaration_ref or self.resume_job_id or self.operation not in {'orthomosaic', 'invert'}):
+            raise ValueError('采用旧候选需要明确声明，且不能同时恢复或创建其它科学作业')
+        return self
 
     @model_serializer(mode="wrap")
     def preserve_original_request_identity(self, handler):
         value = handler(self)
         if self.resume_job_id is None:
             value.pop("resume_job_id", None)
+        for key in ('reuse_candidate_id', 'adoption_note'):
+            if value.get(key) is None:
+                value.pop(key, None)
         return value
 
 
@@ -66,6 +80,18 @@ def prepare_imagery(engine, task_id, request):
                "declaration": declaration, "cpu_threads": engine.config.max_code_cpus,
                "resume_job_id": request.resume_job_id,
                "image": state["config_snapshot"][key]}
+    if declaration is not None and not request.resume_job_id:
+        from .resources import file_hash
+        from .science_identity import science_run_identity
+        if request.operation == 'orthomosaic':
+            data_identity = {'flight': {'kind': 'directory', 'files': {
+                paths[role]['name']: file_hash(engine.resources.resolve_input(ref, task_id))
+                for role, ref in request.input_refs.items()}}}
+        else:
+            data_identity = {role: {'kind': 'file', 'sha256': file_hash(
+                engine.resources.resolve_input(ref, task_id))} for role, ref in request.input_refs.items()}
+        payload['science_run_identity'] = science_run_identity(
+            request.operation, data_identity, declaration, payload['image'])
     worker = Path(__file__).with_name("imagery_worker.py").read_text(encoding="utf-8")
     if request.operation == "orthomosaic":
         legacy = Path(__file__).with_name("legacy_flight_metadata.py").read_text(encoding="utf-8")
@@ -79,6 +105,8 @@ def submit_imagery(engine, deps, action_id, request):
     reused = reuse_verified(engine, deps, action_id, request)
     if reused is not None:
         return reused
+    if request.reuse_candidate_id:
+        raise Failure('VERSION_CONFLICT', '所选旧候选已变化或不符合当前输入/声明；未导入、未启动计算', 409)
     if request.resume_job_id:
         from .imagery_resume import resume_archive
         archive = resume_archive(engine, deps.task_id, action_id, request)

@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="5" failures="0" skipped="0" tests="5" time="8.200" timestamp="2026-10-25T11:36:05.874909-04:00" hostname="DESKTOP-T530JCT"><testcase classname="tests.test_native_loop" name="test_named_artifacts_and_recent_job_records_are_scoped_bounded_native_facts[H2]" time="0.033"><error message="failed on setup with &quot;OSError: could not create numbered dir with prefix pytest- in C:\Users\yzh\AppData\Local\Packages\sandbox.{02974c5e-21d7-4ba3-a52a-bcd60d3042d3}\AC\Temp\pytest-of-YZH after 10 tries&quot;">self = &lt;Coroutine test_named_artifacts_and_recent_job_records_are_scoped_bounded_native_facts[H2]&gt;
+
+    def setup(self) -&gt; None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+&gt;       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+.venv\Lib\site-packages\pytest_asyncio\plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fixturedef = &lt;FixtureDef argname='tmp_path' scope='function' baseid=''&gt;
+request = &lt;SubRequest 'tmp_path' for &lt;Coroutine test_named_artifacts_and_recent_job_records_are_scoped_bounded_native_facts[H2]&gt;&gt;
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -&gt; object | None:
+        if (
+            fixturedef.argname == "event_loop_policy"
+            and fixturedef.func.__module__ != __name__
+        ):
+            warnings.warn(
+                PytestDeprecationWarning(_EVENT_LOOP_POLICY_FIXTURE_DEPRECATION_WARNING),
+            )
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+&gt;               return (yield)
+                        ^^^^^
+E               OSError: could not create numbered dir with prefix pytest- in C:\Users\yzh\AppData\Local\Packages\sandbox.{02974c5e-21d7-4ba3-a52a-bcd60d3042d3}\AC\Temp\pytest-of-YZH after 10 tries
+
+.venv\Lib\site-packages\pytest_asyncio\plugin.py:926: OSError</error></testcase><testcase classname="tests.test_output_recovery" name="test_rejected_text_preserves_native_retry_instead_of_accepting_none[True]" time="0.028"><error message="failed on setup with &quot;OSError: could not create numbered dir with prefix pytest- in C:\Users\yzh\AppData\Local\Packages\sandbox.{02974c5e-21d7-4ba3-a52a-bcd60d3042d3}\AC\Temp\pytest-of-YZH after 10 tries&quot;">self = &lt;Coroutine test_rejected_text_preserves_native_retry_instead_of_accepting_none[True]&gt;
+
+    def setup(self) -&gt; None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+&gt;       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+.venv\Lib\site-packages\pytest_asyncio\plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fixturedef = &lt;FixtureDef argname='tmp_path' scope='function' baseid=''&gt;
+request = &lt;SubRequest 'tmp_path' for &lt;Coroutine test_rejected_text_preserves_native_retry_instead_of_accepting_none[True]&gt;&gt;
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -&gt; object | None:
+        if (
+            fixturedef.argname == "event_loop_policy"
+            and fixturedef.func.__module__ != __name__
+        ):
+            warnings.warn(
+                PytestDeprecationWarning(_EVENT_LOOP_POLICY_FIXTURE_DEPRECATION_WARNING),
+            )
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+&gt;               return (yield)
+                        ^^^^^
+E               OSError: could not create numbered dir with prefix pytest- in C:\Users\yzh\AppData\Local\Packages\sandbox.{02974c5e-21d7-4ba3-a52a-bcd60d3042d3}\AC\Temp\pytest-of-YZH after 10 tries
+
+.venv\Lib\site-packages\pytest_asyncio\plugin.py:926: OSError</error></testcase><testcase classname="tests.test_output_recovery" name="test_rejected_text_preserves_native_retry_instead_of_accepting_none[False]" time="0.024"><error message="failed on setup with &quot;OSError: could not create numbered dir with prefix pytest- in C:\Users\yzh\AppData\Local\Packages\sandbox.{02974c5e-21d7-4ba3-a52a-bcd60d3042d3}\AC\Temp\pytest-of-YZH after 10 tries&quot;">self = &lt;Coroutine test_rejected_text_preserves_native_retry_instead_of_accepting_none[False]&gt;
+
+    def setup(self) -&gt; None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+&gt;       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+.venv\Lib\site-packages\pytest_asyncio\plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fixturedef = &lt;FixtureDef argname='tmp_path' scope='function' baseid=''&gt;
+request = &lt;SubRequest 'tmp_path' for &lt;Coroutine test_rejected_text_preserves_native_retry_instead_of_accepting_none[False]&gt;&gt;
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -&gt; object | None:
+        if (
+            fixturedef.argname == "event_loop_policy"
+            and fixturedef.func.__module__ != __name__
+        ):
+            warnings.warn(
+                PytestDeprecationWarning(_EVENT_LOOP_POLICY_FIXTURE_DEPRECATION_WARNING),
+            )
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+&gt;               return (yield)
+                        ^^^^^
+E               OSError: could not create numbered dir with prefix pytest- in C:\Users\yzh\AppData\Local\Packages\sandbox.{02974c5e-21d7-4ba3-a52a-bcd60d3042d3}\AC\Temp\pytest-of-YZH after 10 tries
+
+.venv\Lib\site-packages\pytest_asyncio\plugin.py:926: OSError</error></testcase><testcase classname="tests.test_progress" name="test_recent_source_bodies_survive_changed_instructions_larger_than_old_tail" time="0.028"><error message="failed on setup with &quot;OSError: could not create numbered dir with prefix pytest- in C:\Users\yzh\AppData\Local\Packages\sandbox.{02974c5e-21d7-4ba3-a52a-bcd60d3042d3}\AC\Temp\pytest-of-YZH after 10 tries&quot;">self = &lt;Coroutine test_recent_source_bodies_survive_changed_instructions_larger_than_old_tail&gt;
+
+    def setup(self) -&gt; None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+&gt;       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+.venv\Lib\site-packages\pytest_asyncio\plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fixturedef = &lt;FixtureDef argname='tmp_path' scope='function' baseid=''&gt;
+request = &lt;SubRequest 'tmp_path' for &lt;Coroutine test_recent_source_bodies_survive_changed_instructions_larger_than_old_tail&gt;&gt;
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -&gt; object | None:
+        if (
+            fixturedef.argname == "event_loop_policy"
+            and fixturedef.func.__module__ != __name__
+        ):
+            warnings.warn(
+                PytestDeprecationWarning(_EVENT_LOOP_POLICY_FIXTURE_DEPRECATION_WARNING),
+            )
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+&gt;               return (yield)
+                        ^^^^^
+E               OSError: could not create numbered dir with prefix pytest- in C:\Users\yzh\AppData\Local\Packages\sandbox.{02974c5e-21d7-4ba3-a52a-bcd60d3042d3}\AC\Temp\pytest-of-YZH after 10 tries
+
+.venv\Lib\site-packages\pytest_asyncio\plugin.py:926: OSError</error></testcase><testcase classname="tests.test_progress" name="test_native_turn_request_limit_survives_resume_and_allows_explicit_correction" time="0.028"><error message="failed on setup with &quot;OSError: could not create numbered dir with prefix pytest- in C:\Users\yzh\AppData\Local\Packages\sandbox.{02974c5e-21d7-4ba3-a52a-bcd60d3042d3}\AC\Temp\pytest-of-YZH after 10 tries&quot;">self = &lt;Coroutine test_native_turn_request_limit_survives_resume_and_allows_explicit_correction&gt;
+
+    def setup(self) -&gt; None:
+        runner_fixture_id = f"_{self._loop_scope}_scoped_runner"
+        if runner_fixture_id not in self.fixturenames:
+            self.fixturenames.append(runner_fixture_id)
+        # When loop factories are configured, resolve the loop factory
+        # fixture early so that a factory variant change cascades cache
+        # invalidation before any async fixture checks its cache.
+        hook_caller = self.config.hook.pytest_asyncio_loop_factories
+        if hook_caller.get_hookimpls():
+            _ = self._request.getfixturevalue(_asyncio_loop_factory.__name__)
+&gt;       return super().setup()
+               ^^^^^^^^^^^^^^^
+
+.venv\Lib\site-packages\pytest_asyncio\plugin.py:558: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+fixturedef = &lt;FixtureDef argname='tmp_path' scope='function' baseid=''&gt;
+request = &lt;SubRequest 'tmp_path' for &lt;Coroutine test_native_turn_request_limit_survives_resume_and_allows_explicit_correction&gt;&gt;
+
+    @pytest.hookimpl(wrapper=True)
+    def pytest_fixture_setup(fixturedef: FixtureDef, request) -&gt; object | None:
+        if (
+            fixturedef.argname == "event_loop_policy"
+            and fixturedef.func.__module__ != __name__
+        ):
+            warnings.warn(
+                PytestDeprecationWarning(_EVENT_LOOP_POLICY_FIXTURE_DEPRECATION_WARNING),
+            )
+        asyncio_mode = _get_asyncio_mode(request.config)
+        if not _is_asyncio_fixture_function(fixturedef.func):
+            if asyncio_mode == Mode.STRICT:
+                # Ignore async fixtures without explicit asyncio mark in strict mode
+                # This applies to pytest_trio fixtures, for example
+                return (yield)
+            if not _is_coroutine_or_asyncgen(fixturedef.func):
+&gt;               return (yield)
+                        ^^^^^
+E               OSError: could not create numbered dir with prefix pytest- in C:\Users\yzh\AppData\Local\Packages\sandbox.{02974c5e-21d7-4ba3-a52a-bcd60d3042d3}\AC\Temp\pytest-of-YZH after 10 tries
+
+.venv\Lib\site-packages\pytest_asyncio\plugin.py:926: OSError</error></testcase></testsuite></testsuites>

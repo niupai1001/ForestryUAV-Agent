@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="1.845" timestamp="2026-10-25T12:01:45.605078-04:00" hostname="DESKTOP-T530JCT"><testcase classname="tests.test_job_delivery" name="test_delete_removes_delivery_before_job_and_event" time="1.795" /></testsuite></testsuites>

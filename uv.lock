@@ -137,6 +137,7 @@ dependencies = [
     { name = "pyproj" },
     { name = "pyyaml" },
     { name = "resolvelib" },
+    { name = "tiktoken" },
     { name = "uvicorn" },
 ]
 
@@ -157,12 +158,13 @@ requires-dist = [
     { name = "pillow", specifier = ">=11,<13" },
     { name = "psutil", specifier = ">=7,<8" },
     { name = "pydantic", specifier = ">=2.10,<3" },
-    { name = "pydantic-ai-harness", specifier = ">=0.31,<1" },
-    { name = "pydantic-ai-slim", extras = ["openai"], specifier = ">=2.43,<3" },
+    { name = "pydantic-ai-harness", specifier = ">=0.54,<1" },
+    { name = "pydantic-ai-slim", extras = ["openai"], specifier = ">=2.54,<3" },
     { name = "pypdf", specifier = ">=6,<7" },
     { name = "pyproj", specifier = ">=3.7,<4" },
     { name = "pyyaml", specifier = ">=6,<7" },
     { name = "resolvelib", specifier = ">=1.2,<2" },
+    { name = "tiktoken", specifier = ">=0.14,<1" },
     { name = "uvicorn", specifier = ">=0.34,<1" },
 ]
 

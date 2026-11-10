@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="12" time="2.005" timestamp="2026-10-25T15:49:28.864194-04:00" hostname="DESKTOP-T530JCT"><testcase classname="tests.test_sqlite_probe" name="test_probe_uses_escaped_immutable_uri_and_never_creates_files" time="0.009"><failure message="assert (0 == 1)&#10; +  where 0 = len([])">tmp_path = WindowsPath('C:/Users/yzh/WorkBuddy/Agent/forestry-uav-agent-v1/workspace/progress-probe-20261025/test_probe_uses_escaped_immuta0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x0000014BFFC96C30&gt;
+
+    def test_probe_uses_escaped_immutable_uri_and_never_creates_files(tmp_path, monkeypatch):
+        root = tmp_path/'diagnostics # snapshot'
+        folder = root/'.forestry'
+        folder.mkdir(parents=True)
+        path = folder/'state.sqlite'
+        with sqlite3.connect(path) as db:
+            db.execute('CREATE TABLE evidence(value TEXT)')
+        before = snapshot(folder)
+        original = sqlite3.connect
+        uris = []
+    
+        def readonly(uri, **kwargs):
+            assert 'mode=ro&amp;immutable=1' in uri and '%23' in uri and kwargs['uri']
+            uris.append(uri)
+            return original(uri, **kwargs)
+    
+        def no_temp_write(*args, **kwargs):
+            raise AssertionError('Diagnostic attempted a write probe')
+    
+        monkeypatch.setattr(sqlite3,'connect',readonly)
+        monkeypatch.setattr(tempfile,'NamedTemporaryFile',no_temp_write)
+        result = sqlite_probe(root)
+&gt;       assert len(uris) == 1 and 'tables=1' in result
+E       assert (0 == 1)
+E        +  where 0 = len([])
+
+tests\test_sqlite_probe.py:34: AssertionError</failure></testcase><testcase classname="tests.test_sqlite_probe" name="test_wal_probe_preserves_live_sidecars_and_marks_committed_state_unknown" time="0.013" /><testcase classname="tests.test_sqlite_probe" name="test_missing_or_corrupt_database_is_not_created_or_misreported_as_write_failure" time="0.003" /><testcase classname="tests.test_progress_exploration" name="test_distinct_failed_checks_can_continue_without_claiming_evidence_or_resetting_budget" time="0.167"><failure message="KeyError: 'model_request_count'">client = &lt;starlette.testclient.TestClient object at 0x0000014BFFC972C0&gt;
+app = &lt;fastapi.applications.FastAPI object at 0x0000014BFFDBF020&gt;
+
+    def test_distinct_failed_checks_can_continue_without_claiming_evidence_or_resetting_budget(client, app):
+        state,_ = task(client)
+        engine = app.state.engine
+        deps = Deps(engine,state['task_id'],'distinct-checks',1)
+        errors = ['MISSING_METADATA','UNSUPPORTED_ENCODING','DEPENDENCY_MISSING']
+        for index,code in enumerate(errors):
+            verdict = engine.progress.record(deps,str(index),'read_document',{'resource_id':str(index)},
+                {'kind':'failed','error':{'code':code,'message':code}})
+            assert not verdict.new and not verdict.stop_required and verdict.stalled == index+1
+        reopened = Progress(Store(engine.store.path),engine.config)
+        with engine.store.transaction() as db:
+            reopened.check(db,deps)
+            events = [json.loads(row[0]) for row in db.execute(
+                "SELECT payload FROM events WHERE task_id=? AND kind='progress.observed' ORDER BY seq", (deps.task_id,))]
+        assert len(events) == 3 and events[-1]['stalled'] == events[-1]['limit'] == 3
+        replay = reopened.record(deps,'2','read_document',{'resource_id':'2'},
+            {'kind':'failed','error':{'code':errors[-1],'message':errors[-1]}})
+        assert replay.replay and not replay.stop_required and replay.stalled == 3
+        # Returning to an already failed request/obstacle is a loop, not a new check.
+        with pytest.raises(Failure,match='NO_PROGRESS|连续4'):
+            reopened.record(deps,'repeat','read_document',{'resource_id':'0'},
+                {'kind':'failed','error':{'code':errors[0],'message':errors[0]}})
+        with engine.store.transaction() as db, pytest.raises(Failure):
+            reopened.check(db,deps)
+&gt;       assert engine.store.task(deps.task_id)['model_request_count'] == state['model_request_count']
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'model_request_count'
+
+tests\test_progress_exploration.py:37: KeyError</failure></testcase><testcase classname="tests.test_progress_exploration" name="test_changing_failure_text_does_not_excuse_same_request" time="0.145" /><testcase classname="tests.test_progress_exploration" name="test_hypothesis_text_cannot_hide_repeated_obstacle" time="0.151" /><testcase classname="tests.test_tool_execution" name="test_repeating_obstacle_is_named_across_different_tools" time="0.141" /><testcase classname="tests.test_tool_execution" name="test_identical_request_repeat_is_flagged" time="0.140" /><testcase classname="tests.test_progress" name="test_repeated_and_cyclic_observations_survive_reopening_and_frozen_config" time="0.158" /><testcase classname="tests.test_progress" name="test_failure_variations_and_empty_eof_are_not_new_progress_and_replay_is_unique" time="0.178" /><testcase classname="tests.test_progress" name="test_pagination_new_job_state_and_scope_isolation_do_not_stop_legitimate_work" time="0.280" /><testcase classname="tests.test_progress" name="test_compaction_recovery_does_not_reset_stall_count_and_cannot_be_repeated_after_reopen" time="0.229" /></testsuite></testsuites>

@@ -1,0 +1,41 @@
+{
+  "kind": "source-review-receipt",
+  "scope": "specific functions/tests, not full repository certification",
+  "references": {
+    "claw": "8aab1d4e5410f9ab5e5e7f03c8a87de479e814ec",
+    "deepseek": "22ddee3792402c3e70ec5f86a63c3e3e895a2f60",
+    "harness": "0.54.0"
+  },
+  "files": [
+    {
+      "path": "docs/rebuild/references/claw-code/compact.rs",
+      "sha256": "bebd0a1a32e0a139e158c3a793bae228b10c3d9ff130f33aa46e8f37f0727459",
+      "bytes": 30740
+    },
+    {
+      "path": "docs/rebuild/references/claw-code/conversation.rs",
+      "sha256": "1def7495651143b99223c30a2eb53227639f237967fcea7bdd0aff6205d91c2a",
+      "bytes": 99011
+    },
+    {
+      "path": "docs/rebuild/references/deepseek-harness/pipeline.ts",
+      "sha256": "157e00480e8b72ff392ae75c37e0c326b558fdc3084a881fe1c82aea37b9c454",
+      "bytes": 33574
+    },
+    {
+      "path": ".venv/Lib/site-packages/pydantic_ai_harness/compaction/_shared.py",
+      "sha256": "131578729f4163f0207c710ea0a43a4a84b90ad4bb13350ced93f1ee35bea1c0",
+      "bytes": 35550
+    },
+    {
+      "path": ".venv/Lib/site-packages/pydantic_ai_harness/compaction/_sliding_window_compaction.py",
+      "sha256": "224eda1114a016af60890d61428345971f63fc79fa0a5f68f843ce1e0b10d006",
+      "bytes": 10064
+    },
+    {
+      "path": ".venv/Lib/site-packages/pydantic_ai_harness/step_persistence/recovery.py",
+      "sha256": "59b75a68d68284d5fdb3feb40ea8ff07e02df907f43137b5a423d8280da76993",
+      "bytes": 1476
+    }
+  ]
+}

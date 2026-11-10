@@ -21,6 +21,8 @@ from .contracts import (
     ApprovalResolution,
     Control,
     Failure,
+    JobCancel,
+    JobDeliveryControl,
     KnowledgeImport,
     KnowledgeQuery,
     MemoryForget,
@@ -44,11 +46,18 @@ from .models import model_capabilities, model_identity
 from .planning import visible_plan
 from .provenance import runtime_manifest
 from .resources import Resources
+from .runtime.ownership import finish_owned, owned_thread, workspace_writer
 from .sessions import DeleteSession, Sessions
 from .store import Store, encode, now, uid
 
 
 def create_app(config: Config, *, enable_agent: bool = True):
+    # Construction can migrate SQLite and create the authentication key.
+    with workspace_writer(config.workspace_root):
+        return _create_app(config, enable_agent=enable_agent)
+
+
+def _create_app(config: Config, *, enable_agent: bool):
     startup_manifest = runtime_manifest(config)
     store = Store(config.workspace_root / ".forestry" / "state.sqlite")
     resources = Resources(store, config.workspace_root)
@@ -60,17 +69,25 @@ def create_app(config: Config, *, enable_agent: bool = True):
         key_file.write_text(secrets.token_urlsafe(32), encoding="utf-8")
     key = key_file.read_text(encoding="utf-8").strip()
 
+    async def stop_workers():
+        try:
+            await engine.shutdown()
+        finally:
+            await engine.jobs.close()
+
     @asynccontextmanager
     async def lifespan(app):
-        await asyncio.to_thread(sessions.recover)
-        engine.reconcile_startup()
-        engine.network.disable_web_grants()
-        await asyncio.to_thread(delivery.recover)
-        if enable_agent:
-            engine.jobs.start()
-        yield
-        await engine.shutdown()
-        await engine.jobs.close()
+        with workspace_writer(config.workspace_root):
+            try:
+                await owned_thread(sessions.recover)
+                engine.reconcile_startup()
+                engine.network.disable_web_grants()
+                await owned_thread(delivery.recover)
+                if enable_agent:
+                    engine.jobs.start()
+                yield
+            finally:
+                await finish_owned(stop_workers())
 
     app = FastAPI(title="ForestryUAV-Agent", version="0.1.0", lifespan=lifespan)
     app.state.store, app.state.resources, app.state.engine = store, resources, engine
@@ -377,6 +394,7 @@ def create_app(config: Config, *, enable_agent: bool = True):
         features = await model_capabilities(config, config.models[profile]) if enable_agent else {'status':'software_fixture', 'vision':True}
         refs = list(dict.fromkeys([*payload.input_refs, *user_path_refs(resources, payload.objective, payload.request_id)]))
         state = store.create_task(payload.model_dump(), {"model_profile": profile,
+            'tool_discovery_mode': config.tool_discovery_mode,
             'model_capabilities':features,
             **({"science_image": config.science_image} if config.science_image else {}),
             **({"imagery_image": config.imagery_image} if config.imagery_image else {}),
@@ -463,6 +481,8 @@ def create_app(config: Config, *, enable_agent: bool = True):
             nonlocal stop_token
             if state["spec_revision"] != payload.expected_spec_revision:
                 raise Failure("VERSION_CONFLICT", "会话文件已变化，请刷新后重试", 409)
+            superseded = next((b.get('turn_id') for b in state['blockers']
+                if b['code'] == 'MODEL_TURN_BUDGET_EXHAUSTED'), None)
             if state['cancellation_requested'] and state['status'] != 'cancelled':
                 raise Failure('EXECUTION_STOPPED', '正在停止上次执行，确认停止后即可发送下一条消息', 409)
             changed = any(ref not in state['input_refs'] for ref in refs)
@@ -482,6 +502,12 @@ def create_app(config: Config, *, enable_agent: bool = True):
             state['messages'].append({'id':uid(),'role':'user','text':payload.text,'user_event_id':event_id,
                                       'attachments':attachment_records(db,refs),'attachment_refs':refs,'at':now()})
             turn_id = store.enqueue_turn(db,state,payload.text,payload.request_id,event_id)
+            if superseded:
+                changed = db.execute("UPDATE turns SET status='stopped' WHERE id=? AND task_id=? AND status='paused'",
+                    (superseded, task_id)).rowcount
+                if changed:
+                    store.event(db, task_id, 'run.superseded', {'stopped_turn_id': superseded,
+                        'next_turn_id': turn_id, 'reason': 'explicit_user_correction'})
             state['acceptance'] = None
             live = task_id in engine.queue and not engine.queue[task_id].done()
             if not state['pause_requested'] and state['status']!='paused':
@@ -690,11 +716,19 @@ def create_app(config: Config, *, enable_agent: bool = True):
 
     @app.get("/tasks/{task_id}/jobs/{job_id}")
     def job(task_id: str, job_id: str):
-        return engine.jobs.public(engine.jobs.read(job_id, task_id))
+        return {**engine.jobs.public(engine.jobs.read(job_id, task_id)), 'delivery': engine.jobs.delivery(job_id, task_id)}
 
     @app.get("/tasks/{task_id}/jobs/{job_id}/logs")
     async def job_logs(task_id: str, job_id: str):
         return await asyncio.to_thread(engine.jobs.logs, job_id, task_id)
+
+    @app.post('/tasks/{task_id}/jobs/{job_id}/cancel')
+    def cancel_job(task_id: str, job_id: str, payload: JobCancel):
+        return engine.jobs.request_cancel(job_id, task_id, request_id=payload.request_id)
+
+    @app.post('/tasks/{task_id}/jobs/{job_id}/delivery')
+    def control_job_delivery(task_id: str, job_id: str, payload: JobDeliveryControl):
+        return engine.jobs.control_delivery(job_id, task_id, payload.request_id, payload.action)
 
     @app.get("/artifacts/{artifact_id}/content")
     def content(artifact_id: str, download: bool = False):

@@ -124,7 +124,7 @@ def main():
         from .roles import AssignmentRequest, AssignmentResult, RoleCatalog
         target = Path(args.output)
         target.mkdir(parents=True, exist_ok=True)
-        for name in ["TaskCreate", "Message", "Amendment", "Control", "RegisterResource", "SettingsChange", "Acceptance", "MemorySave", "MemoryUpdate", "MemoryForget", "KnowledgeImport", "KnowledgeQuery", "ResourceRequest", "ApprovalResolution"]:
+        for name in ["TaskCreate", "Message", "Amendment", "Control", "JobCancel", "JobDeliveryControl", "RegisterResource", "SettingsChange", "Acceptance", "MemorySave", "MemoryUpdate", "MemoryForget", "KnowledgeImport", "KnowledgeQuery", "ResourceRequest", "ApprovalResolution"]:
             model = getattr(contracts, name)
             (target / f"{name}.schema.json").write_text(
                 json.dumps(model.model_json_schema(), indent=2, ensure_ascii=False), encoding="utf-8")
@@ -301,9 +301,17 @@ def main():
         print(json.dumps(report, ensure_ascii=False, indent=2))
         raise SystemExit(0 if report["startup_ready"] else 1)
     if args.command == "tasks":
-        from .store import Store
-        print(json.dumps(Store(config.workspace_root / ".forestry" / "state.sqlite").task(args.task),
-                         ensure_ascii=False, indent=2))
+        import sqlite3
+
+        from .contracts import Failure
+        from .store import inspect_task
+        try:
+            print(json.dumps(inspect_task(config.workspace_root / ".forestry" / "state.sqlite", args.task),
+                             ensure_ascii=False, indent=2))
+        except (Failure, OSError, sqlite3.Error) as error:
+            print(json.dumps({'error': {'code': getattr(error, 'code', 'DATABASE_READ_FAILED'),
+                                      'message': str(error)}}, ensure_ascii=False))
+            raise SystemExit(2) from error
         return
     if args.command == "serve":
         import uvicorn

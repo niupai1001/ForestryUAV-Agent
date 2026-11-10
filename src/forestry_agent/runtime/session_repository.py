@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from ..store import Store, encode, now
 
 # 回合状态里表示「不会再自动继续」的集合；其余状态仍属于未结清活动。
-SETTLED_TURNS = {"completed", "cancelled"}
+SETTLED_TURNS = {"completed", "cancelled", "steered"}
 JOB_TERMINAL = {"succeeded", "failed", "cancelled", "timed_out"}
 
 
@@ -94,13 +94,17 @@ class StoreSessionRepository:
             return [dict(row) for row in db.execute(sql + " ORDER BY created_at,rowid", args)]
 
     def committed_requests(self, task_id: str, *, after_turn_id: str | None = None,
-                           exclude: tuple = ()) -> list[UserRequest]:
+                           exclude: tuple = (), before_turn_id: str | None = None) -> list[UserRequest]:
         """已提交但还没有可靠原生历史的用户消息，按提交顺序返回。
 
         ``after_turn_id`` 是已继承检查点所属回合，它之前的消息已经在原生历史里；
         它为 ``None`` 时说明没有任何可继承历史，全部已提交消息都要承接。
         """
         rows = self.turns(task_id)
+        if before_turn_id:
+            end = next((index for index, row in enumerate(rows) if row['id'] == before_turn_id), None)
+            if end is not None:
+                rows = rows[:end + 1]
         position = None
         if after_turn_id:
             position = next((index for index, row in enumerate(rows) if row["id"] == after_turn_id), None)
@@ -111,9 +115,80 @@ class StoreSessionRepository:
 
     def unrepresented_requests(self, task_id: str, turn_id: str, *, after_turn_id: str | None) -> list[UserRequest]:
         """当前回合之外、没有进入原生历史的已提交请求（含失败/暂停回合）。"""
-        return self.committed_requests(task_id, after_turn_id=after_turn_id, exclude=(turn_id,))
+        return self.committed_requests(task_id, after_turn_id=after_turn_id, exclude=(turn_id,),
+                                       before_turn_id=turn_id)
+
+    def claim_step_input(self, task_id: str, turn_id: str, revision: int) -> list[dict]:
+        """Claim committed user input at a step boundary, using the existing turn queue.
+
+        The original user event and prompt remain durable. If no checkpoint contains
+        the claimed input after a crash, normal carried-request recovery includes it.
+        """
+        with self.store.transaction() as db:
+            state = self.store.read_task(db, task_id)
+            if (state['spec_revision'] != revision or state['pause_requested']
+                    or state['cancellation_requested']):
+                return []
+            owner = db.execute('SELECT rowid,status FROM turns WHERE id=? AND task_id=?',
+                               (turn_id, task_id)).fetchone()
+            if owner is None or owner['status'] != 'running':
+                return []
+            rows = [dict(row) for row in db.execute(
+                "SELECT t.id,t.prompt FROM turns t JOIN turn_requests r ON r.turn_id=t.id "
+                "WHERE t.task_id=? AND t.revision=? AND t.status='queued' AND t.rowid>? "
+                "ORDER BY t.rowid", (task_id, revision, owner['rowid']))]
+            for row in rows:
+                db.execute("UPDATE turns SET status='steered' WHERE id=?", (row['id'],))
+                self.store.event(db, task_id, 'inbox.claimed', {
+                    'turn_id': turn_id, 'input_turn_id': row['id'], 'target': 'next-step'})
+            return rows
 
     # --- 活动（作业）记录 ---------------------------------------------------
+    def claim_job_input(self, task_id: str, turn_id: str, revision: int) -> list[dict]:
+        """Project terminal facts into the single session writer's next step.
+
+        Claims survive failure; only a committed answer or explicit observation
+        consumes them. A later writer can therefore recover an abandoned claim.
+        """
+        with self.store.transaction() as db:
+            state = self.store.read_task(db, task_id)
+            if (state['spec_revision'] != revision or state['pause_requested']
+                    or state['cancellation_requested']):
+                return []
+            owner = db.execute('SELECT status FROM turns WHERE id=? AND task_id=?',
+                (turn_id, task_id)).fetchone()
+            if owner is None or owner['status'] != 'running':
+                return []
+            rows = db.execute("SELECT d.event_id,j.payload FROM job_deliveries d "
+                "JOIN jobs j ON j.id=d.job_id JOIN events e ON e.id=d.event_id "
+                "WHERE d.task_id=? AND j.revision=? AND (d.state IN ('pending','presented','claimed','needs_attention') "
+                "OR (d.state='scheduled' AND d.consumer_turn_id=?)) "
+                "ORDER BY e.seq LIMIT 8", (task_id, revision, turn_id)).fetchall()
+            result = []
+            for row in rows:
+                job = json.loads(row['payload'])
+                db.execute("UPDATE job_deliveries SET state='claimed',consumer_turn_id=? WHERE event_id=?",
+                           (turn_id, row['event_id']))
+                result.append({'event_id': row['event_id'], 'job_id': job['job_id'],
+                    'status': job['status'], 'artifact_ids': job.get('artifact_ids', [])[:20],
+                    'blocker': job.get('blocker'), 'operation': job.get('kind'),
+                    'remaining_work': job.get('completion_instruction')})
+            return result
+
+    def fail_job_input(self, db, task_id, turn_id, error):
+        rows = db.execute("SELECT event_id,job_id,state FROM job_deliveries WHERE task_id=? AND consumer_turn_id=? "
+                          "AND state IN ('scheduled','claimed','consumed')", (task_id, turn_id)).fetchall()
+        for row in rows:
+            if row['state'] != 'consumed':
+                db.execute("UPDATE job_deliveries SET state='needs_attention' WHERE event_id=?", (row['event_id'],))
+            self.store.event(db, task_id, 'job.delivery_failed', {'event_id': row['event_id'],
+                'job_id': row['job_id'], 'consumer_turn_id': turn_id, 'error': error})
+
+    @staticmethod
+    def settle_job_input(db, turn_id):
+        db.execute("UPDATE job_deliveries SET state='consumed' "
+                   "WHERE consumer_turn_id=? AND state='claimed'", (turn_id,))
+
     def activities(self, task_id: str, revision: int, *, limit: int = 8) -> list[Activity]:
         with self.store.snapshot() as db:
             rows = db.execute("SELECT j.id,j.status,j.payload,j.updated_at,a.turn_id,a.call_id "

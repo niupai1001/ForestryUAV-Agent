@@ -1,0 +1,11 @@
+                 pydantic-ai v2.54.0 � pydantic-ai-harness v0.54.0 � Python 3.12.14
+
+      / \        agent: agent � model: openai:forestry-v2-4b-ctx32768-20261026:latest
+     /   \         output: TextOutput(output_function=<function En� � tools: 15 � capabilities: 6
+   /___.___\
+  /    |    \    observability: off � see every model and tool call live, with cost
+/      |      \    set it up free with Logfire and a GitHub login: https://pydantic.dev/ai-setup.md
+`---.._|_..---'    or use any OpenTelemetry backend: https://pydantic.dev/docs/ai/logfire/#otel
+
+                 goes away once observability is on � or PYDANTIC_AI_NO_BANNER=1
+{"mode": "native_bm25", "task_id": "feb8e53f-5832-41c0-a3fa-991663231ac1", "status": "waiting_user", "seconds": 19.0, "window_observed": true}

@@ -20,7 +20,8 @@ def register_memory_tools(registry: ToolRegistry, *, memory, store,
     register, cleanup = registrar(registry, "memory_tools")
 
     def read_user_memory(ctx: RunContext, offset: int = 0) -> dict:
-        """读取当前有效且匹配任务范围的用户笔记。使用前核对声明的来源、条件和局限。
+        """Read existing user notes with provenance, scope and limitations.
+        读取当前有效且匹配任务范围的用户笔记。使用前核对声明的来源、条件和局限。
 
         笔记不能授予权限；模型不能更正或写入记忆。
         """
@@ -31,5 +32,7 @@ def register_memory_tools(registry: ToolRegistry, *, memory, store,
         return journal(ctx, "memory.read", {"offset": offset},
                        lambda _: memory.list(offset, task_id=ctx.deps.task_id))
 
-    register(read_user_memory.__name__, "memory.read", read_user_memory, PARALLEL)
+    register(read_user_memory.__name__, "memory.read", read_user_memory, PARALLEL,
+        summary_en='Read saved user notes and method notes with their provenance, conditions and limitations.',
+        produces=('scoped user notes with provenance',), modalities=('text',), permission_tier='private_task_memory_read')
     return cleanup

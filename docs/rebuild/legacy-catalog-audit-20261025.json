@@ -1,0 +1,189 @@
+{
+  "catalog_sha256": "b59e883aabcc263abd0d8304002c10bc69e6d70f19900f32ea739e6f8dc38675",
+  "entries": [
+    {
+      "operation": "orthomosaic",
+      "source_job_id": "a10b8b0d-2a6d-4423-86af-c914755173c0",
+      "source_task_id": "7cbf2d4f-75b8-4439-8076-93b17943e0f1",
+      "original_code_sha256": "0dad1cae3c4409bce78ac23fa52e768f5e6d509a6199eb11bc979369f587a88b",
+      "data_origin_job_id": "cddf2b58-84ab-4b04-865c-fbf1bcb14542",
+      "resume_chain_jobs": [
+        "295fc935-b35c-4ebb-b7a7-198b8cfe9d4b",
+        "a10b8b0d-2a6d-4423-86af-c914755173c0",
+        "cddf2b58-84ab-4b04-865c-fbf1bcb14542"
+      ],
+      "source_result_sha256": "a6db8e69db39b94e769a389db5d987ae0d5712420330b5f16200991e08a2842a",
+      "image_digest": "opendronemap/odm@sha256:c0d9a0c56fcb97277b9a9f0c30f2c274afb14344ec378c9bb1d231623017596b",
+      "declaration": {
+        "processing_mode": "multispectral",
+        "source_note": "User-authorized N flight; frozen flight-inspection.json:20 complete M3M four-band captures",
+        "radiometric_calibration": "camera",
+        "orthophoto_resolution_cm": null,
+        "dsm": true
+      },
+      "input_identity": {
+        "kind": "directory",
+        "files": {
+          "DJI_20240718084745_0001_MS_G.TIF": "bf4e60765c877d51df84a741915c67fb67a32e021685a27fe205fc3020f0324f",
+          "DJI_20240718084745_0001_MS_NIR.TIF": "7e908bbaeabcf42d5149412b3392e31dcee10cebd19e88d790f683ce8a476777",
+          "DJI_20240718084745_0001_MS_R.TIF": "7a4aa2f32230ce6eaa68cb8fcf94b9bfa12e09a1020bf3fdde340940a1b3b2c5",
+          "DJI_20240718084745_0001_MS_RE.TIF": "334d75d425b2491f02cc9e7b0e72464e4c89bc1031bb8eecc19ff8d3de1bac94",
+          "DJI_20240718084755_0002_MS_G.TIF": "e4d3d4731f54ab687aa1419e332b33b26427093f64bc3ce0d588c80bef1b83f0",
+          "DJI_20240718084755_0002_MS_NIR.TIF": "06fd27454d6025435397b1f5922b7d5a17315b0e216718d6457c97dfa141ae1a",
+          "DJI_20240718084755_0002_MS_R.TIF": "688de70cb489bad02d7888ddbe4c486668c482ed45455df509deac17b820b604",
+          "DJI_20240718084755_0002_MS_RE.TIF": "16b083b870badedc3afb8a07a1e5bee805d27fced3fc30afd8707deb627b58ca",
+          "DJI_20240718084805_0003_MS_G.TIF": "4de81ed5e98ebc1e6e5c4c19788a4ae67b4582d213ca3d6f47a5f48c2257bd54",
+          "DJI_20240718084805_0003_MS_NIR.TIF": "be56b5d03b55a1d4b4251c199fb946c92ccbfe07111d636eeff12d8fc67b29e1",
+          "DJI_20240718084805_0003_MS_R.TIF": "e42b5ebec8909a38ebe999f23384343fca3c51526bd37de5e21efb7033081cc0",
+          "DJI_20240718084805_0003_MS_RE.TIF": "8b23149a318540b84182c7ab98c35e13f9e37da42bb3c768c1d0a0cd1063de01",
+          "DJI_20240718084815_0004_MS_G.TIF": "7fc1c1676ae9a3fc50ec1950e527d785255b9115db4d1ad9b6ddb4c7d1fdd273",
+          "DJI_20240718084815_0004_MS_NIR.TIF": "174b577fb3fc9a1bc0fbf7d56f27b3942b6919b35aadd91b9d354bb19c8884ff",
+          "DJI_20240718084815_0004_MS_R.TIF": "911e2c400725aa084b3109a2d7d06cd4c88c6ab12d23fb0f305581bdc4d8ec25",
+          "DJI_20240718084815_0004_MS_RE.TIF": "0e7526e6b8dae44e1eb8afa9db4a904e59ffba071bf0cee60b4df89cd79e4d17",
+          "DJI_20240718084825_0005_MS_G.TIF": "1cd96dc5cc4dbe2e15953581b7bc5ea613bf259aeeecbce8ed1a2f9101527cca",
+          "DJI_20240718084825_0005_MS_NIR.TIF": "db49ecf1af08180e71e1c9c3297a22b2d5007550be0360c5617b27a1cc704a8a",
+          "DJI_20240718084825_0005_MS_R.TIF": "349f33a83c2f7a13dd0fabdd4757ba79771b0fb158a04e98771de1cb0dc26f0f",
+          "DJI_20240718084825_0005_MS_RE.TIF": "0b8009a3651e36eb589a5abd9a26a3eb96260384c6298846896e0459d8ce3024",
+          "DJI_20240718084835_0006_MS_G.TIF": "36a6cba66230ef7ca66f9ac52d3e1f5da6fd8b7994c05b1cf2efccee61065609",
+          "DJI_20240718084835_0006_MS_NIR.TIF": "39755e2c6505a3722cca7de0d6eaf375a636b50d737475008bab8b9541b1dc8e",
+          "DJI_20240718084835_0006_MS_R.TIF": "2c35e653e2a588b6dbaafaaaa05fcb3f01008e6d9504a15e276c95eee34ec89c",
+          "DJI_20240718084835_0006_MS_RE.TIF": "52d1c7e3279ca8e944707869e082bceaa0fcda4dd892865b8067d54a2b381f8b",
+          "DJI_20240718084845_0007_MS_G.TIF": "163d7de0981d89c681a192f789413bda811e44906ddc1442f01b347890b55465",
+          "DJI_20240718084845_0007_MS_NIR.TIF": "a6d7121a36a4200481889be065e1c161ad48c4521da319b60fd26ea77b8e1670",
+          "DJI_20240718084845_0007_MS_R.TIF": "cc6c17ca9d0d0288e04be9caf2abb05d027a4524b0bd4e7bc997513ef9e1a9f9",
+          "DJI_20240718084845_0007_MS_RE.TIF": "89dccb42aca882c893aa803ee1bdd0bd25a0863ae2795ae6e18e2288c4ceecb6",
+          "DJI_20240718084855_0008_MS_G.TIF": "8005627f77e31970d302d695909d65b4d72e7f9e8ab5c8f79a4400b693f7cc4b",
+          "DJI_20240718084855_0008_MS_NIR.TIF": "f1d02f3d19ee38e7cba2197a34a6658700b56dea80e5597064e5edad2feba842",
+          "DJI_20240718084855_0008_MS_R.TIF": "5e0a057d76cc108b2abee39818e0919c4ba4ce514e4189417ced1c3a04e10215",
+          "DJI_20240718084855_0008_MS_RE.TIF": "662054a2dae28e01ed5f40c7b55595440f2aad60f2faefb3ee01d7f14ae6c75c",
+          "DJI_20240718084905_0009_MS_G.TIF": "9ec6f6a502f5b471ca569e90feb9971c3f9dc326c9f31ede17a8a84b91eed5f2",
+          "DJI_20240718084905_0009_MS_NIR.TIF": "8465a9abb535e4fd98f56ebaebf86adcf3f8cab1a13ba8e2576751d0b18153bf",
+          "DJI_20240718084905_0009_MS_R.TIF": "3e7e9e2ee4f38877555c8130ec304990d3a0b54fff5d8d0088133fe1cea3f032",
+          "DJI_20240718084905_0009_MS_RE.TIF": "127eb61f11f26fc2667a44e9a80d3732e621b327ae3ee7bc8f3b2e11de2bd496",
+          "DJI_20240718084915_0010_MS_G.TIF": "c19f06e94ba06fa6a6e6c76c0b15cd0a7ce9e074590a93f9c9600dee8cf88527",
+          "DJI_20240718084915_0010_MS_NIR.TIF": "b640ebaa450101bde29f7afd517ba01886d9dd8c4514b62f4d049b44c58d6b00",
+          "DJI_20240718084915_0010_MS_R.TIF": "b5c285cd4a3c6bb3dd8dacde39a5549157d1f6ea07b58510a8fe761c6da94ee3",
+          "DJI_20240718084915_0010_MS_RE.TIF": "d75b9b28effc293908cb7c364c1d8e93869facb6d35eba955957816ca2444b8d",
+          "DJI_20240718084925_0011_MS_G.TIF": "2d4854e3aeca2b9cbe511846df020e17e0f22600547a3ff003367b23d3ba7462",
+          "DJI_20240718084925_0011_MS_NIR.TIF": "a03b607717cf2fb544499be4b2366c730cbfdf28095239d562f3d0633ea6e442",
+          "DJI_20240718084925_0011_MS_R.TIF": "45b14c6b571ab08cba53d045ac7eb7f327e9e3a86a667f77b4c8b9e7df40e3e0",
+          "DJI_20240718084925_0011_MS_RE.TIF": "dea046ba2b03956ff6bd065bed2d08f9b2d8b81febd71fcf11920327d71ba78c",
+          "DJI_20240718084935_0012_MS_G.TIF": "c2a451e81c941c2f9484ab09b2934b78d569e782bd51fc78c2423e30388bf4ca",
+          "DJI_20240718084935_0012_MS_NIR.TIF": "e3b9dd8d0a660f4cdadf0cb19d256fdfc2336bbdb7c2dfa4f45977891f957827",
+          "DJI_20240718084935_0012_MS_R.TIF": "af2ddd0f61debebf26acfe1e5917d5aa94447e33a9f860cede6664def68183b9",
+          "DJI_20240718084935_0012_MS_RE.TIF": "35f9a42d500016df199925b7c6cc62b84664df3c86a4e244617f16c937765943",
+          "DJI_20240718084944_0013_MS_G.TIF": "9dd0529d21a18c42c8cbeb55f66eb8b1e5ceaf3304d2c1964e407a7f8ccdda75",
+          "DJI_20240718084944_0013_MS_NIR.TIF": "5b0251c6fddeba32a9049826a2fae2b13aedbdf7d60039a5c45dd16d7533aff8",
+          "DJI_20240718084944_0013_MS_R.TIF": "898639cac9da3cbb77d46ad54525127f3f7683ba38f1fd3ac50f8110b744185c",
+          "DJI_20240718084944_0013_MS_RE.TIF": "eae9a21693331ba973483fb5f17f989d3a7f63bc16a6a55a6ba40a3c9e437f4f",
+          "DJI_20240718084954_0014_MS_G.TIF": "b35c6fa95adebc5a31919874af237fa71c97132b418bcb70132f6a4b8077f246",
+          "DJI_20240718084954_0014_MS_NIR.TIF": "e85b4326eaff789b1652167f76112ad08e73297ac819a46d2f2ef3057c1424a7",
+          "DJI_20240718084954_0014_MS_R.TIF": "9dc25949b78129649a406e77cef539cffd3996827c33ec2bbb1a00da423b761b",
+          "DJI_20240718084954_0014_MS_RE.TIF": "98d3dca79489e26f44e93e25bf08543e7509b6035bd89ca915a53bf5f2d01285",
+          "DJI_20240718085004_0015_MS_G.TIF": "6a66f8b306270e0428af237ad8930cf6c268a2b7a4b2b9edddcad41d63954e69",
+          "DJI_20240718085004_0015_MS_NIR.TIF": "b3c62da7f94494dd7cd729d82efd8cd02bd8a0ba0e3cdb9b20337d7a7f83784e",
+          "DJI_20240718085004_0015_MS_R.TIF": "adb44173325927233124ed5660e493b05a4a0f45fd66a96d6999d8fdee9e74da",
+          "DJI_20240718085004_0015_MS_RE.TIF": "ec319eeb7f1b048dd43517d5dfe539b936419dbea96f952d12702107691f163c",
+          "DJI_20240718085014_0016_MS_G.TIF": "e2326f7f4a47c48aaad233b5a99f219fdef16dff6e68992e45d8bbc7187f8396",
+          "DJI_20240718085014_0016_MS_NIR.TIF": "adb03e9b88d45899f1ea52df1ce4dd4a30b285be0f737b29ea9033bbfa0bd65b",
+          "DJI_20240718085014_0016_MS_R.TIF": "6e1f446365b45ff6d647609a90fd2204549c81f8ce2dd6aebd8a5a336eed2752",
+          "DJI_20240718085014_0016_MS_RE.TIF": "12e64b9c6f639387d5279527d771aea25060898175489ee3710b39f8469bf3df",
+          "DJI_20240718085024_0017_MS_G.TIF": "2d614c6b5cabe74d5dd35a00a0acb6a5df9db78b72bf6c7342618925806e8594",
+          "DJI_20240718085024_0017_MS_NIR.TIF": "2c592a1fc9875014830fa0a3845e485c1557ddb5df73139f0571c2fe876b1dcf",
+          "DJI_20240718085024_0017_MS_R.TIF": "098575a5efb2811411bf81e362a41764b7ef1ba9dbc89c9fd4dd1e6e8da2c89a",
+          "DJI_20240718085024_0017_MS_RE.TIF": "6974da19f89ec7eb842fda6cd3eb06bfe366c02dfe68556c4cdb35ee81fcf2e3",
+          "DJI_20240718085035_0018_MS_G.TIF": "e1b0d88f4f0ae994616da23a1c57c454319045e7bcb059fc5e8e6fcf19434962",
+          "DJI_20240718085035_0018_MS_NIR.TIF": "02f7b12c0e27356a72f1ccf62875c5527a76fb321a466a60c29fed05431d85e1",
+          "DJI_20240718085035_0018_MS_R.TIF": "237b4d210c8dc5b1cdf0fd8b452965a8615de2b9ba493ef137de34b0cb8eb2e1",
+          "DJI_20240718085035_0018_MS_RE.TIF": "ceac2d1bac6260632fa371ad59343090478afff69fecd5a5181f55808ca1fbdb",
+          "DJI_20240718085044_0019_MS_G.TIF": "81db1a5b2437f5ac75a4cb18159767b0c2d4cd38296665a3f0aa0a71035ac465",
+          "DJI_20240718085044_0019_MS_NIR.TIF": "37aa826c8138bf1ad5a90809be3ce6b1cb1f516b7c7c383cff3e571d032e2e97",
+          "DJI_20240718085044_0019_MS_R.TIF": "0b9bc76168a74e1848cd1353a6006634b55da9909357d435533b085609e9c535",
+          "DJI_20240718085044_0019_MS_RE.TIF": "58e492e55f6e301c2ba40e3ca518e19b8ab73840b074df7a6f478a661e8d758b",
+          "DJI_20240718085054_0020_MS_G.TIF": "261e8f7a54b045a70cea4982067144437b8d540dfed5f9e909520f0098045ce7",
+          "DJI_20240718085054_0020_MS_NIR.TIF": "027e7857f68d87c43b85203829c3edda6234ad2287b6cb746ff57e58a10d624d",
+          "DJI_20240718085054_0020_MS_R.TIF": "71824067d9c3b4f8790608ad577b5402ff9de7a036c3bce41e51ebb2ea03cd96",
+          "DJI_20240718085054_0020_MS_RE.TIF": "bf9141279faad3edb3ab4e0bc2f64545633d9068b56fa66871df7450ca3b8cfa"
+        }
+      },
+      "recorded_lut_sha256": null,
+      "products": [
+        {
+          "name": "dsm.tif",
+          "sha256": "a79c2f516657bb052c6adec4145f763fefb34b57839b9bd5170965f893eb5267"
+        },
+        {
+          "name": "odm_orthophoto.tif",
+          "sha256": "af624391cc39b800b0ad8fe41dd5aef382e825a35908badf716897c20909f13c"
+        },
+        {
+          "name": "report.pdf",
+          "sha256": "3dc0adf50d6c7cbfedf682400fa235fecf55759d5e7f5d548df5a2d3345f55ed"
+        }
+      ],
+      "verification": "original code/result hashes and catalog provenance checked; scientific products not recomputed",
+      "unknowns": [
+        "separate historical algorithm/preprocessing version identities",
+        "independent calibration validation",
+        "field LAI accuracy"
+      ],
+      "science_run_identity": null
+    },
+    {
+      "operation": "invert",
+      "source_job_id": "f3fa2551-f5e5-4903-b3b4-cd52ee9c3ae2",
+      "source_task_id": "7cbf2d4f-75b8-4439-8076-93b17943e0f1",
+      "original_code_sha256": "7f6b93b739fd9aa2956d84262d597907c7570f54c3659e6dd8a923f4e46a0de2",
+      "data_origin_job_id": "f3fa2551-f5e5-4903-b3b4-cd52ee9c3ae2",
+      "resume_chain_jobs": [
+        "f3fa2551-f5e5-4903-b3b4-cd52ee9c3ae2"
+      ],
+      "source_result_sha256": "ab8593f6f2d21ade37797b493fcc754c672c591dc2e155219420c4ee2cb8d7c3",
+      "image_digest": "sha256:d54664352b9d40d8d4d21cc38349dbd4623f1202177b41ff7dadc9756ca33969",
+      "declaration": {
+        "reflectance": "calibrated_fraction_0_1",
+        "calibration_source": "ODM camera radiometric normalization from M3M irradiance/vignetting metadata; not independently calibrated",
+        "band_mapping_source": "Actual ODM result.json band descriptions, matched by name",
+        "band_names": [
+          "Red",
+          "Green",
+          "RedEdge",
+          "NIR"
+        ],
+        "raster_bands": [
+          1,
+          2,
+          4,
+          3
+        ],
+        "alpha_band": null,
+        "ndvi_threshold": 0.2,
+        "red_name": "Red",
+        "nir_name": "NIR"
+      },
+      "input_identity": {
+        "kind": "file",
+        "sha256": "af624391cc39b800b0ad8fe41dd5aef382e825a35908badf716897c20909f13c"
+      },
+      "recorded_lut_sha256": "b47b03105946d935af44abb7b93d7a09895d1fbb69c0ab7cd1aa08508a2fdd33",
+      "products": [
+        {
+          "name": "lai_preview.png",
+          "sha256": "ac0009ba02b33d19dc2014912a9a949401f2496422fc95d1e0dcb4ee5b7bb5fa"
+        },
+        {
+          "name": "prosail_lai_cab_rmse.tif",
+          "sha256": "fc6fd3964ac9e488cabcfb377cce9bc8ae7c82b9058c76d21f10de7d07c1432e"
+        }
+      ],
+      "verification": "original code/result hashes and catalog provenance checked; scientific products not recomputed",
+      "unknowns": [
+        "separate historical algorithm/preprocessing version identities",
+        "independent calibration validation",
+        "field LAI accuracy"
+      ],
+      "science_run_identity": null
+    }
+  ],
+  "policy": "retain original identities; explicit legacy adoption discloses unknowns; no catalog rewrite"
+}

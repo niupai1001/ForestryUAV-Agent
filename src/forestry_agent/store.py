@@ -4,7 +4,7 @@ import hashlib
 import json
 import sqlite3
 import threading
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -24,6 +24,15 @@ def encode(value) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
+def inspect_task(path: Path, task_id: str) -> dict:
+    """Read current committed state without schema initialization or a writer slot."""
+    with closing(sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True, timeout=10)) as db:
+        db.row_factory = sqlite3.Row
+        db.execute('PRAGMA query_only=ON')
+        db.execute('BEGIN')
+        return Store.read_task(db, task_id)
+
+
 class Store:
     """Short SQLite transactions own application facts; external work stays outside."""
 
@@ -32,8 +41,15 @@ class Store:
         self.path = path
         self.lock = threading.RLock()
         with self.transaction() as db:
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_versions'").fetchone():
+                latest = db.execute('SELECT MAX(version) FROM schema_versions').fetchone()[0]
+                if latest is not None and latest > 6:
+                    raise Failure('SCHEMA_UNSUPPORTED', '数据库版本高于当前程序支持范围，请使用匹配版本；不会降级或改写。', 409)
+            # executescript commits the empty outer transaction first. Begin
+            # inside the script so DDL and subsequent data migrations roll back together.
             db.executescript("""
             PRAGMA journal_mode=WAL;
+            BEGIN IMMEDIATE;
             CREATE TABLE IF NOT EXISTS schema_versions(version INTEGER PRIMARY KEY, applied_at TEXT);
             CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY, digest TEXT NOT NULL, response TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS session_deletions(task_id TEXT PRIMARY KEY,payload TEXT NOT NULL);
@@ -42,12 +58,14 @@ class Store:
             CREATE TABLE IF NOT EXISTS specs(task_id TEXT NOT NULL REFERENCES tasks(id), revision INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(task_id,revision));
             CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE NOT NULL, task_id TEXT NOT NULL REFERENCES tasks(id), kind TEXT NOT NULL, payload TEXT NOT NULL, at TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS events_task ON events(task_id,seq);
+            CREATE TABLE IF NOT EXISTS job_deliveries(event_id TEXT PRIMARY KEY REFERENCES events(id),job_id TEXT NOT NULL UNIQUE REFERENCES jobs(id),task_id TEXT NOT NULL REFERENCES tasks(id),state TEXT NOT NULL,consumer_turn_id TEXT);
             CREATE TABLE IF NOT EXISTS resources(id TEXT PRIMARY KEY, payload TEXT NOT NULL, event_id TEXT NOT NULL REFERENCES user_events(id));
             CREATE TABLE IF NOT EXISTS actions(id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), turn_id TEXT NOT NULL, call_id TEXT NOT NULL, revision INTEGER NOT NULL, kind TEXT NOT NULL, args TEXT NOT NULL, status TEXT NOT NULL, result TEXT, UNIQUE(task_id,turn_id,call_id));
             CREATE TABLE IF NOT EXISTS artifacts(id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES tasks(id), payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS settings(id INTEGER PRIMARY KEY CHECK(id=1), version INTEGER NOT NULL, payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS turns(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),revision INTEGER NOT NULL,prompt TEXT NOT NULL,status TEXT NOT NULL,created_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS turn_requests(request_id TEXT PRIMARY KEY,turn_id TEXT NOT NULL UNIQUE REFERENCES turns(id),user_event_id TEXT NOT NULL REFERENCES user_events(id));
+            CREATE TABLE IF NOT EXISTS turn_continuations(turn_id TEXT PRIMARY KEY REFERENCES turns(id),task_id TEXT NOT NULL REFERENCES tasks(id),root_turn_id TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS attempts(id TEXT PRIMARY KEY,action_id TEXT NOT NULL REFERENCES actions(id),effect_state TEXT NOT NULL,started_at TEXT NOT NULL,finished_at TEXT);
             CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),action_id TEXT NOT NULL UNIQUE REFERENCES actions(id),revision INTEGER NOT NULL,status TEXT NOT NULL,payload TEXT NOT NULL,updated_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS deliveries(id TEXT PRIMARY KEY,task_id TEXT NOT NULL REFERENCES tasks(id),revision INTEGER NOT NULL,request_id TEXT NOT NULL UNIQUE,payload TEXT NOT NULL,status TEXT NOT NULL,UNIQUE(task_id,revision));
@@ -74,6 +92,8 @@ class Store:
                                (row["id"], note.get("version", 1), row["payload"], row["event_id"]))
                 db.execute("INSERT INTO schema_versions VALUES(3,?)", (now(),))
             db.execute("INSERT OR IGNORE INTO schema_versions VALUES(4,?)", (now(),))
+            db.execute("INSERT OR IGNORE INTO schema_versions VALUES(5,?)", (now(),))
+            db.execute("INSERT OR IGNORE INTO schema_versions VALUES(6,?)", (now(),))
 
     @contextmanager
     def transaction(self):
@@ -130,8 +150,10 @@ class Store:
         event_id = uid()
         db.execute("INSERT INTO events(id,task_id,kind,payload,at) VALUES(?,?,?,?,?)",
                    (event_id, task_id, kind, encode(payload), now()))
+        return event_id
 
-    def read_task(self, db, task_id: str) -> dict:
+    @staticmethod
+    def read_task(db, task_id: str) -> dict:
         row = db.execute("SELECT state FROM tasks WHERE id=?", (task_id,)).fetchone()
         if not row:
             raise Failure("NOT_FOUND", "任务不存在", 404)

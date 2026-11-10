@@ -7,8 +7,8 @@ dependencies = [
   "fastapi>=0.115,<1",
   "uvicorn>=0.34,<1",
   "pydantic>=2.10,<3",
-  "pydantic-ai-slim[openai]>=2.43,<3",
-  "pydantic-ai-harness>=0.31,<1",
+  "pydantic-ai-slim[openai]>=2.54,<3",
+  "pydantic-ai-harness>=0.54,<1",
   "httpx>=0.28,<1",
   "PyYAML>=6,<7",
   "psutil>=7,<8",
@@ -19,6 +19,7 @@ dependencies = [
   "laspy>=2.7,<3",
   "pyproj>=3.7,<4",
   "pillow>=11,<13",
+  "tiktoken>=0.14,<1",
 ]
 
 [project.scripts]

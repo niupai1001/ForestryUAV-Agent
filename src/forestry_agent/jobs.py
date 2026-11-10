@@ -18,6 +18,7 @@ from .config import Config
 from .contracts import Boundary, Failure, ResourceRequest
 from .environments import execution_code
 from .resources import Resources, native_path, version
+from .runtime.ownership import owned_thread
 from .store import Store, encode, now, uid
 
 TERMINAL = {"succeeded", "failed", "cancelled", "timed_out"}
@@ -109,6 +110,7 @@ class Jobs:
         self.docker = docker or Docker(config)
         self.resource_probe = resource_probe or execution_profile
         self.worker: asyncio.Task | None = None
+        self.on_tick = None
         self.cancel_assignments = None
         self.settle_obsolete_assignments = None
         self.environment_resolver = None
@@ -132,15 +134,65 @@ class Jobs:
         with self.store.transaction() as db:
             rows = db.execute('SELECT payload FROM jobs WHERE task_id=? ORDER BY updated_at DESC,id LIMIT 21 OFFSET ?',
                               (task_id, offset)).fetchall()
-        return {'jobs': [self.public(json.loads(row['payload'])) for row in rows[:20]],
+            jobs = [{**self.public(json.loads(row['payload'])),
+                     'delivery': self.delivery(json.loads(row['payload'])['job_id'], task_id, db=db)} for row in rows[:20]]
+        return {'jobs': jobs,
                 'next': offset + min(len(rows), 20), 'has_more': len(rows) > 20}
+
+    def delivery(self, job_id, task_id, *, db=None):
+        if db is None:
+            with self.store.snapshot() as reader:
+                return self.delivery(job_id, task_id, db=reader)
+        row = db.execute('SELECT * FROM job_deliveries WHERE job_id=? AND task_id=?', (job_id, task_id)).fetchone()
+        if row is None:
+            return None
+        value = dict(row)
+        consumer = db.execute('SELECT status FROM turns WHERE id=?', (value['consumer_turn_id'],)).fetchone()
+        value['consumer_status'] = consumer['status'] if consumer else None
+        if value['state'] == 'needs_attention' or value['consumer_status'] == 'paused':
+            failure = db.execute("SELECT payload FROM events WHERE task_id=? AND kind='job.delivery_failed' "
+                "AND json_extract(payload,'$.event_id')=? ORDER BY seq DESC LIMIT 1",
+                (task_id, value['event_id'])).fetchone()
+            value['failure'] = json.loads(failure['payload'])['error'] if failure else None
+        return value
+
+    def control_delivery(self, job_id, task_id, request_id, action):
+        if action not in {'present', 'skip'}:
+            raise Failure('SCHEMA_INVALID', '完成回执操作无效', 400)
+        request = {'kind': 'job.delivery_control', 'task_id': task_id, 'job_id': job_id, 'action': action}
+        with self.store.transaction() as db:
+            prior = self.store.replay(db, request_id, request)
+            if prior is not None:
+                return prior
+            self.store.read_task(db, task_id)
+            value = self.delivery(job_id, task_id, db=db)
+            if value is None:
+                raise Failure('NOT_FOUND', '当前会话没有这个作业的完成回执', 404)
+            consumer = db.execute('SELECT status FROM turns WHERE id=?', (value['consumer_turn_id'],)).fetchone()
+            if action == 'skip' and value['state'] not in {'consumed', 'skipped'}:
+                if consumer and consumer['status'] == 'running':
+                    raise Failure('VERSION_CONFLICT', '该结果正在分析，请先停止当前回答或等待完成', 409)
+                db.execute("UPDATE job_deliveries SET state='skipped' WHERE event_id=?", (value['event_id'],))
+                if value['consumer_turn_id'] == 'job-event-' + value['event_id']:
+                    db.execute("UPDATE turns SET status='stopped' WHERE id=? AND status='queued'", (value['consumer_turn_id'],))
+                self.store.event(db, task_id, 'job.delivery_skipped', {'event_id': value['event_id'], 'job_id': job_id})
+            elif action == 'present' and value['state'] == 'pending':
+                db.execute("UPDATE job_deliveries SET state='presented' WHERE event_id=?", (value['event_id'],))
+                self.store.event(db, task_id, 'job.delivery_presented', {'event_id': value['event_id'], 'job_id': job_id})
+            self.store.user_event(db, 'job_delivery_control', request)
+            return self.store.receipt(db, request_id, request, self.delivery(job_id, task_id, db=db))
 
     def save(self, job, kind):
         job["updated_at"] = now()
         with self.store.transaction() as db:
             current = db.execute("SELECT payload FROM jobs WHERE id=?", (job["job_id"],)).fetchone()
             if current:
-                job["cancel_requested"] |= json.loads(current["payload"])["cancel_requested"]
+                previous = json.loads(current["payload"])
+                if previous['status'] in TERMINAL and previous['status'] != job['status']:
+                    return  # A stale callback cannot rewrite an already committed terminal fact.
+                job["cancel_requested"] |= previous["cancel_requested"]
+                if 'completion_instruction' in previous:
+                    job['completion_instruction'] = previous['completion_instruction']
             db.execute("UPDATE jobs SET status=?,payload=?,updated_at=? WHERE id=?",
                 (job["status"], encode(job), job["updated_at"], job["job_id"]))
             payload = self.public(job)
@@ -153,7 +205,43 @@ class Jobs:
                         (job["task_id"], key)).fetchone():
                     return
                 payload = {**payload, "notification_key": key}
-            self.store.event(db, job["task_id"], kind, payload)
+            event_id = self.store.event(db, job["task_id"], kind, payload)
+            if kind == 'job.terminal':
+                db.execute('INSERT OR IGNORE INTO job_deliveries VALUES(?,?,?,?,NULL)',
+                    (event_id, job['job_id'], job['task_id'], 'pending'))
+
+    def acknowledge_terminal(self, job_id, task_id, turn_id):
+        """Only a successfully persisted model observation acknowledges delivery."""
+        with self.store.transaction() as db:
+            row = db.execute('SELECT task_id FROM jobs WHERE id=?', (job_id,)).fetchone()
+            if row is None or row['task_id'] != task_id:
+                raise Failure('PERMISSION_DENIED', '作业不属于当前会话', 403)
+            changed = db.execute("UPDATE job_deliveries SET state='consumed',consumer_turn_id=? "
+                "WHERE job_id=? AND task_id=? AND state NOT IN ('consumed','skipped')", (turn_id, job_id, task_id)).rowcount
+            if changed:
+                self.store.event(db, task_id, 'job.delivery_consumed', {'job_id': job_id, 'turn_id': turn_id})
+
+    def configure_completion(self, job_id, task_id, instruction):
+        """Record remaining work without changing scientific inputs or permissions."""
+        if instruction is not None and (not isinstance(instruction, str)
+                or not instruction.strip() or len(instruction) > 2000):
+            raise Failure('SCHEMA_INVALID', '完成后工作说明须为1–2000字符，或null表示仅通知', 422)
+        with self.store.transaction() as db:
+            state = self.store.read_task(db, task_id)
+            row = db.execute('SELECT payload FROM jobs WHERE id=? AND task_id=?', (job_id, task_id)).fetchone()
+            if row is None:
+                raise Failure('PERMISSION_DENIED', '作业不属于当前会话', 403)
+            job = json.loads(row['payload'])
+            if job.get('spec_revision') != state['spec_revision']:
+                raise Failure('VERSION_CONFLICT', '作业属于旧任务修订', 409)
+            delivery = db.execute('SELECT state,consumer_turn_id FROM job_deliveries WHERE job_id=?', (job_id,)).fetchone()
+            if delivery and (delivery['state'] == 'consumed' or delivery['consumer_turn_id']):
+                raise Failure('VERSION_CONFLICT', '结果已领取或消费，不能重复安排自动续接', 409)
+            job['completion_instruction'] = instruction.strip() if instruction is not None else None
+            db.execute('UPDATE jobs SET payload=?,updated_at=? WHERE id=?', (encode(job), now(), job_id))
+            self.store.event(db, task_id, 'job.completion_configured', {
+                'job_id': job_id, 'mode': 'continue' if instruction else 'notify'})
+            return {'job_id': job_id, 'completion_mode': 'continue' if instruction else 'notify'}
 
     @staticmethod
     def readable_name(kind, runtime_profile=None, source_inspection=None):
@@ -389,12 +477,27 @@ class Jobs:
             return {'code': error.code, 'message': str(error)}
         return None
 
-    def request_cancel(self, job_id: str, task_id: str):
-        job = self.read(job_id, task_id)
-        if job["status"] not in TERMINAL:
-            job["cancel_requested"] = True
-            self.save(job, "job.cancel_requested")
-        return self.public(job)
+    def request_cancel(self, job_id: str, task_id: str, *, request_id=None):
+        with self.store.transaction() as db:
+            request = {'kind': 'job.cancel', 'task_id': task_id, 'job_id': job_id}
+            if request_id is not None:
+                prior = self.store.replay(db, request_id, request)
+                if prior is not None:
+                    return prior
+                self.store.read_task(db, task_id)
+            row = db.execute('SELECT payload FROM jobs WHERE id=? AND task_id=?', (job_id, task_id)).fetchone()
+            if row is None:
+                raise Failure('PERMISSION_DENIED', '作业不存在或不属于当前会话', 403)
+            job = json.loads(row['payload'])
+            if job['status'] not in TERMINAL and not job['cancel_requested']:
+                job.update(cancel_requested=True, updated_at=now())
+                db.execute('UPDATE jobs SET payload=?,updated_at=? WHERE id=?', (encode(job), job['updated_at'], job_id))
+                self.store.event(db, task_id, 'job.cancel_requested', self.public(job))
+            result = self.public(job)
+            if request_id is not None:
+                self.store.user_event(db, 'job_cancel', request)
+                return self.store.receipt(db, request_id, request, result)
+            return result
 
     def active(self, task_id):
         """任务下尚未到达终态的作业；取消整体活动时按它逐个登记取消意图。"""
@@ -864,7 +967,9 @@ class Jobs:
 
     async def loop(self):
         while True:
-            await asyncio.to_thread(self.tick)
+            await owned_thread(self.tick)
+            if self.on_tick is not None:
+                self.on_tick()
             await asyncio.sleep(2)
 
     def start(self):

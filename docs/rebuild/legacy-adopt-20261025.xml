@@ -1,0 +1,276 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="5" skipped="0" tests="7" time="3.055" timestamp="2026-10-25T15:40:52.593514-04:00" hostname="DESKTOP-T530JCT"><testcase classname="tests.test_imagery_catalog" name="test_explicit_legacy_adoption_keeps_unknowns_and_never_falls_back_to_compute[adopt]" time="0.370" /><testcase classname="tests.test_imagery_catalog" name="test_explicit_legacy_adoption_keeps_unknowns_and_never_falls_back_to_compute[stale]" time="0.296"><failure message="assert 200 in {409, 422}&#10; +  where 200 = &lt;Response [200 OK]&gt;.status_code">catalog_case = (&lt;starlette.testclient.TestClient object at 0x00000179EC1B71A0&gt;, &lt;fastapi.applications.FastAPI object at 0x00000179EC1...WorkBuddy/Agent/forestry-uav-agent-v1/workspace/legacy-adopt-20261025/test_explicit_legacy_adoption_1/orthophoto.tif'))
+scenario = 'stale'
+
+    @pytest.mark.parametrize('scenario', ['adopt','stale','method_mismatch','known_identity_mismatch',
+        'missing_note','changed_input','damaged_product'])
+    def test_explicit_legacy_adoption_keeps_unknowns_and_never_falls_back_to_compute(catalog_case, scenario):
+        client,app,task,ref,source,product = catalog_case
+        engine = app.state.engine
+        path = engine.config.imagery_result_catalog
+        catalog = json.loads(path.read_text())
+        entry = catalog['entries'][0]
+        if scenario == 'known_identity_mismatch':
+            entry['science_run_identity']['algorithm_version'] = 'different'
+        else:
+            entry.pop('science_run_identity')
+        if scenario == 'method_mismatch':
+            entry['declaration'] = {**DECLARATION, 'processing_mode':'rgb'}
+        path.write_text(json.dumps(catalog))
+        candidate = submit(catalog_case, declared=False)['candidates'][0]
+        if scenario == 'stale':
+            entry['limitations'].append('changed catalog evidence')
+            path.write_text(json.dumps(catalog))
+        elif scenario == 'changed_input':
+            (source/'0.tif').write_bytes(b'changed input')
+        elif scenario == 'damaged_product':
+            product.write_bytes(b'damaged product')
+        payload = {'request_id':'adopt', 'expected_spec_revision':1, 'operation':'orthomosaic',
+            'input_refs':{'flight':ref}, 'declaration_ref':engine.store.task(task)['input_refs'][1],
+            'reuse_candidate_id':candidate['candidate_id']}
+        if scenario != 'missing_note':
+            payload['adoption_note'] = '采用已有探索性正射方案交付当前数据；原算法和预处理版本未知，不声称等价或现场精度。'
+        response = client.post(f'/tasks/{task}/imagery',json=payload)
+        result = response.json()
+        assert engine.jobs.list(task)['jobs'] == []
+        if scenario == 'adopt':
+            assert result['reused'] and result['adoption']['candidate_id'] == candidate['candidate_id']
+            assert 'identity_incomplete' in result['science_status']
+            assert result['adoption']['unknown_identity_fields']
+            provenance = client.get(f"/artifacts/{result['provenance_artifact_id']}/content").json()
+            assert provenance['science_run_identity'] is None
+            assert provenance['requested_science_run_identity'] is not None
+            assert provenance['adoption']['note'] == payload['adoption_note']
+            assert provenance['limitations'][-1].startswith('明确采用旧候选')
+            # Replay reuses the committed receipt, rather than importing another copy.
+            assert client.post(f'/tasks/{task}/imagery',json=payload).json()['artifact_ids'] == result['artifact_ids']
+            assert len(engine.store.task(task)['artifact_ids']) == 2
+        else:
+            assert not result.get('reused') and engine.store.task(task)['artifact_ids'] == []
+            if scenario == 'known_identity_mismatch':
+                assert result['kind'] == 'reuse_candidates'
+            else:
+&gt;               assert response.status_code in {409,422}
+E               assert 200 in {409, 422}
+E                +  where 200 = &lt;Response [200 OK]&gt;.status_code
+
+tests\test_imagery_catalog.py:140: AssertionError</failure></testcase><testcase classname="tests.test_imagery_catalog" name="test_explicit_legacy_adoption_keeps_unknowns_and_never_falls_back_to_compute[method_mismatch]" time="0.276"><failure message="assert 200 in {409, 422}&#10; +  where 200 = &lt;Response [200 OK]&gt;.status_code">catalog_case = (&lt;starlette.testclient.TestClient object at 0x00000179EC69BD10&gt;, &lt;fastapi.applications.FastAPI object at 0x00000179EC4...WorkBuddy/Agent/forestry-uav-agent-v1/workspace/legacy-adopt-20261025/test_explicit_legacy_adoption_2/orthophoto.tif'))
+scenario = 'method_mismatch'
+
+    @pytest.mark.parametrize('scenario', ['adopt','stale','method_mismatch','known_identity_mismatch',
+        'missing_note','changed_input','damaged_product'])
+    def test_explicit_legacy_adoption_keeps_unknowns_and_never_falls_back_to_compute(catalog_case, scenario):
+        client,app,task,ref,source,product = catalog_case
+        engine = app.state.engine
+        path = engine.config.imagery_result_catalog
+        catalog = json.loads(path.read_text())
+        entry = catalog['entries'][0]
+        if scenario == 'known_identity_mismatch':
+            entry['science_run_identity']['algorithm_version'] = 'different'
+        else:
+            entry.pop('science_run_identity')
+        if scenario == 'method_mismatch':
+            entry['declaration'] = {**DECLARATION, 'processing_mode':'rgb'}
+        path.write_text(json.dumps(catalog))
+        candidate = submit(catalog_case, declared=False)['candidates'][0]
+        if scenario == 'stale':
+            entry['limitations'].append('changed catalog evidence')
+            path.write_text(json.dumps(catalog))
+        elif scenario == 'changed_input':
+            (source/'0.tif').write_bytes(b'changed input')
+        elif scenario == 'damaged_product':
+            product.write_bytes(b'damaged product')
+        payload = {'request_id':'adopt', 'expected_spec_revision':1, 'operation':'orthomosaic',
+            'input_refs':{'flight':ref}, 'declaration_ref':engine.store.task(task)['input_refs'][1],
+            'reuse_candidate_id':candidate['candidate_id']}
+        if scenario != 'missing_note':
+            payload['adoption_note'] = '采用已有探索性正射方案交付当前数据；原算法和预处理版本未知，不声称等价或现场精度。'
+        response = client.post(f'/tasks/{task}/imagery',json=payload)
+        result = response.json()
+        assert engine.jobs.list(task)['jobs'] == []
+        if scenario == 'adopt':
+            assert result['reused'] and result['adoption']['candidate_id'] == candidate['candidate_id']
+            assert 'identity_incomplete' in result['science_status']
+            assert result['adoption']['unknown_identity_fields']
+            provenance = client.get(f"/artifacts/{result['provenance_artifact_id']}/content").json()
+            assert provenance['science_run_identity'] is None
+            assert provenance['requested_science_run_identity'] is not None
+            assert provenance['adoption']['note'] == payload['adoption_note']
+            assert provenance['limitations'][-1].startswith('明确采用旧候选')
+            # Replay reuses the committed receipt, rather than importing another copy.
+            assert client.post(f'/tasks/{task}/imagery',json=payload).json()['artifact_ids'] == result['artifact_ids']
+            assert len(engine.store.task(task)['artifact_ids']) == 2
+        else:
+            assert not result.get('reused') and engine.store.task(task)['artifact_ids'] == []
+            if scenario == 'known_identity_mismatch':
+                assert result['kind'] == 'reuse_candidates'
+            else:
+&gt;               assert response.status_code in {409,422}
+E               assert 200 in {409, 422}
+E                +  where 200 = &lt;Response [200 OK]&gt;.status_code
+
+tests\test_imagery_catalog.py:140: AssertionError</failure></testcase><testcase classname="tests.test_imagery_catalog" name="test_explicit_legacy_adoption_keeps_unknowns_and_never_falls_back_to_compute[known_identity_mismatch]" time="0.265" /><testcase classname="tests.test_imagery_catalog" name="test_explicit_legacy_adoption_keeps_unknowns_and_never_falls_back_to_compute[missing_note]" time="0.246"><failure message="assert 400 in {409, 422}&#10; +  where 400 = &lt;Response [400 Bad Request]&gt;.status_code">catalog_case = (&lt;starlette.testclient.TestClient object at 0x00000179EC6FF2F0&gt;, &lt;fastapi.applications.FastAPI object at 0x00000179EC7...WorkBuddy/Agent/forestry-uav-agent-v1/workspace/legacy-adopt-20261025/test_explicit_legacy_adoption_4/orthophoto.tif'))
+scenario = 'missing_note'
+
+    @pytest.mark.parametrize('scenario', ['adopt','stale','method_mismatch','known_identity_mismatch',
+        'missing_note','changed_input','damaged_product'])
+    def test_explicit_legacy_adoption_keeps_unknowns_and_never_falls_back_to_compute(catalog_case, scenario):
+        client,app,task,ref,source,product = catalog_case
+        engine = app.state.engine
+        path = engine.config.imagery_result_catalog
+        catalog = json.loads(path.read_text())
+        entry = catalog['entries'][0]
+        if scenario == 'known_identity_mismatch':
+            entry['science_run_identity']['algorithm_version'] = 'different'
+        else:
+            entry.pop('science_run_identity')
+        if scenario == 'method_mismatch':
+            entry['declaration'] = {**DECLARATION, 'processing_mode':'rgb'}
+        path.write_text(json.dumps(catalog))
+        candidate = submit(catalog_case, declared=False)['candidates'][0]
+        if scenario == 'stale':
+            entry['limitations'].append('changed catalog evidence')
+            path.write_text(json.dumps(catalog))
+        elif scenario == 'changed_input':
+            (source/'0.tif').write_bytes(b'changed input')
+        elif scenario == 'damaged_product':
+            product.write_bytes(b'damaged product')
+        payload = {'request_id':'adopt', 'expected_spec_revision':1, 'operation':'orthomosaic',
+            'input_refs':{'flight':ref}, 'declaration_ref':engine.store.task(task)['input_refs'][1],
+            'reuse_candidate_id':candidate['candidate_id']}
+        if scenario != 'missing_note':
+            payload['adoption_note'] = '采用已有探索性正射方案交付当前数据；原算法和预处理版本未知，不声称等价或现场精度。'
+        response = client.post(f'/tasks/{task}/imagery',json=payload)
+        result = response.json()
+        assert engine.jobs.list(task)['jobs'] == []
+        if scenario == 'adopt':
+            assert result['reused'] and result['adoption']['candidate_id'] == candidate['candidate_id']
+            assert 'identity_incomplete' in result['science_status']
+            assert result['adoption']['unknown_identity_fields']
+            provenance = client.get(f"/artifacts/{result['provenance_artifact_id']}/content").json()
+            assert provenance['science_run_identity'] is None
+            assert provenance['requested_science_run_identity'] is not None
+            assert provenance['adoption']['note'] == payload['adoption_note']
+            assert provenance['limitations'][-1].startswith('明确采用旧候选')
+            # Replay reuses the committed receipt, rather than importing another copy.
+            assert client.post(f'/tasks/{task}/imagery',json=payload).json()['artifact_ids'] == result['artifact_ids']
+            assert len(engine.store.task(task)['artifact_ids']) == 2
+        else:
+            assert not result.get('reused') and engine.store.task(task)['artifact_ids'] == []
+            if scenario == 'known_identity_mismatch':
+                assert result['kind'] == 'reuse_candidates'
+            else:
+&gt;               assert response.status_code in {409,422}
+E               assert 400 in {409, 422}
+E                +  where 400 = &lt;Response [400 Bad Request]&gt;.status_code
+
+tests\test_imagery_catalog.py:140: AssertionError</failure></testcase><testcase classname="tests.test_imagery_catalog" name="test_explicit_legacy_adoption_keeps_unknowns_and_never_falls_back_to_compute[changed_input]" time="0.391"><failure message="assert 200 in {409, 422}&#10; +  where 200 = &lt;Response [200 OK]&gt;.status_code">catalog_case = (&lt;starlette.testclient.TestClient object at 0x00000179EC6A8D40&gt;, &lt;fastapi.applications.FastAPI object at 0x00000179EC6...WorkBuddy/Agent/forestry-uav-agent-v1/workspace/legacy-adopt-20261025/test_explicit_legacy_adoption_5/orthophoto.tif'))
+scenario = 'changed_input'
+
+    @pytest.mark.parametrize('scenario', ['adopt','stale','method_mismatch','known_identity_mismatch',
+        'missing_note','changed_input','damaged_product'])
+    def test_explicit_legacy_adoption_keeps_unknowns_and_never_falls_back_to_compute(catalog_case, scenario):
+        client,app,task,ref,source,product = catalog_case
+        engine = app.state.engine
+        path = engine.config.imagery_result_catalog
+        catalog = json.loads(path.read_text())
+        entry = catalog['entries'][0]
+        if scenario == 'known_identity_mismatch':
+            entry['science_run_identity']['algorithm_version'] = 'different'
+        else:
+            entry.pop('science_run_identity')
+        if scenario == 'method_mismatch':
+            entry['declaration'] = {**DECLARATION, 'processing_mode':'rgb'}
+        path.write_text(json.dumps(catalog))
+        candidate = submit(catalog_case, declared=False)['candidates'][0]
+        if scenario == 'stale':
+            entry['limitations'].append('changed catalog evidence')
+            path.write_text(json.dumps(catalog))
+        elif scenario == 'changed_input':
+            (source/'0.tif').write_bytes(b'changed input')
+        elif scenario == 'damaged_product':
+            product.write_bytes(b'damaged product')
+        payload = {'request_id':'adopt', 'expected_spec_revision':1, 'operation':'orthomosaic',
+            'input_refs':{'flight':ref}, 'declaration_ref':engine.store.task(task)['input_refs'][1],
+            'reuse_candidate_id':candidate['candidate_id']}
+        if scenario != 'missing_note':
+            payload['adoption_note'] = '采用已有探索性正射方案交付当前数据；原算法和预处理版本未知，不声称等价或现场精度。'
+        response = client.post(f'/tasks/{task}/imagery',json=payload)
+        result = response.json()
+        assert engine.jobs.list(task)['jobs'] == []
+        if scenario == 'adopt':
+            assert result['reused'] and result['adoption']['candidate_id'] == candidate['candidate_id']
+            assert 'identity_incomplete' in result['science_status']
+            assert result['adoption']['unknown_identity_fields']
+            provenance = client.get(f"/artifacts/{result['provenance_artifact_id']}/content").json()
+            assert provenance['science_run_identity'] is None
+            assert provenance['requested_science_run_identity'] is not None
+            assert provenance['adoption']['note'] == payload['adoption_note']
+            assert provenance['limitations'][-1].startswith('明确采用旧候选')
+            # Replay reuses the committed receipt, rather than importing another copy.
+            assert client.post(f'/tasks/{task}/imagery',json=payload).json()['artifact_ids'] == result['artifact_ids']
+            assert len(engine.store.task(task)['artifact_ids']) == 2
+        else:
+            assert not result.get('reused') and engine.store.task(task)['artifact_ids'] == []
+            if scenario == 'known_identity_mismatch':
+                assert result['kind'] == 'reuse_candidates'
+            else:
+&gt;               assert response.status_code in {409,422}
+E               assert 200 in {409, 422}
+E                +  where 200 = &lt;Response [200 OK]&gt;.status_code
+
+tests\test_imagery_catalog.py:140: AssertionError</failure></testcase><testcase classname="tests.test_imagery_catalog" name="test_explicit_legacy_adoption_keeps_unknowns_and_never_falls_back_to_compute[damaged_product]" time="0.264"><failure message="assert 200 in {409, 422}&#10; +  where 200 = &lt;Response [200 OK]&gt;.status_code">catalog_case = (&lt;starlette.testclient.TestClient object at 0x00000179EC8466F0&gt;, &lt;fastapi.applications.FastAPI object at 0x00000179EC8...WorkBuddy/Agent/forestry-uav-agent-v1/workspace/legacy-adopt-20261025/test_explicit_legacy_adoption_6/orthophoto.tif'))
+scenario = 'damaged_product'
+
+    @pytest.mark.parametrize('scenario', ['adopt','stale','method_mismatch','known_identity_mismatch',
+        'missing_note','changed_input','damaged_product'])
+    def test_explicit_legacy_adoption_keeps_unknowns_and_never_falls_back_to_compute(catalog_case, scenario):
+        client,app,task,ref,source,product = catalog_case
+        engine = app.state.engine
+        path = engine.config.imagery_result_catalog
+        catalog = json.loads(path.read_text())
+        entry = catalog['entries'][0]
+        if scenario == 'known_identity_mismatch':
+            entry['science_run_identity']['algorithm_version'] = 'different'
+        else:
+            entry.pop('science_run_identity')
+        if scenario == 'method_mismatch':
+            entry['declaration'] = {**DECLARATION, 'processing_mode':'rgb'}
+        path.write_text(json.dumps(catalog))
+        candidate = submit(catalog_case, declared=False)['candidates'][0]
+        if scenario == 'stale':
+            entry['limitations'].append('changed catalog evidence')
+            path.write_text(json.dumps(catalog))
+        elif scenario == 'changed_input':
+            (source/'0.tif').write_bytes(b'changed input')
+        elif scenario == 'damaged_product':
+            product.write_bytes(b'damaged product')
+        payload = {'request_id':'adopt', 'expected_spec_revision':1, 'operation':'orthomosaic',
+            'input_refs':{'flight':ref}, 'declaration_ref':engine.store.task(task)['input_refs'][1],
+            'reuse_candidate_id':candidate['candidate_id']}
+        if scenario != 'missing_note':
+            payload['adoption_note'] = '采用已有探索性正射方案交付当前数据；原算法和预处理版本未知，不声称等价或现场精度。'
+        response = client.post(f'/tasks/{task}/imagery',json=payload)
+        result = response.json()
+        assert engine.jobs.list(task)['jobs'] == []
+        if scenario == 'adopt':
+            assert result['reused'] and result['adoption']['candidate_id'] == candidate['candidate_id']
+            assert 'identity_incomplete' in result['science_status']
+            assert result['adoption']['unknown_identity_fields']
+            provenance = client.get(f"/artifacts/{result['provenance_artifact_id']}/content").json()
+            assert provenance['science_run_identity'] is None
+            assert provenance['requested_science_run_identity'] is not None
+            assert provenance['adoption']['note'] == payload['adoption_note']
+            assert provenance['limitations'][-1].startswith('明确采用旧候选')
+            # Replay reuses the committed receipt, rather than importing another copy.
+            assert client.post(f'/tasks/{task}/imagery',json=payload).json()['artifact_ids'] == result['artifact_ids']
+            assert len(engine.store.task(task)['artifact_ids']) == 2
+        else:
+            assert not result.get('reused') and engine.store.task(task)['artifact_ids'] == []
+            if scenario == 'known_identity_mismatch':
+                assert result['kind'] == 'reuse_candidates'
+            else:
+&gt;               assert response.status_code in {409,422}
+E               assert 200 in {409, 422}
+E                +  where 200 = &lt;Response [200 OK]&gt;.status_code
+
+tests\test_imagery_catalog.py:140: AssertionError</failure></testcase></testsuite></testsuites>

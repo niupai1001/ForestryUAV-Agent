@@ -1,0 +1,1495 @@
+{
+  "catalog_sha256": "0b0ad5bcbc51abffc84cdc9dd6f93e24f949eec5d28a4c3f28287e15637f7ba8",
+  "queries_sha256": "3f408d718aa419acf8ce1e4ea3244dce95c32884acfc481bd6a90cabb524ad04",
+  "retriever_source_sha256": "9393b61b4b1a53a4feaba6c6e8fa71d7e2fa18d38bb1ff5578e7eb7ae5c93f04",
+  "benchmark_source_sha256": "3a427755350c34586a5107fe9b5fc190886d457e28a64340cb0333744e619f25",
+  "rows": [
+    {
+      "id": "q01",
+      "query": "把整架次航拍拼成带坐标的底图",
+      "required": [
+        "process_imagery"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 10992
+        },
+        "bm25": {
+          "ranked": [
+            "process_imagery",
+            "view_image",
+            "process_lidar_canopy",
+            "acquire_dependencies",
+            "search_knowledge",
+            "inspect_action",
+            "index_document",
+            "code_execute"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 9894
+        }
+      }
+    },
+    {
+      "id": "q02",
+      "query": "按照太阳和相机角度生成冠层光谱样本库",
+      "required": [
+        "process_imagery"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 10992
+        },
+        "bm25": {
+          "ranked": [
+            "process_lidar_terrain",
+            "process_imagery",
+            "index_document",
+            "inspect_environment",
+            "acquire_dependencies",
+            "process_lidar_canopy",
+            "read_document",
+            "code_execute"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 9987
+        }
+      }
+    },
+    {
+      "id": "q03",
+      "query": "利用四个波段估算叶面积指数",
+      "required": [
+        "process_imagery"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 10992
+        },
+        "bm25": {
+          "ranked": [
+            "process_imagery",
+            "process_lidar_canopy",
+            "process_lidar_terrain",
+            "resolve_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "select_input_files",
+            "read_user_memory"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 10096
+        }
+      }
+    },
+    {
+      "id": "q04",
+      "query": "这份LAZ里先分出裸地，再算离地高度",
+      "required": [
+        "process_lidar_terrain"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 10992
+        },
+        "bm25": {
+          "ranked": [
+            "process_lidar_terrain",
+            "prepare_environment",
+            "code_execute",
+            "select_input_files",
+            "resolve_dependencies",
+            "search_knowledge",
+            "process_imagery"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 6,
+          "registered_schema_utf8_bytes": 9394
+        }
+      }
+    },
+    {
+      "id": "q05",
+      "query": "从已有冠层高度找树顶并标出每棵树",
+      "required": [
+        "process_lidar_canopy"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 10992
+        },
+        "bm25": {
+          "ranked": [
+            "process_lidar_terrain",
+            "process_imagery",
+            "code_execute",
+            "resolve_dependencies",
+            "read_document",
+            "acquire_dependencies",
+            "inspect_environment",
+            "read_user_memory"
+          ],
+          "target_recall": 0.0,
+          "all_targets_found": false,
+          "unlabelled_candidates": 8,
+          "registered_schema_utf8_bytes": 9958
+        }
+      }
+    },
+    {
+      "id": "q06",
+      "query": "把表格里的空白值处理掉并统一长度单位",
+      "required": [
+        "code_execute"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 10992
+        },
+        "bm25": {
+          "ranked": [
+            "process_imagery",
+            "process_lidar_terrain",
+            "search_knowledge",
+            "inspect_environment",
+            "acquire_dependencies",
+            "index_document",
+            "resolve_dependencies",
+            "process_lidar_canopy"
+          ],
+          "target_recall": 0.0,
+          "all_targets_found": false,
+          "unlabelled_candidates": 8,
+          "registered_schema_utf8_bytes": 10234
+        }
+      }
+    },
+    {
+      "id": "q07",
+      "query": "请运行这一小段Python并把输出保存下来",
+      "required": [
+        "code_execute"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 10992
+        },
+        "bm25": {
+          "ranked": [
+            "code_execute",
+            "acquire_dependencies",
+            "index_document",
+            "resolve_dependencies",
+            "process_imagery",
+            "search_knowledge",
+            "process_lidar_canopy",
+            "view_image"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 10261
+        }
+      }
+    },
+    {
+      "id": "q08",
+      "query": "从PDF的第三页摘出样地描述",
+      "required": [
+        "read_document"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 5,
+          "registered_schema_utf8_bytes": 5799
+        },
+        "bm25": {
+          "ranked": [
+            "read_document",
+            "index_document",
+            "code_execute",
+            "prepare_environment",
+            "process_lidar_terrain",
+            "read_user_memory",
+            "search_knowledge",
+            "acquire_dependencies"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 8549
+        }
+      }
+    },
+    {
+      "id": "q09",
+      "query": "照片里两种颜色的标记各有多少个",
+      "required": [
+        "view_image"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 5,
+          "registered_schema_utf8_bytes": 5799
+        },
+        "bm25": {
+          "ranked": [
+            "process_imagery",
+            "read_user_memory",
+            "resolve_dependencies",
+            "view_image",
+            "select_input_files",
+            "inspect_environment",
+            "process_lidar_canopy",
+            "code_execute"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 9058
+        }
+      }
+    },
+    {
+      "id": "q10",
+      "query": "把已读资料放进本会话可搜索的索引",
+      "required": [
+        "index_document"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "read_user_memory"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 4,
+          "registered_schema_utf8_bytes": 5312
+        },
+        "bm25": {
+          "ranked": [
+            "view_image",
+            "process_lidar_canopy",
+            "process_imagery",
+            "inspect_action",
+            "search_knowledge",
+            "index_document",
+            "read_document",
+            "select_input_files"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 8687
+        }
+      }
+    },
+    {
+      "id": "q11",
+      "query": "在授权文档中找与树种冲突有关的依据",
+      "required": [
+        "search_knowledge"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "read_user_memory"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 4,
+          "registered_schema_utf8_bytes": 5312
+        },
+        "bm25": {
+          "ranked": [
+            "index_document",
+            "search_knowledge",
+            "inspect_environment",
+            "process_lidar_terrain",
+            "read_user_memory",
+            "read_document",
+            "process_lidar_canopy",
+            "prepare_environment"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 7597
+        }
+      }
+    },
+    {
+      "id": "q12",
+      "query": "找出我之前保存的工作笔记",
+      "required": [
+        "read_user_memory"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "read_user_memory"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 4,
+          "registered_schema_utf8_bytes": 5312
+        },
+        "bm25": {
+          "ranked": [
+            "read_user_memory",
+            "inspect_action",
+            "index_document",
+            "select_input_files",
+            "code_execute",
+            "search_knowledge",
+            "process_imagery",
+            "view_image"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 8468
+        }
+      }
+    },
+    {
+      "id": "q13",
+      "query": "看看这台机器有没有合适的计算环境",
+      "required": [
+        "inspect_environment"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 10992
+        },
+        "bm25": {
+          "ranked": [
+            "inspect_environment",
+            "prepare_environment",
+            "view_image",
+            "search_knowledge",
+            "read_user_memory",
+            "resolve_dependencies",
+            "process_lidar_terrain",
+            "acquire_dependencies"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 8710
+        }
+      }
+    },
+    {
+      "id": "q14",
+      "query": "准备一个断网可重复使用的Python依赖环境",
+      "required": [
+        "prepare_environment"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 10992
+        },
+        "bm25": {
+          "ranked": [
+            "code_execute",
+            "process_lidar_canopy",
+            "inspect_environment",
+            "resolve_dependencies",
+            "prepare_environment",
+            "search_knowledge",
+            "process_imagery",
+            "read_user_memory"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 9567
+        }
+      }
+    },
+    {
+      "id": "q15",
+      "query": "检查GeoTIFF的坐标系与各波段顺序",
+      "required": [
+        "process_imagery"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 10992
+        },
+        "bm25": {
+          "ranked": [
+            "inspect_environment",
+            "search_knowledge",
+            "process_imagery",
+            "process_lidar_canopy",
+            "prepare_environment",
+            "index_document",
+            "code_execute",
+            "view_image"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 9287
+        }
+      }
+    },
+    {
+      "id": "q16",
+      "query": "把Python缺失模块所需的版本关系解析清楚",
+      "required": [
+        "resolve_dependencies"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 10992
+        },
+        "bm25": {
+          "ranked": [
+            "search_knowledge",
+            "resolve_dependencies",
+            "index_document",
+            "acquire_dependencies",
+            "process_imagery",
+            "inspect_environment",
+            "read_user_memory",
+            "code_execute"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 9602
+        }
+      }
+    },
+    {
+      "id": "q17",
+      "query": "Read the third page of the PDF report",
+      "required": [
+        "read_document"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 5,
+          "registered_schema_utf8_bytes": 5799
+        },
+        "bm25": {
+          "ranked": [
+            "read_document",
+            "read_user_memory",
+            "index_document",
+            "view_image"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 3,
+          "registered_schema_utf8_bytes": 4914
+        }
+      }
+    },
+    {
+      "id": "q18",
+      "query": "Recover my saved personal notes about earlier assumptions",
+      "required": [
+        "read_user_memory"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "read_user_memory"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 4,
+          "registered_schema_utf8_bytes": 5312
+        },
+        "bm25": {
+          "ranked": [],
+          "target_recall": 0.0,
+          "all_targets_found": false,
+          "unlabelled_candidates": 0,
+          "registered_schema_utf8_bytes": 3372
+        }
+      }
+    },
+    {
+      "id": "q19",
+      "query": "按SHA核对公开依赖包并准备离线文件",
+      "required": [
+        "acquire_dependencies"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 10992
+        },
+        "bm25": {
+          "ranked": [
+            "acquire_dependencies",
+            "inspect_environment",
+            "read_user_memory",
+            "process_imagery",
+            "resolve_dependencies",
+            "code_execute",
+            "process_lidar_canopy",
+            "select_input_files"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 9975
+        }
+      }
+    },
+    {
+      "id": "q20",
+      "query": "从已确认的软件包构建可复用运行环境",
+      "required": [
+        "prepare_environment"
+      ],
+      "methods": {
+        "all_registered": {
+          "ranked": [
+            "list_inputs",
+            "select_input_files",
+            "list_files",
+            "read_file",
+            "inspect_artifact",
+            "read_artifact",
+            "view_image",
+            "read_document",
+            "index_document",
+            "search_knowledge",
+            "write_file",
+            "inspect_action",
+            "read_user_memory",
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 14,
+          "registered_schema_utf8_bytes": 13750
+        },
+        "category_upper_bound": {
+          "ranked": [
+            "inspect_environment",
+            "resolve_dependencies",
+            "acquire_dependencies",
+            "prepare_environment",
+            "code_execute",
+            "process_imagery",
+            "process_lidar_terrain",
+            "process_lidar_canopy",
+            "wait_job",
+            "set_job_follow_up"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 10992
+        },
+        "bm25": {
+          "ranked": [
+            "inspect_action",
+            "acquire_dependencies",
+            "prepare_environment",
+            "inspect_environment",
+            "code_execute",
+            "process_lidar_canopy",
+            "resolve_dependencies",
+            "process_lidar_terrain"
+          ],
+          "target_recall": 1.0,
+          "all_targets_found": true,
+          "unlabelled_candidates": 7,
+          "registered_schema_utf8_bytes": 9302
+        }
+      }
+    }
+  ],
+  "summary": {
+    "all_registered": {
+      "all_targets_found": 20,
+      "cases": 20,
+      "mean_target_recall": 1.0,
+      "mean_registered_schema_utf8_bytes": 13750.0
+    },
+    "category_upper_bound": {
+      "all_targets_found": 20,
+      "cases": 20,
+      "mean_target_recall": 1.0,
+      "mean_registered_schema_utf8_bytes": 9077.05
+    },
+    "bm25": {
+      "all_targets_found": 17,
+      "cases": 20,
+      "mean_target_recall": 0.85,
+      "mean_registered_schema_utf8_bytes": 8845.6
+    }
+  },
+  "embedding_status": "not_run_no_verified_embedding_asset",
+  "embedding_identity": null,
+  "embedding_file_sha256": null,
+  "settings": {
+    "top_k": 8,
+    "lexical_candidates": 16,
+    "dense_candidates": 16,
+    "rrf_constant": 60
+  },
+  "limitations": [
+    "Category labels are an annotated upper bound, not model routing performance.",
+    "Unlabelled candidates are not automatically wrong tool calls or authorization breaches.",
+    "Schema bytes exclude native/search/system overhead; they are not tokens or provider usage.",
+    "Development screen only; no autonomous model, statistical or scientific accuracy conclusion."
+  ]
+}

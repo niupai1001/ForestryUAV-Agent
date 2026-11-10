@@ -1,0 +1,71 @@
+...FF                                                                    [100%]
+================================== FAILURES ===================================
+_ test_rollback_preserves_post_release_messages_and_products_without_overwriting_live_data _
+
+tmp_path = WindowsPath('C:/Users/yzh/WorkBuddy/Agent/forestry-uav-agent-v1/workspace/store-migration-20261026-tmp/test_rollback_preserves_post_r0')
+
+    def test_rollback_preserves_post_release_messages_and_products_without_overwriting_live_data(tmp_path):
+        config, store, _, steps = fixture(tmp_path)
+        steps.close()
+        baseline = tmp_path / 'pre-release'
+>       create_backup(config, baseline)
+
+tests\test_store_migration.py:67: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src\forestry_agent\backup.py:143: in create_backup
+    return inspect_backup(destination)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\backup.py:147: in inspect_backup
+    source = Path(source).resolve(strict=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\..\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\pathlib.py:1240: in resolve
+    s = self._flavour.realpath(self, strict=strict)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+path = 'C:\\Users\\yzh\\WorkBuddy\\Agent\\forestry-uav-agent-v1\\workspace\\store-migration-20261026-tmp\\test_rollback_preserves_post_r0\\pre-release'
+strict = True
+
+>   ???
+E   PermissionError: [WinError 5] \u62d2\u7edd\u8bbf\u95ee\u3002: 'C:\\\\Users\\\\yzh\\\\WorkBuddy\\\\Agent\\\\forestry-uav-agent-v1\\\\workspace\\\\store-migration-20261026-tmp\\\\test_rollback_preserves_post_r0\\\\pre-release'
+
+<frozen ntpath>:695: PermissionError
+_ test_roundtrip_preserves_wal_state_checkpoint_history_artifact_and_session __
+
+tmp_path = WindowsPath('C:/Users/yzh/WorkBuddy/Agent/forestry-uav-agent-v1/workspace/store-migration-20261026-tmp/test_roundtrip_preserves_wal_s0')
+
+    def test_roundtrip_preserves_wal_state_checkpoint_history_artifact_and_session(tmp_path):
+        config, store, artifact, steps = fixture(tmp_path)
+        try:
+            with store.transaction() as db:
+                before = {table: db.execute(f'SELECT * FROM {table}').fetchall()
+                          for table in ['tasks', 'specs', 'events', 'user_events', 'artifacts', 'requests']}
+            before = {k: [tuple(row) for row in rows] for k, rows in before.items()}
+            backup = tmp_path / '\u5907\u4efd'
+>           report = create_backup(config, backup)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_backup.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src\forestry_agent\backup.py:143: in create_backup
+    return inspect_backup(destination)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\backup.py:147: in inspect_backup
+    source = Path(source).resolve(strict=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\..\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\pathlib.py:1240: in resolve
+    s = self._flavour.realpath(self, strict=strict)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+path = 'C:\\\\Users\\\\yzh\\\\WorkBuddy\\\\Agent\\\\forestry-uav-agent-v1\\\\workspace\\\\store-migration-20261026-tmp\\\\test_roundtrip_preserves_wal_s0\\\\\u5907\u4efd'
+strict = True
+
+>   ???
+E   PermissionError: [WinError 5] \u62d2\u7edd\u8bbf\u95ee\u3002: 'C:\\\\Users\\\\yzh\\\\WorkBuddy\\\\Agent\\\\forestry-uav-agent-v1\\\\workspace\\\\store-migration-20261026-tmp\\\\test_roundtrip_preserves_wal_s0\\\\\u5907\u4efd'
+
+<frozen ntpath>:695: PermissionError
+=========================== short test summary info ===========================
+FAILED tests/test_store_migration.py::test_rollback_preserves_post_release_messages_and_products_without_overwriting_live_data
+FAILED tests/test_backup.py::test_roundtrip_preserves_wal_state_checkpoint_history_artifact_and_session
+2 failed, 3 passed in 9.06s

@@ -1,0 +1,26 @@
+{
+  "provider_prompt_eval_count": 2938,
+  "variants": [
+    {
+      "compact": false,
+      "drop_strict": false,
+      "tokens": 3155
+    },
+    {
+      "compact": false,
+      "drop_strict": true,
+      "tokens": 3155
+    },
+    {
+      "compact": true,
+      "drop_strict": false,
+      "tokens": 2743
+    },
+    {
+      "compact": true,
+      "drop_strict": true,
+      "tokens": 2743
+    }
+  ],
+  "new_model_requests": 0
+}

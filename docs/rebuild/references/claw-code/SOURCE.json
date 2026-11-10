@@ -1,0 +1,19 @@
+{
+  "repo": "ultraworkers/claw-code",
+  "requested_ref": "8aab1d4e",
+  "sha": "8aab1d4e5410f9ab5e5e7f03c8a87de479e814ec",
+  "files": [
+    {
+      "path": "LICENSE",
+      "bytes": 1096
+    },
+    {
+      "path": "rust/crates/runtime/src/conversation.rs",
+      "error": "Remote end closed connection without response"
+    },
+    {
+      "path": "rust/crates/runtime/src/compact.rs",
+      "error": "<urlopen error [WinError 10060] \u7531\u4e8e\u8fde\u63a5\u65b9\u5728\u4e00\u6bb5\u65f6\u95f4\u540e\u6ca1\u6709\u6b63\u786e\u7b54\u590d\u6216\u8fde\u63a5\u7684\u4e3b\u673a\u6ca1\u6709\u53cd\u5e94\uff0c\u8fde\u63a5\u5c1d\u8bd5\u5931\u8d25\u3002>"
+    }
+  ]
+}

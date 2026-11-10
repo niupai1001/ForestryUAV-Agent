@@ -1,0 +1,55 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+______ test_native_sdk_request_is_recorded_after_provider_transformation ______
+
+client = <starlette.testclient.TestClient object at 0x000001AC0267B950>
+app = <fastapi.applications.FastAPI object at 0x000001AC024C7560>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001AC024D9CA0>
+
+    @pytest.mark.asyncio
+    async def test_native_sdk_request_is_recorded_after_provider_transformation(client, app, monkeypatch):
+        state, _ = task(client, harness_mode='H0')
+        engine = app.state.engine
+        identity = {**state['config_snapshot']['model_identity'], 'digest': 'software-http-provider'}
+        with engine.store.transaction() as db:
+            current = engine.store.read_task(db, state['task_id'])
+            current['config_snapshot']['model_identity'] = identity
+            engine.store.save_task(db, current, current['state_version'])
+        current = engine.store.task(state['task_id'])
+    
+        async def identity_probe(*args):
+            return identity
+    
+        monkeypatch.setattr('forestry_agent.agent.model_identity', identity_probe)
+        agent, channel = engine.make_agent('small', 'sdk-wire', current['config_snapshot'], state['task_id'])
+        sent = []
+    
+        async def transport(request):
+            sent.append(request.content)
+            return httpx2.Response(200, json={'id': 'offline-response', 'object': 'chat.completion',
+                'created': 0, 'model': 'qwen3.5:4b', 'choices': [{'index': 0, 'message': {
+                    'role': 'assistant', 'content': '\u8f6f\u4ef6HTTP\u5939\u5177\u56de\u7b54\u3002'}, 'finish_reason': 'stop'}],
+                'usage': {'prompt_tokens': 20, 'completion_tokens': 5, 'total_tokens': 25}})
+    
+        channel.client._transport = httpx2.MockTransport(transport)
+        try:
+            result = await agent.run('\u76f4\u63a5\u56de\u7b54', deps=Deps(engine, state['task_id'], 'sdk-wire', 1))
+            assert result.output.response == '\u8f6f\u4ef6HTTP\u5939\u5177\u56de\u7b54\u3002'
+        finally:
+            await channel.aclose()
+        assert len(sent) == 1
+        with engine.store.snapshot() as db:
+            manifest = json.loads(db.execute("SELECT payload FROM contexts WHERE turn_id='sdk-wire'").fetchone()[0])
+        envelope = manifest['wire_attempts'][0]
+        assert native_path(Path(envelope['body_ref'])).read_bytes() == sent[0]
+        wire = json.loads(sent[0])
+        assert wire['model'] == 'qwen3.5:4b' and wire['messages'] and wire['tools']
+        assert envelope['model_identity']['digest'] == 'software-http-provider'
+>       assert sent == [body, body] and len(recorded) == 2
+                        ^^^^
+E       NameError: name 'body' is not defined
+
+tests\test_request_envelope.py:83: NameError
+=========================== short test summary info ===========================
+FAILED tests/test_request_envelope.py::test_native_sdk_request_is_recorded_after_provider_transformation
+1 failed in 0.67s

@@ -1,0 +1,439 @@
+FFFFF                                                                    [100%]
+================================== FAILURES ===================================
+_ test_named_artifacts_and_recent_job_records_are_scoped_bounded_native_facts[H2] _
+
+client = <starlette.testclient.TestClient object at 0x0000021D9636B950>
+app = <fastapi.applications.FastAPI object at 0x0000021D9625EA50>, mode = 'H2'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("mode", ["H0", "H1", "H2"])
+    async def test_named_artifacts_and_recent_job_records_are_scoped_bounded_native_facts(client, app, mode):
+        state, _ = task(client, harness_mode=mode)
+        foreign, _ = task(client, request_id="foreign-artifact-facts", harness_mode=mode)
+        engine = app.state.engine
+        original = engine.resources.write(state["task_id"], "old-write", "old-product.md", "OLD_PRIVATE_CONTENT")
+        products = [engine.resources.write(state["task_id"], "write-"+str(n), f"product-{n}.json", "PRIVATE_BODY_MARKER")
+            for n in range(25)]
+        hidden = engine.resources.write(foreign["task_id"], "foreign-write", "FOREIGN_ARTIFACT_MARKER.md", "FOREIGN_BODY")
+        with engine.store.transaction() as db:
+            for index in range(10):
+                job_id = f"fixture-job-{index}"
+                payload = {"job_id":job_id, "status":"failed" if index == 9 else "succeeded", "kind":"code.execute",
+                    "artifact_ids":[p["artifact_id"] for p in products], "code":"PRIVATE_CODE_MARKER",
+                    "environment":{"artifact_id":products[0]["artifact_id"], "manifest":{"private":"PRIVATE_MANIFEST"}}}
+                db.execute("INSERT INTO actions VALUES(?,?,?,?,?,?,?,?,?)",
+                    (f"fixture-action-{index}", state["task_id"], "fixture-turn", str(index), 1, "code.execute", "{}", "confirmed", "{}"))
+                db.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?)",
+                    (job_id, state["task_id"], f"fixture-action-{index}", 1, payload["status"], json.dumps(payload), now()))
+            receipt = {"kind":"completed", "job":{"job_id":"fixture-job-9", "status":"failed"},
+                "logs":{"stderr":"HIDDEN_DIAGNOSTIC_PREFIX_"+"\u8bca\u65ad"*200+"\\nModuleNotFoundError: no example"}}
+            db.execute("INSERT INTO actions VALUES(?,?,?,?,?,?,?,?,?)", ("fixture-observation", state["task_id"], "fixture-turn",
+                "observe-9", 1, "job.observe", "{}", "confirmed", json.dumps(receipt)))
+            for task_id, revision, marker in [(foreign["task_id"], 1, "FOREIGN_JOB_MARKER"),
+                                             (state["task_id"], 2, "OTHER_REVISION_JOB_MARKER")]:
+                db.execute("INSERT INTO actions VALUES(?,?,?,?,?,?,?,?,?)",
+                    (marker, task_id, "fixture-turn", marker, revision, "code.execute", "{}", "confirmed", "{}"))
+                db.execute("INSERT INTO jobs VALUES(?,?,?,?,?,?,?)",
+                    (marker, task_id, marker, revision, "succeeded", json.dumps({"job_id":marker}), now()))
+        turn_id = "bounded-recorded-facts"
+        with engine.store.transaction() as db:
+            db.execute("INSERT INTO turns VALUES(?,?,?,?,?,?)", (turn_id, state["task_id"], 1, state["objective"], "running", now()))
+        agent, connection = engine.make_agent("small", turn_id, state["config_snapshot"], task_id=state["task_id"])
+        try:
+            with agent.override(model=TestModel(call_tools=[], custom_output_args={
+                "summary":"\u5143\u6570\u636e\u534f\u8bae\u5939\u5177\uff0c\u4e0d\u662f\u6267\u884c\u8bc1\u636e", "artifact_ids":[], "limitations":[]})):
+>               await agent.run("\u8bfb\u53d6\u5f53\u524d\u4ea7\u7269\u6807\u8bc6", deps=Deps(engine, state["task_id"], turn_id, 1))
+
+tests\test_native_loop.py:185: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv\Lib\site-packages\pydantic_ai\agent\abstract.py:671: in run
+    node = await agent_run.next(node)  # pyright: ignore[reportArgumentType]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:599: in next
+    return await self._run_node_with_hooks(node, self._stream_and_advance)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:514: in _run_node_with_hooks
+    result = await lifecycle(node)
+             ^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:494: in lifecycle
+    result = await step_fn(lifecycle_node)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:613: in _stream_and_advance
+    return await self._advance_graph(node)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:409: in _advance_graph
+    task = await self._graph_run.next(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:584: in next
+    return await anext(self)
+           ^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:561: in __anext__
+    raise self._next.error
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:862: in _run_tracked_task
+    result = await self._run_task(t_)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:920: in _run_task
+    output = await node.call(step_context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\step.py:253: in _call_node
+    return await node.run(GraphRunContext(state=ctx.state, deps=ctx.deps))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1345: in run
+    return await self._make_request(ctx)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1655: in _make_request
+    model_response = await root_capability.wrap_model_request(
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:688: in wrap_model_request
+    return await chain(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:1012: in wrapped
+    return await cap.wrap_model_request(
+src\forestry_agent\planning.py:19: in wrap_model_request
+    return await handler(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:1012: in wrapped
+    return await cap.wrap_model_request(
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:1102: in wrap_model_request
+    return await chain(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:1398: in wrapper
+    return await _call_entry(entry, hook_name, ctx, handler=inner_handler, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:273: in _call_entry
+    return await _call_func(func, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:279: in _call_func
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\runtime\model_adapter.py:71: in guard
+    return await handler(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1614: in model_handler
+    req_ctx = await self._apply_before_model_request(
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1817: in _apply_before_model_request
+    processed_context = await ctx.deps.root_capability.before_model_request(run_context, request_context)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:659: in before_model_request
+    request_context = await capability.before_model_request(cap_ctx, request_context)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:1072: in before_model_request
+    request_context = await _call_entry(entry, 'before_model_request', ctx, request_context)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:273: in _call_entry
+    return await _call_func(func, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:279: in _call_func
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\agent.py:609: in before_model
+    ctx.deps.context_manifest_id = self.contexts.compile(ctx.deps, request_context, profile, native_run_id=ctx.run_id)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\context.py:155: in compile
+    self._admit(deps, prepared, profile, binding)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <forestry_agent.context.Contexts object at 0x0000021D96236360>
+deps = Deps(engine=<forestry_agent.agent.Engine object at 0x0000021D96211970>, task_id='1233a0be-71eb-448b-9b2e-817698aafa3d'... first_fragment_at=None, fragments=0, timeout_reported=False), stream_prefix='', assignment_id=None, thinking_parts={})
+prepared = PreparedInput(messages=(ModelRequest(parts=[UserPromptPart(content='\u8bfb\u53d6\u5f53\u524d\u4ea7\u7269\u6807\u8bc6', timestamp=datetime.datetime(2026, 10, 2...detail='\u6d88\u606f\u4e0e\u5de5\u5177\u8fb9\u754c\u7684\u4fdd\u5b88\u7559\u4f4d')), available=28672, anchored=False, estimator='native-usage-anchor-v10-dimension-bounded-vision')
+profile = ModelProfile(repository='Qwen/Qwen3.5-4B', served_name='qwen3.5:4b', context_limit=32768, output_limit=4096)
+binding = {'tool_schema_sha256': None, 'tools': None, 'instructions': None, 'usage_baseline': None, ...}
+
+    def _admit(self, deps, prepared, profile, binding):
+        """\u628a\u300c\u88c5\u4e0d\u4e0b\u300d\u62c6\u6210\u80fd\u6307\u8ba4\u7ec4\u6210\u7684\u539f\u56e0\uff0c\u5e76\u4fdd\u7559\u53ef\u590d\u67e5\u7684\u4e8b\u4ef6\u3002"""
+        entry = {"turn_id": deps.turn_id, **prepared.as_manifest(),
+                 "context_limit": profile.context_limit, "output_reserve": profile.output_limit}
+        untrusted = binding.get("untrusted")
+        if untrusted:
+            raise Failure("CONTEXT_ESTIMATOR_INVALID",
+                f"\u4e0a\u6b21\u5b9e\u6d4b\u8f93\u5165\u5df2\u8d85\u8fc7\u9884\u7559\u8f93\u51fa\u7684\u4fdd\u5b88\u4f30\u7b97\uff08\u5b9e\u6d4b {untrusted.get('actual_input_tokens')} tokens\uff0c"
+                f"\u5f53\u65f6\u4e0a\u754c {untrusted.get('estimated_tokens_upper_bound')} tokens\uff0c\u53ef\u7528\u8f93\u5165 {prepared.available} tokens\uff09\uff1b"
+                "\u8ba1\u91cf\u914d\u65b9\u4e0d\u53ef\u4fe1\uff0c\u91cd\u65b0\u6821\u51c6\u524d\u4e0d\u80fd\u7f16\u8bd1\u65b0\u8bf7\u6c42\u3002", 422)
+        if prepared.fits:
+            return
+        with self.store.transaction() as db:
+            self.store.event(db, deps.task_id, 'context.rejected', entry)
+        dominant = prepared.dominant()
+        hint = ("\u56fe\u50cf\u9879\u6309\u6700\u574f\u60c5\u51b5\u7559\u4f4d\uff0c\u53ef\u5148\u53ea\u53d1\u9001\u5fc5\u8981\u7684\u4e00\u5f20\u56fe\u7247" if dominant.name == "vision"
+                else "\u53ef\u7f29\u5c0f\u672c\u8f6e\u8bfb\u53d6\u8303\u56f4\u540e\u7ee7\u7eed")
+>       raise Failure("CONTEXT_EXHAUSTED", prepared.explain() + f"\u5df2\u6709\u6587\u4ef6\u548c\u4f1a\u8bdd\u5df2\u4fdd\u5b58\uff0c{hint}\u3002", 422)
+E       forestry_agent.contracts.Failure: \u7f16\u8bd1\u8f93\u5165\u4fdd\u5b88\u4f30\u7b97 31,548 tokens \u8d85\u8fc7\u53ef\u7528\u8f93\u5165\u7a97\u53e3 28,672 tokens\uff1b\u5206\u9879\uff1a\u5de5\u5177\u5b9a\u4e4916,534\uff08\u4f30\u8ba1\uff09\u3001\u5bf9\u8bdd\u6587\u672c13,878\uff08\u4f30\u8ba1\uff09\u3001\u6d88\u606f\u6846\u67b61,136\uff08\u4f30\u8ba1\uff09\u3002\u5df2\u6709\u6587\u4ef6\u548c\u4f1a\u8bdd\u5df2\u4fdd\u5b58\uff0c\u53ef\u7f29\u5c0f\u672c\u8f6e\u8bfb\u53d6\u8303\u56f4\u540e\u7ee7\u7eed\u3002
+
+src\forestry_agent\context.py:298: Failure
+__ test_rejected_text_preserves_native_retry_instead_of_accepting_none[True] __
+
+client = <starlette.testclient.TestClient object at 0x0000021D963EC8C0>
+app = <fastapi.applications.FastAPI object at 0x0000021D96B78320>
+recover = True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("recover", [True, False])
+    async def test_rejected_text_preserves_native_retry_instead_of_accepting_none(client, app, recover):
+        state, _ = task(client, constraints={"allowed_capabilities": []})
+        engine, requests = app.state.engine, []
+        agent, connection = engine.make_agent("small", "invalid-output-recovery", state["config_snapshot"], state["task_id"])
+        def model(messages, info):
+            requests.append(messages)
+            if recover and len(requests) > 1:
+                return ModelResponse(parts=[ToolCallPart("final_result", {"summary": "\u5df2\u7ea0\u6b63\u8f93\u51fa\u683c\u5f0f", "artifact_ids": []}, "valid")])
+            return ModelResponse(parts=[TextPart("\u8fd9\u4e0d\u662fJSON\uff0c\u4f46\u58f0\u79f0\u4efb\u52a1\u5df2\u7ecf\u5b8c\u6210\u3002")])
+        try:
+            with agent.override(model=FixtureFunctionModel(model, stream_function=stream_adapter(model))):
+                if recover:
+                    result = await agent.run("\u6309\u539f\u751f\u8f93\u51fa\u534f\u8bae\u56de\u7b54", deps=Deps(engine, state["task_id"], "invalid-output-recovery", 1))
+>                   assert result.output.summary == "\u5df2\u7ea0\u6b63\u8f93\u51fa\u683c\u5f0f" and len(requests) == 2
+E                   AssertionError: assert ('\u8fd9\u4e0d\u662fJSON\uff0c\u4f46\u58f0\u79f0\u4efb\u52a1\u5df2\u7ecf\u5b8c\u6210\u3002' == '\u5df2\u7ea0\u6b63\u8f93\u51fa\u683c\u5f0f'
+E                     
+E                     - \u5df2\u7ea0\u6b63\u8f93\u51fa\u683c\u5f0f
+E                     + \u8fd9\u4e0d\u662fJSON\uff0c\u4f46\u58f0\u79f0\u4efb\u52a1\u5df2\u7ecf\u5b8c\u6210\u3002)
+
+tests\test_output_recovery.py:25: AssertionError
+_ test_rejected_text_preserves_native_retry_instead_of_accepting_none[False] __
+
+client = <starlette.testclient.TestClient object at 0x0000021D969954C0>
+app = <fastapi.applications.FastAPI object at 0x0000021D96953E90>
+recover = False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("recover", [True, False])
+    async def test_rejected_text_preserves_native_retry_instead_of_accepting_none(client, app, recover):
+        state, _ = task(client, constraints={"allowed_capabilities": []})
+        engine, requests = app.state.engine, []
+        agent, connection = engine.make_agent("small", "invalid-output-recovery", state["config_snapshot"], state["task_id"])
+        def model(messages, info):
+            requests.append(messages)
+            if recover and len(requests) > 1:
+                return ModelResponse(parts=[ToolCallPart("final_result", {"summary": "\u5df2\u7ea0\u6b63\u8f93\u51fa\u683c\u5f0f", "artifact_ids": []}, "valid")])
+            return ModelResponse(parts=[TextPart("\u8fd9\u4e0d\u662fJSON\uff0c\u4f46\u58f0\u79f0\u4efb\u52a1\u5df2\u7ecf\u5b8c\u6210\u3002")])
+        try:
+            with agent.override(model=FixtureFunctionModel(model, stream_function=stream_adapter(model))):
+                if recover:
+                    result = await agent.run("\u6309\u539f\u751f\u8f93\u51fa\u534f\u8bae\u56de\u7b54", deps=Deps(engine, state["task_id"], "invalid-output-recovery", 1))
+                    assert result.output.summary == "\u5df2\u7ea0\u6b63\u8f93\u51fa\u683c\u5f0f" and len(requests) == 2
+                else:
+>                   with pytest.raises(UnexpectedModelBehavior, match="retries"):
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E                   Failed: DID NOT RAISE UnexpectedModelBehavior
+
+tests\test_output_recovery.py:27: Failed
+_ test_recent_source_bodies_survive_changed_instructions_larger_than_old_tail _
+
+client = <starlette.testclient.TestClient object at 0x0000021D971D0A40>
+app = <fastapi.applications.FastAPI object at 0x0000021D971D33B0>
+tmp_path = WindowsPath('C:/Users/yzh/WorkBuddy/Agent/forestry-uav-agent-v1/workspace/rebuild-baseline-native-20261025/test_recent_source_bodies_surv0')
+
+    @pytest.mark.asyncio
+    async def test_recent_source_bodies_survive_changed_instructions_larger_than_old_tail(client, app, tmp_path):
+        sources, refs = [], []
+        for index in range(3):
+            text = f'RECENT_SOURCE_{index}: ' + 'source fact ' * 20
+            sources.append(text)
+            path = tmp_path / f'recent-{index}.txt'
+            path.write_text(text, encoding='utf-8')
+            refs.append(client.post('/resources/register', json={
+                'request_id': f'recent-{index}', 'path': str(path), 'classification': 'private', 'read_only': True}).json()['resource_id'])
+        state, _ = task(client, input_refs=refs, harness_mode='H1')
+        engine = app.state.engine
+        agent, connection = engine.make_agent('small', 'recent-source-retention', task_id=state['task_id'])
+        # Fixed instructions plus the authority frame exceed the former 9557-byte
+        # tail. Provider usage is synthetic; no model or source program runs.
+        agent.instructions(lambda ctx: 'Stable protocol instruction. ' + 'x' * 8000)
+        calls = 0
+    
+        def model(messages, info):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                parts = [ToolCallPart('read_file', {'resource_id': ref}, f'recent-{i}') for i, ref in enumerate(refs)]
+            else:
+                retained = [part.content.get('text') for message in messages if isinstance(message, ModelRequest)
+                            for part in message.parts if isinstance(part, ToolReturnPart) and isinstance(part.content, dict)]
+                assert all(text in retained for text in sources)
+                assert len((info.instructions or '').encode()) > 9557
+                if calls == 2:
+                    parts = [ToolCallPart('write_plan', {'items': [{'content': '\u636e\u5df2\u8bfb\u6765\u6e90\u5904\u7406\u7ed3\u679c', 'status': 'in_progress',
+                                                                 'active_form': '\u5904\u7406\u7ed3\u679c'}]}, 'plan')]
+                else:
+                    parts = [ToolCallPart('final_result', {'summary': 'Recent sources remain available.',
+                                                         'artifact_ids': [], 'limitations': ['Protocol fixture only.']}, 'finish')]
+            return ModelResponse(parts=parts, usage=RequestUsage(input_tokens=9000, output_tokens=100))
+    
+        try:
+            with agent.override(model=FixtureFunctionModel(model)):
+>               result = await agent.run('\u4fdd\u7559\u521a\u8bfb\u56de\u7684\u6765\u6e90\uff0c\u4e0d\u6267\u884c\u4ee3\u7801\u3002', deps=Deps(engine, state['task_id'], 'recent-source-retention', 1))
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_progress.py:147: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv\Lib\site-packages\pydantic_ai\agent\abstract.py:671: in run
+    node = await agent_run.next(node)  # pyright: ignore[reportArgumentType]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:599: in next
+    return await self._run_node_with_hooks(node, self._stream_and_advance)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:514: in _run_node_with_hooks
+    result = await lifecycle(node)
+             ^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:494: in lifecycle
+    result = await step_fn(lifecycle_node)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:613: in _stream_and_advance
+    return await self._advance_graph(node)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:409: in _advance_graph
+    task = await self._graph_run.next(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:584: in next
+    return await anext(self)
+           ^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:561: in __anext__
+    raise self._next.error
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:862: in _run_tracked_task
+    result = await self._run_task(t_)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:920: in _run_task
+    output = await node.call(step_context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\step.py:253: in _call_node
+    return await node.run(GraphRunContext(state=ctx.state, deps=ctx.deps))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1345: in run
+    return await self._make_request(ctx)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1655: in _make_request
+    model_response = await root_capability.wrap_model_request(
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:688: in wrap_model_request
+    return await chain(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:1012: in wrapped
+    return await cap.wrap_model_request(
+src\forestry_agent\planning.py:19: in wrap_model_request
+    return await handler(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:1012: in wrapped
+    return await cap.wrap_model_request(
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:1102: in wrap_model_request
+    return await chain(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:1398: in wrapper
+    return await _call_entry(entry, hook_name, ctx, handler=inner_handler, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:273: in _call_entry
+    return await _call_func(func, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:279: in _call_func
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\runtime\model_adapter.py:71: in guard
+    return await handler(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1614: in model_handler
+    req_ctx = await self._apply_before_model_request(
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1817: in _apply_before_model_request
+    processed_context = await ctx.deps.root_capability.before_model_request(run_context, request_context)
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:659: in before_model_request
+    request_context = await capability.before_model_request(cap_ctx, request_context)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:1072: in before_model_request
+    request_context = await _call_entry(entry, 'before_model_request', ctx, request_context)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:273: in _call_entry
+    return await _call_func(func, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:279: in _call_func
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\agent.py:609: in before_model
+    ctx.deps.context_manifest_id = self.contexts.compile(ctx.deps, request_context, profile, native_run_id=ctx.run_id)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\context.py:155: in compile
+    self._admit(deps, prepared, profile, binding)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <forestry_agent.context.Contexts object at 0x0000021D96AE8830>
+deps = Deps(engine=<forestry_agent.agent.Engine object at 0x0000021D96995490>, task_id='5459d93c-cdb9-4229-9cb8-ead7d3b46dc0'... first_fragment_at=None, fragments=0, timeout_reported=False), stream_prefix='', assignment_id=None, thinking_parts={})
+prepared = PreparedInput(messages=(ModelRequest(parts=[UserPromptPart(content='\u4fdd\u7559\u521a\u8bfb\u56de\u7684\u6765\u6e90\uff0c\u4e0d\u6267\u884c\u4ee3\u7801\u3002', timestamp=datetime.datetime(2026...detail='\u6d88\u606f\u4e0e\u5de5\u5177\u8fb9\u754c\u7684\u4fdd\u5b88\u7559\u4f4d')), available=28672, anchored=False, estimator='native-usage-anchor-v10-dimension-bounded-vision')
+profile = ModelProfile(repository='Qwen/Qwen3.5-4B', served_name='qwen3.5:4b', context_limit=32768, output_limit=4096)
+binding = {'tool_schema_sha256': None, 'tools': None, 'instructions': None, 'usage_baseline': None, ...}
+
+    def _admit(self, deps, prepared, profile, binding):
+        """\u628a\u300c\u88c5\u4e0d\u4e0b\u300d\u62c6\u6210\u80fd\u6307\u8ba4\u7ec4\u6210\u7684\u539f\u56e0\uff0c\u5e76\u4fdd\u7559\u53ef\u590d\u67e5\u7684\u4e8b\u4ef6\u3002"""
+        entry = {"turn_id": deps.turn_id, **prepared.as_manifest(),
+                 "context_limit": profile.context_limit, "output_reserve": profile.output_limit}
+        untrusted = binding.get("untrusted")
+        if untrusted:
+            raise Failure("CONTEXT_ESTIMATOR_INVALID",
+                f"\u4e0a\u6b21\u5b9e\u6d4b\u8f93\u5165\u5df2\u8d85\u8fc7\u9884\u7559\u8f93\u51fa\u7684\u4fdd\u5b88\u4f30\u7b97\uff08\u5b9e\u6d4b {untrusted.get('actual_input_tokens')} tokens\uff0c"
+                f"\u5f53\u65f6\u4e0a\u754c {untrusted.get('estimated_tokens_upper_bound')} tokens\uff0c\u53ef\u7528\u8f93\u5165 {prepared.available} tokens\uff09\uff1b"
+                "\u8ba1\u91cf\u914d\u65b9\u4e0d\u53ef\u4fe1\uff0c\u91cd\u65b0\u6821\u51c6\u524d\u4e0d\u80fd\u7f16\u8bd1\u65b0\u8bf7\u6c42\u3002", 422)
+        if prepared.fits:
+            return
+        with self.store.transaction() as db:
+            self.store.event(db, deps.task_id, 'context.rejected', entry)
+        dominant = prepared.dominant()
+        hint = ("\u56fe\u50cf\u9879\u6309\u6700\u574f\u60c5\u51b5\u7559\u4f4d\uff0c\u53ef\u5148\u53ea\u53d1\u9001\u5fc5\u8981\u7684\u4e00\u5f20\u56fe\u7247" if dominant.name == "vision"
+                else "\u53ef\u7f29\u5c0f\u672c\u8f6e\u8bfb\u53d6\u8303\u56f4\u540e\u7ee7\u7eed")
+>       raise Failure("CONTEXT_EXHAUSTED", prepared.explain() + f"\u5df2\u6709\u6587\u4ef6\u548c\u4f1a\u8bdd\u5df2\u4fdd\u5b58\uff0c{hint}\u3002", 422)
+E       forestry_agent.contracts.Failure: \u7f16\u8bd1\u8f93\u5165\u4fdd\u5b88\u4f30\u7b97 31,231 tokens \u8d85\u8fc7\u53ef\u7528\u8f93\u5165\u7a97\u53e3 28,672 tokens\uff1b\u5206\u9879\uff1a\u5de5\u5177\u5b9a\u4e4915,229\uff08\u4f30\u8ba1\uff09\u3001\u5bf9\u8bdd\u6587\u672c14,898\uff08\u4f30\u8ba1\uff09\u3001\u6d88\u606f\u6846\u67b61,104\uff08\u4f30\u8ba1\uff09\u3002\u5df2\u6709\u6587\u4ef6\u548c\u4f1a\u8bdd\u5df2\u4fdd\u5b58\uff0c\u53ef\u7f29\u5c0f\u672c\u8f6e\u8bfb\u53d6\u8303\u56f4\u540e\u7ee7\u7eed\u3002
+
+src\forestry_agent\context.py:298: Failure
+_ test_native_turn_request_limit_survives_resume_and_allows_explicit_correction _
+
+client = <starlette.testclient.TestClient object at 0x0000021D9720A270>
+app = <fastapi.applications.FastAPI object at 0x0000021D96AA66F0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000021D96AA42F0>
+
+    @pytest.mark.asyncio
+    async def test_native_turn_request_limit_survives_resume_and_allows_explicit_correction(client, app, monkeypatch):
+        state, _ = task(client)
+        engine = app.state.engine
+        with engine.store.transaction() as db:
+            frozen = engine.store.read_task(db, state['task_id'])
+            frozen['config_snapshot']['generation']['max_model_requests_per_turn'] = 2
+            engine.store.save_task(db, frozen, frozen['state_version'])
+        requests = 0
+        def model(messages, info):
+            nonlocal requests
+            requests += 1
+            if '\u53ea\u5f15\u7528\u5df2\u5b8c\u6210\u6587\u4ef6' in (info.instructions or ''):
+                saved = engine.store.task(state['task_id'])['artifact_ids'][-1]
+                return ModelResponse(parts=[ToolCallPart('final_result', {'summary': '\u5f15\u7528\u539f\u4ea7\u7269', 'artifact_ids': [saved]}, 'corrected-final')])
+            return ModelResponse(parts=[ToolCallPart('write_file', {'relative_path': f'new-{requests}.md', 'content': f'distinct result {requests}'}, f'write-{requests}')])
+        fixture = FixtureFunctionModel(model, stream_function=stream_adapter(model))
+        original = engine.make_agent
+        def make_agent(*args, **kwargs):
+            agent, connection = original(*args, **kwargs)
+            agent.model = fixture
+            return agent, connection
+        monkeypatch.setattr(engine, 'make_agent', make_agent)
+        engine.submit(state['task_id'], '\u6709\u65b0\u4e8b\u5b9e\u4f46\u8bf7\u6c42\u9884\u7b97\u6709\u754c', 'bounded-turn')
+        await engine.queue[state['task_id']]
+        await asyncio.sleep(0)
+        stopped = engine.store.task(state['task_id'])
+        assert requests == stopped['model_requests'] == 2
+        assert stopped['blockers'][0]['code'] == 'MODEL_TURN_BUDGET_EXHAUSTED'
+        original_artifacts = list(stopped['artifact_ids'])
+        engine.submit(state['task_id'], '\u6062\u590d\u540c\u56de\u5408\u4e0d\u80fd\u91cd\u65b0\u83b7\u5f97\u4e24\u6b21\u8bf7\u6c42', 'bounded-turn')
+        await engine.queue[state['task_id']]
+        await asyncio.sleep(0)
+        assert requests == engine.store.task(state['task_id'])['model_requests'] == 2
+        response = await asyncio.to_thread(client.post, f"/tasks/{state['task_id']}/resume", json={
+            'request_id': 'no-budget-reset', 'expected_state_version': engine.store.task(state['task_id'])['state_version']})
+        assert response.status_code == 422 and response.json()['error']['code'] == 'MODEL_TURN_BUDGET_EXHAUSTED'
+        response = await asyncio.to_thread(client.post, f"/tasks/{state['task_id']}/messages", json={
+            'request_id': 'budget-correction', 'expected_spec_revision': 1, 'text': '\u53ea\u5f15\u7528\u5df2\u5b8c\u6210\u6587\u4ef6\uff0c\u4e0d\u91cd\u590d\u5199\u5165'})
+>       assert response.status_code == 200 and response.json()['status'] == 'paused'
+E       AssertionError: assert (200 == 200 and 'created' == 'paused'
+E        +  where 200 = <Response [200 OK]>.status_code
+E         
+E         - paused
+E         + created)
+
+tests\test_progress.py:309: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_native_loop.py::test_named_artifacts_and_recent_job_records_are_scoped_bounded_native_facts[H2]
+FAILED tests/test_output_recovery.py::test_rejected_text_preserves_native_retry_instead_of_accepting_none[True]
+FAILED tests/test_output_recovery.py::test_rejected_text_preserves_native_retry_instead_of_accepting_none[False]
+FAILED tests/test_progress.py::test_recent_source_bodies_survive_changed_instructions_larger_than_old_tail
+FAILED tests/test_progress.py::test_native_turn_request_limit_survives_resume_and_allows_explicit_correction
+5 failed in 4.43s

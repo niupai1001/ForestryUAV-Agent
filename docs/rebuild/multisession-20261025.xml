@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="1.106" timestamp="2026-10-25T11:52:55.350304-04:00" hostname="DESKTOP-T530JCT"><testcase classname="tests.test_multisession_runtime" name="test_other_session_answers_while_first_session_tool_is_waiting" time="0.744"><failure message="IndexError: list index out of range">client = &lt;starlette.testclient.TestClient object at 0x000001CBC2ABD370&gt;
+app = &lt;fastapi.applications.FastAPI object at 0x000001CBC2A63020&gt;
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x000001CBC2ABD700&gt;
+
+    @pytest.mark.asyncio
+    async def test_other_session_answers_while_first_session_tool_is_waiting(client, app, monkeypatch):
+        first, _ = task(client, harness_mode='H0')
+        second, _ = task(client, harness_mode='H0', request_id='second-session')
+        engine = app.state.engine
+        entered, release = threading.Event(), threading.Event()
+        original_write = engine.resources.write
+    
+        def slow_write(*args, **kwargs):
+            entered.set()
+            if not release.wait(8):
+                raise RuntimeError('test did not release external tool')
+            return original_write(*args, **kwargs)
+    
+        monkeypatch.setattr(engine.resources, 'write', slow_write)
+        original_agent = engine.make_agent
+        calls = {}
+    
+        def make_agent(profile, turn, snapshot, task_id, **kwargs):
+            agent, channel = original_agent(profile, turn, snapshot, task_id, **kwargs)
+    
+            def model(messages, info):
+                calls[task_id] = calls.get(task_id, 0) + 1
+                if task_id == first['task_id'] and calls[task_id] == 1:
+                    return ModelResponse(parts=[ToolCallPart('write_file', {
+                        'relative_path': 'first.txt', 'content': 'first result'}, 'first-effect')])
+                return ModelResponse(parts=[TextPart('当前会话已回答。')])
+    
+            agent.model = FixtureFunctionModel(model, stream_function=stream_adapter(model))
+            return agent, channel
+    
+        monkeypatch.setattr(engine, 'make_agent', make_agent)
+        engine.submit(first['task_id'], '保存文件', 'first-turn')
+        a = engine.queue[first['task_id']]
+        b = None
+        try:
+            assert await asyncio.to_thread(entered.wait, 3)
+            engine.submit(second['task_id'], '普通问答', 'second-turn')
+            b = engine.queue[second['task_id']]
+            await asyncio.wait_for(asyncio.shield(b), 3)
+            assert not a.done()
+&gt;           assert engine.store.task(second['task_id'])['messages'][-1]['text'] == '当前会话已回答。'
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           IndexError: list index out of range
+
+tests\test_multisession_runtime.py:52: IndexError</failure></testcase></testsuite></testsuites>

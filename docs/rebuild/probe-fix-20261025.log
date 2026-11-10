@@ -1,0 +1,46 @@
+F.                                                                       [100%]
+================================== FAILURES ===================================
+________ test_probe_uses_escaped_immutable_uri_and_never_creates_files ________
+
+tmp_path = WindowsPath('C:/Users/yzh/WorkBuddy/Agent/forestry-uav-agent-v1/workspace/probe-fix-20261025/test_probe_uses_escaped_immuta0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000025EFE62AB40>
+
+    def test_probe_uses_escaped_immutable_uri_and_never_creates_files(tmp_path, monkeypatch):
+        root = tmp_path/'diagnostics # snapshot'
+        folder = root/'.forestry'
+        folder.mkdir(parents=True)
+        path = folder/'state.sqlite'
+        with sqlite3.connect(path) as db:
+            db.execute('CREATE TABLE evidence(value TEXT)')
+        before = snapshot(folder)
+        original = sqlite3.connect
+        uris = []
+    
+        def readonly(uri, **kwargs):
+            assert 'mode=ro&immutable=1' in uri and '%23' in uri and kwargs['uri']
+            uris.append(uri)
+            return original(uri, **kwargs)
+    
+        def no_temp_write(*args, **kwargs):
+            raise AssertionError('Diagnostic attempted a write probe')
+    
+        monkeypatch.setattr(sqlite3,'connect',readonly)
+        monkeypatch.setattr(tempfile,'NamedTemporaryFile',no_temp_write)
+        result = sqlite_probe(root)
+>       assert len(uris) == 1 and 'tables=1' in result, result
+E       AssertionError: model-steps.sqlite: stat failed FileNotFoundError(2, '\u7cfb\u7edf\u627e\u4e0d\u5230\u6307\u5b9a\u7684\u6587\u4ef6\u3002')
+E         state.sqlite: exists=1 size=8192 mtime=1792957805
+E           -wal: absent
+E           -shm: absent
+E           -journal: absent
+E           dir_write_hint=True\uff08\u6743\u9650\u63d0\u793a\uff0c\u672a\u9a8c\u8bc1\u5199\u5165\uff09
+E           db_write=unknown\uff08\u4e0d\u5c1d\u8bd5\u5199\u5165\uff09
+E           read=FAILED TypeError: test_probe_uses_escaped_immutable_uri_and_never_creates_files.<locals>.readonly() got multiple values for argument 'uri'
+E         
+E       assert (0 == 1)
+E        +  where 0 = len([])
+
+tests\test_sqlite_probe.py:34: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_sqlite_probe.py::test_probe_uses_escaped_immutable_uri_and_never_creates_files
+1 failed, 1 passed in 0.60s

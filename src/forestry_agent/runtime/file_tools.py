@@ -55,7 +55,11 @@ def register_file_tools(registry: ToolRegistry, *, resources: Resources, store,
                        lambda _: resources.list(resource_id, relative_path, max(0, offset), task_id=ctx.deps.task_id))
 
     def read_file(ctx: RunContext, resource_id: str, relative_path: str = "", offset: int = 0) -> dict:
-        """读取授权 UTF-8 文本/CSV 的有界字节窗口，结果包含版本和分页游标。"""
+        """读取授权 UTF-8 文本/CSV 的有界字节窗口，结果包含版本、分页游标和真实citation。
+        version是文件状态身份，不是SHA；正文中的算法/LUT等哈希不代表输入文件哈希。
+        citation只在本次从头读到文件尾时给source_sha256；否则为null，window_sha256仅标识已读字节窗口。
+        write_file的citation_actions可按本动作ID复制引用。需整份大文档SHA时用read_document，不从内容猜测来源哈希。
+        """
         return execute(ctx, "fs.read", {"resource_id": resource_id, "relative_path": relative_path,
                                         "offset": offset},
                        lambda _: resources.read(resource_id, relative_path, max(0, offset), task_id=ctx.deps.task_id))

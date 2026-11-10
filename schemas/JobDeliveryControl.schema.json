@@ -1,0 +1,25 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "request_id": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Request Id",
+      "type": "string"
+    },
+    "action": {
+      "enum": [
+        "present",
+        "skip"
+      ],
+      "title": "Action",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "action"
+  ],
+  "title": "JobDeliveryControl",
+  "type": "object"
+}

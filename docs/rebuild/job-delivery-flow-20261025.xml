@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="4" time="3.047" timestamp="2026-10-25T12:00:52.531369-04:00" hostname="DESKTOP-T530JCT"><testcase classname="tests.test_job_delivery" name="test_terminal_fact_reaches_native_step_and_consumes_only_after_answer" time="0.569" /><testcase classname="tests.test_job_delivery" name="test_default_job_query_does_not_sleep_or_consume_running_job" time="0.220" /><testcase classname="tests.test_job_delivery" name="test_delete_removes_delivery_before_job_and_event" time="0.163"><failure message="ImportError: cannot import name 'delete' from 'test_session_deletion' (C:\Users\yzh\WorkBuddy\Agent\forestry-uav-agent-v1\tests\test_session_deletion.py)">client = &lt;starlette.testclient.TestClient object at 0x000002727FC847A0&gt;
+app = &lt;fastapi.applications.FastAPI object at 0x000002727FC54740&gt;
+
+    def test_delete_removes_delivery_before_job_and_event(client, app):
+&gt;       from test_session_deletion import delete
+E       ImportError: cannot import name 'delete' from 'test_session_deletion' (C:\Users\yzh\WorkBuddy\Agent\forestry-uav-agent-v1\tests\test_session_deletion.py)
+
+tests\test_job_delivery.py:140: ImportError</failure></testcase><testcase classname="tests.test_job_registration" name="test_wait_job_returns_running_instead_of_holding_the_turn" time="1.295" /></testsuite></testsuites>

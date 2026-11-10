@@ -171,6 +171,7 @@ class Evidence:
     failure: str | None = None
     obstacle: str | None = None
     problem: str = ""
+    condition: str | None = None
 
     @property
     def dimensions(self) -> tuple[str, ...]:
@@ -190,6 +191,7 @@ class Evidence:
         changed = {name: (self.value(name) or "")[:16] for name in self.dimensions}
         return {"dimensions": list(self.dimensions), "facets": changed,
                 **({"failure_code": self.failure} if self.failure else {}),
+                **({"condition_sha256": self.condition} if self.condition else {}),
                 **({"obstacle": self.obstacle} if self.obstacle else {})}
 
 
@@ -208,12 +210,15 @@ def facts(tool: str, result) -> Evidence:
     error = raw.get("error") if isinstance(raw, dict) else None
     code = error.get("code") if isinstance(error, dict) else None
     failure = code if isinstance(code, str) and code else None
+    condition = error.get('condition') if isinstance(error, dict) else None
+    condition_hash = digest(condition) if isinstance(condition, dict) and condition else None
     obstacle_id = obstacle(tool, failure, error) if failure else None
     value = observation(tool, result)
     if value is None:
-        return Evidence(tool=tool, failure=failure, obstacle=obstacle_id)
+        return Evidence(tool=tool, failure=failure, obstacle=obstacle_id, condition=condition_hash)
     if not isinstance(value, dict):
-        return Evidence(tool=tool, facets=((OUTCOME, digest(value)),), failure=failure, obstacle=obstacle_id)
+        return Evidence(tool=tool, facets=((OUTCOME, digest(value)),), failure=failure, obstacle=obstacle_id,
+                        condition=condition_hash)
     profile = PROFILES.get(tool, (OUTCOME,))
     facets: list[tuple[str, str]] = []
     consumed: set[str] = set()
@@ -228,7 +233,7 @@ def facts(tool: str, result) -> Evidence:
         rest = {key: item for key, item in value.items() if key not in consumed and key != "error"}
         if rest:
             facets.append((OUTCOME, digest(rest)))
-    return Evidence(tool=tool, facets=tuple(facets), failure=failure, obstacle=obstacle_id)
+    return Evidence(tool=tool, facets=tuple(facets), failure=failure, obstacle=obstacle_id, condition=condition_hash)
 
 
 def obstacle(tool: str, code: str, error) -> str:
@@ -238,7 +243,10 @@ def obstacle(tool: str, code: str, error) -> str:
     成三次互相独立的新发现；同一工具换一种说法重复同一阻碍也同样可识别。
     """
     message = error.get("message") if isinstance(error, dict) else ""
-    return hashlib.sha256(encode({"code": code, "message": _stable(str(message or ""))}).encode()).hexdigest()
+    identity = {"code": code, "message": _stable(str(message or ""))}
+    if isinstance(error, dict) and isinstance(error.get('condition'), dict) and error['condition']:
+        identity['condition'] = error['condition']
+    return hashlib.sha256(encode(identity).encode()).hexdigest()
 
 
 def _stable(text: str) -> str:

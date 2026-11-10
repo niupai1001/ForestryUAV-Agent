@@ -1,0 +1,33 @@
+Using CPython 3.12.14 interpreter at: .venv\Scripts\python.exe
+Resolved 21 packages in 10ms
+Downloading hf-xet (3.6MiB)
+Downloading tokenizers (2.7MiB)
+Downloading numpy (12.0MiB)
+Downloading onnxruntime (14.2MiB)
+ Downloaded tokenizers
+ Downloaded hf-xet
+ Downloaded numpy
+ Downloaded onnxruntime
+Prepared 21 packages in 4.70s
+Installed 21 packages in 630ms
+ + anyio==4.15.1
+ + click==8.5.0
+ + colorama==0.4.6
+ + filelock==4.2.4
+ + flatbuffers==25.12.19
+ + fsspec==2026.9.0
+ + h11==0.16.0
+ + hf-xet==1.7.0
+ + httpcore2==2.16.0
+ + httpx2==2.16.0
+ + huggingface-hub==2.3.0
+ + idna==3.20
+ + numpy==2.5.4
+ + onnxruntime==1.31.0
+ + packaging==26.3
+ + protobuf==7.36.2
+ + pyyaml==6.0.3
+ + tokenizers==0.23.3
+ + tqdm==4.70.1
+ + truststore==0.10.5
+ + typing-extensions==4.16.0

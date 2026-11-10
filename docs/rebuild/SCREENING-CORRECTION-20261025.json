@@ -1,0 +1,434 @@
+{
+  "suite_sha256": "0c8deb0cd523596781efc46e4852a0a0ef7cc738aad658a9aa58d764737544c2",
+  "suite_version": "research-v1.0",
+  "scorer_sha256": "50cf51517551e01730a03b02aad4e71f997a8eccbe094a2b5984d0285f596597",
+  "rows": [
+    {
+      "task": "01",
+      "task_id": "6a7268ff-c290-4a94-b1bd-5a939c052841",
+      "source_record_sha256": "1da2e6bace6f7c55dde42e941c6ca5647a44e178449ab3e17d39589415c9eac3",
+      "source_verdict": "completed",
+      "frozen": {
+        "model": "large",
+        "harness": "H2",
+        "repeats": 1,
+        "budget": {
+          "model_requests": 12,
+          "tool_actions": 30,
+          "seconds": 900
+        }
+      },
+      "wall_seconds": 338.25,
+      "assessment": {
+        "automatic_checks_passed": true,
+        "checks_match_contract": true,
+        "report_semantics": "not_reviewed",
+        "manual_criteria": [
+          "回答是否对应当前应用而不是一般性介绍",
+          "是否说明联网不可用"
+        ],
+        "full_task_passed": false,
+        "job_execution": "no_jobs",
+        "job_statuses": [],
+        "observed_failure_layers": [],
+        "scientific_evidence": {
+          "computation_validity": "not_assessed",
+          "method_claims": "not_reviewed",
+          "field_accuracy": "not_assessed"
+        }
+      }
+    },
+    {
+      "task": "02",
+      "task_id": "e446cba8-0c1f-4973-8467-56e22f5efd51",
+      "source_record_sha256": "a1d336db652e60eede98239ceb3d0c351dfd981833cce2c1c1193be796d90cbe",
+      "source_verdict": "completed",
+      "frozen": {
+        "model": "large",
+        "harness": "H2",
+        "repeats": 1,
+        "budget": {
+          "model_requests": 12,
+          "tool_actions": 30,
+          "seconds": 900
+        }
+      },
+      "wall_seconds": null,
+      "assessment": {
+        "automatic_checks_passed": true,
+        "checks_match_contract": true,
+        "report_semantics": "not_reviewed",
+        "manual_criteria": [
+          "来源区分是否清楚",
+          "思考流是否原生展示（如存在）"
+        ],
+        "full_task_passed": false,
+        "job_execution": "no_jobs",
+        "job_statuses": [],
+        "observed_failure_layers": [],
+        "scientific_evidence": {
+          "computation_validity": "not_assessed",
+          "method_claims": "not_reviewed",
+          "field_accuracy": "not_assessed"
+        }
+      }
+    },
+    {
+      "task": "03",
+      "task_id": "2edb6bda-4d9a-4919-923d-1a02c69d5e02",
+      "source_record_sha256": "218ce5a6447a7d166b4fca87bc4bc53cfe999d9a82747de3778aca8125f129da",
+      "source_verdict": "failed",
+      "frozen": {
+        "model": "large",
+        "harness": "H2",
+        "repeats": 1,
+        "budget": {
+          "model_requests": 12,
+          "tool_actions": 30,
+          "seconds": 900
+        }
+      },
+      "wall_seconds": 357.20300000000134,
+      "assessment": {
+        "automatic_checks_passed": false,
+        "checks_match_contract": true,
+        "report_semantics": "not_reviewed",
+        "manual_criteria": [
+          "缺失值与未知单位是否分别说明",
+          "报告是否可读"
+        ],
+        "full_task_passed": false,
+        "job_execution": "incomplete",
+        "job_statuses": [
+          "queued"
+        ],
+        "observed_failure_layers": [
+          {
+            "code": "MODEL_REQUEST_TIMED_OUT",
+            "layer": "model_request_timeout_unresolved"
+          }
+        ],
+        "scientific_evidence": {
+          "computation_validity": "not_assessed",
+          "method_claims": "not_reviewed",
+          "field_accuracy": "not_assessed"
+        }
+      }
+    },
+    {
+      "task": "04",
+      "task_id": "c164c32e-7ee1-4e98-889d-3bcf4227a9e5",
+      "source_record_sha256": "34f15c137aa340a61a5388365e78e966a17bbc320c9c862af22891a9fbbf0104",
+      "source_verdict": "failed",
+      "frozen": {
+        "model": "large",
+        "harness": "H2",
+        "repeats": 1,
+        "budget": {
+          "model_requests": 12,
+          "tool_actions": 30,
+          "seconds": 900
+        }
+      },
+      "wall_seconds": 341.82800000000134,
+      "assessment": {
+        "automatic_checks_passed": false,
+        "checks_match_contract": true,
+        "report_semantics": "not_reviewed",
+        "manual_criteria": [
+          "是否先复现真实错误再修改",
+          "是否实际执行而非只给代码"
+        ],
+        "full_task_passed": false,
+        "job_execution": "incomplete",
+        "job_statuses": [
+          "queued"
+        ],
+        "observed_failure_layers": [
+          {
+            "code": "MODEL_REQUEST_TIMED_OUT",
+            "layer": "model_request_timeout_unresolved"
+          }
+        ],
+        "scientific_evidence": {
+          "computation_validity": "not_assessed",
+          "method_claims": "not_reviewed",
+          "field_accuracy": "not_assessed"
+        }
+      }
+    },
+    {
+      "task": "05",
+      "task_id": "157bd60a-1edc-4c3c-a167-f175c390b88f",
+      "source_record_sha256": "22aba23ab0fa827494d15e2ad2c5ec1e47dd93cf98e44072c2de165e7a181bf5",
+      "source_verdict": "completed",
+      "frozen": {
+        "model": "large",
+        "harness": "H2",
+        "repeats": 1,
+        "budget": {
+          "model_requests": 12,
+          "tool_actions": 30,
+          "seconds": 900
+        }
+      },
+      "wall_seconds": null,
+      "assessment": {
+        "automatic_checks_passed": true,
+        "checks_match_contract": true,
+        "report_semantics": "not_reviewed",
+        "manual_criteria": [
+          "是否只修报告",
+          "是否明确删除无依据的精度结论"
+        ],
+        "full_task_passed": false,
+        "job_execution": "no_jobs",
+        "job_statuses": [],
+        "observed_failure_layers": [],
+        "scientific_evidence": {
+          "computation_validity": "not_assessed",
+          "method_claims": "not_reviewed",
+          "field_accuracy": "not_assessed"
+        }
+      }
+    },
+    {
+      "task": "06",
+      "task_id": "377c5ed8-961b-4c46-8429-6f5e4d65f81f",
+      "source_record_sha256": "86a9ac85d5ebb17957d9be9f7131dd078111b4e848c4b958a087040195cc9f19",
+      "source_verdict": "completed",
+      "frozen": {
+        "model": "large",
+        "harness": "H2",
+        "repeats": 1,
+        "budget": {
+          "model_requests": 12,
+          "tool_actions": 30,
+          "seconds": 900
+        }
+      },
+      "wall_seconds": 52.45300000000134,
+      "assessment": {
+        "automatic_checks_passed": true,
+        "checks_match_contract": true,
+        "report_semantics": "not_reviewed",
+        "manual_criteria": [
+          "是否使用最新目标",
+          "是否停止执行已撤销的A组要求"
+        ],
+        "full_task_passed": false,
+        "job_execution": "no_jobs",
+        "job_statuses": [],
+        "observed_failure_layers": [],
+        "scientific_evidence": {
+          "computation_validity": "not_assessed",
+          "method_claims": "not_reviewed",
+          "field_accuracy": "not_assessed"
+        }
+      }
+    },
+    {
+      "task": "07",
+      "task_id": "0b4aeb72-4f35-4c05-9438-5fae2de9ba41",
+      "source_record_sha256": "04caf964786119b9eea481dc4cfa0ee664028d4f37aaf988a6e14bce29d2a9f3",
+      "source_verdict": "failed",
+      "frozen": {
+        "model": "large",
+        "harness": "H2",
+        "repeats": 1,
+        "budget": {
+          "model_requests": 12,
+          "tool_actions": 30,
+          "seconds": 900
+        }
+      },
+      "wall_seconds": 901.5780000000013,
+      "assessment": {
+        "automatic_checks_passed": false,
+        "checks_match_contract": true,
+        "report_semantics": "not_reviewed",
+        "manual_criteria": [
+          "失败后是否改变方法而不是重复同一动作"
+        ],
+        "full_task_passed": false,
+        "job_execution": "incomplete",
+        "job_statuses": [
+          "queued"
+        ],
+        "observed_failure_layers": [
+          {
+            "code": "JOBS_PENDING",
+            "layer": "job_lifecycle"
+          }
+        ],
+        "scientific_evidence": {
+          "computation_validity": "not_assessed",
+          "method_claims": "not_reviewed",
+          "field_accuracy": "not_assessed"
+        }
+      }
+    },
+    {
+      "task": "08",
+      "observation": "not_run"
+    },
+    {
+      "task": "09",
+      "task_id": "0f9135a1-1860-4f23-96fd-8b8acf58490d",
+      "source_record_sha256": "31eb50939ea5622d71944aa793f5ef643f53ca4fda92d63a66b6c8de64fbd2df",
+      "source_verdict": "failed",
+      "frozen": {
+        "model": "large",
+        "harness": "H2",
+        "repeats": 1,
+        "budget": {
+          "model_requests": 12,
+          "tool_actions": 30,
+          "seconds": 900
+        }
+      },
+      "wall_seconds": 209.90599999999904,
+      "assessment": {
+        "automatic_checks_passed": false,
+        "checks_match_contract": true,
+        "report_semantics": "not_reviewed",
+        "manual_criteria": [
+          "是否分页/按需读图而非整批入上下文",
+          "是否说明定位方法"
+        ],
+        "full_task_passed": false,
+        "job_execution": "no_jobs",
+        "job_statuses": [],
+        "observed_failure_layers": [
+          {
+            "code": "MODEL_PROTOCOL_ERROR",
+            "layer": "runtime_protocol_or_persistence_unresolved"
+          }
+        ],
+        "scientific_evidence": {
+          "computation_validity": "not_assessed",
+          "method_claims": "not_reviewed",
+          "field_accuracy": "not_assessed"
+        }
+      }
+    },
+    {
+      "task": "10",
+      "task_id": "80c47e77-1b04-4dfb-93f3-6ac0cb91438b",
+      "source_record_sha256": "dc9b2b1e4ec8f21572e297e63e3341debc173c3f3c538aa1681255a7cedd7e89",
+      "source_verdict": "completed",
+      "frozen": {
+        "model": "large",
+        "harness": "H2",
+        "repeats": 1,
+        "budget": {
+          "model_requests": 12,
+          "tool_actions": 30,
+          "seconds": 900
+        }
+      },
+      "wall_seconds": 112.29699999999866,
+      "assessment": {
+        "automatic_checks_passed": true,
+        "checks_match_contract": true,
+        "report_semantics": "not_reviewed",
+        "manual_criteria": [
+          "是否说明版本取代关系",
+          "是否保留缺失事实为未知"
+        ],
+        "full_task_passed": false,
+        "job_execution": "no_jobs",
+        "job_statuses": [],
+        "observed_failure_layers": [],
+        "scientific_evidence": {
+          "computation_validity": "not_assessed",
+          "method_claims": "not_reviewed",
+          "field_accuracy": "not_assessed"
+        }
+      }
+    },
+    {
+      "task": "11",
+      "task_id": "87d801e4-2c3a-40c0-a1a8-120f826e61ab",
+      "source_record_sha256": "5b0bba22ed321e90eaf94105003d8a98cc9c623f3dd7d336442c1b924be9cbb5",
+      "source_verdict": "failed",
+      "frozen": {
+        "model": "large",
+        "harness": "H2",
+        "repeats": 1,
+        "budget": {
+          "model_requests": 12,
+          "tool_actions": 30,
+          "seconds": 900
+        }
+      },
+      "wall_seconds": 5.578000000001339,
+      "assessment": {
+        "automatic_checks_passed": false,
+        "checks_match_contract": true,
+        "report_semantics": "not_reviewed",
+        "manual_criteria": [
+          "波段/网格/坐标系/单位/血缘是否都核对",
+          "是否把未证明条件写清"
+        ],
+        "full_task_passed": false,
+        "job_execution": "no_jobs",
+        "job_statuses": [],
+        "observed_failure_layers": [
+          {
+            "code": "CONTEXT_EXHAUSTED",
+            "layer": "context"
+          }
+        ],
+        "scientific_evidence": {
+          "computation_validity": "not_assessed",
+          "method_claims": "not_reviewed",
+          "field_accuracy": "not_assessed"
+        }
+      }
+    },
+    {
+      "task": "12",
+      "task_id": "f34af557-f442-44bc-ac4e-27a07690d417",
+      "source_record_sha256": "d69a43b7e693f54d7d27868f9e2f73731b82537d7242c139d2052b5a413d6ead",
+      "source_verdict": "completed",
+      "frozen": {
+        "model": "large",
+        "harness": "H2",
+        "repeats": 1,
+        "budget": {
+          "model_requests": 12,
+          "tool_actions": 30,
+          "seconds": 900
+        }
+      },
+      "wall_seconds": 130.0,
+      "assessment": {
+        "automatic_checks_passed": true,
+        "checks_match_contract": true,
+        "report_semantics": "not_reviewed",
+        "manual_criteria": [
+          "假设是否有限且可检验",
+          "是否把光谱残差与现场精度分开"
+        ],
+        "full_task_passed": false,
+        "job_execution": "no_jobs",
+        "job_statuses": [],
+        "observed_failure_layers": [],
+        "scientific_evidence": {
+          "computation_validity": "not_assessed",
+          "method_claims": "not_reviewed",
+          "field_accuracy": "not_assessed"
+        }
+      }
+    }
+  ],
+  "automatic_passed": 6,
+  "full_task_passed": 0,
+  "policy": "metadata-only reclassification; saved checks not re-executed; originals unchanged; no model or scientific jobs",
+  "limitations": [
+    "No independent semantic or field-accuracy review is implied.",
+    "Blocker codes describe observed failure layers, not proven model capability causes.",
+    "Thinking/context/runtime variants are not a controlled comparison group."
+  ]
+}

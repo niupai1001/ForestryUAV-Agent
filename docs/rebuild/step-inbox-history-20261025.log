@@ -1,0 +1,8 @@
+.                                                                        [100%]
+============================== warnings summary ===============================
+tests/test_step_inbox.py::test_new_user_input_reaches_next_native_step_without_second_turn
+  C:\Users\yzh\WorkBuddy\Agent\forestry-uav-agent-v1\src\forestry_agent\agent.py:612: PydanticAIDeprecationWarning: Appending to `request_context.messages` in `before_model_request` to add messages to the history is deprecated. Use `request_context.messages = [*request_context.messages, msg]` plus `ctx.messages.append(msg)` instead.
+    request_context.messages.append(ModelRequest(parts=[UserPromptPart(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 1 warning in 0.85s

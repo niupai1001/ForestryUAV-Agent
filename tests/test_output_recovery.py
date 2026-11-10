@@ -1,6 +1,6 @@
 import pytest
 from pydantic_ai.exceptions import UnexpectedModelBehavior
-from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
+from pydantic_ai.messages import ModelResponse, ToolCallPart
 from test_core import task
 from test_roles import FixtureFunctionModel, stream_adapter
 
@@ -9,7 +9,7 @@ from forestry_agent.agent import Deps
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("recover", [True, False])
-async def test_rejected_text_preserves_native_retry_instead_of_accepting_none(client, app, recover):
+async def test_invalid_structured_output_preserves_native_retry_instead_of_accepting_none(client, app, recover):
     state, _ = task(client, constraints={"allowed_capabilities": []})
     engine, requests = app.state.engine, []
     agent, connection = engine.make_agent("small", "invalid-output-recovery", state["config_snapshot"], state["task_id"])
@@ -17,7 +17,10 @@ async def test_rejected_text_preserves_native_retry_instead_of_accepting_none(cl
         requests.append(messages)
         if recover and len(requests) > 1:
             return ModelResponse(parts=[ToolCallPart("final_result", {"summary": "已纠正输出格式", "artifact_ids": []}, "valid")])
-        return ModelResponse(parts=[TextPart("这不是JSON，但声称任务已经完成。")])
+        # Public text is now a supported output. Exercise actual schema rejection,
+        # rather than forcing the obsolete JSON-only public-answer policy.
+        return ModelResponse(parts=[ToolCallPart('final_result',
+            {'response': None, 'artifact_ids': [123]}, 'invalid')])
     try:
         with agent.override(model=FixtureFunctionModel(model, stream_function=stream_adapter(model))):
             if recover:

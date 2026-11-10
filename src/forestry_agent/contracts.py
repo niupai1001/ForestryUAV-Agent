@@ -17,6 +17,7 @@ CAPABILITY_NAMES = {"list_inputs": "fs.inputs", "list_files": "fs.list", "read_f
     "search_web": "web.search", "read_web_page": "web.read", "write_plan": "task.plan", "read_plan": "task.plan",
     "acquire_dependencies": "environment.acquire", "resolve_dependencies": "environment.acquire"}
 CAPABILITY_NAMES["process_lidar_terrain"] = "code.execute"
+CAPABILITY_NAMES["set_job_follow_up"] = "job.observe"
 CAPABILITY_NAMES["process_lidar_canopy"] = "code.execute"
 CAPABILITY_NAMES["apply_lidar_roi"] = "code.execute"
 CAPABILITY_NAMES['view_image'] = 'document.read'
@@ -90,6 +91,15 @@ class Control(Boundary):
     expected_state_version: int = Field(ge=1)
 
 
+class JobCancel(Boundary):
+    request_id: str = Field(min_length=1, max_length=200)
+
+
+class JobDeliveryControl(Boundary):
+    request_id: str = Field(min_length=1, max_length=200)
+    action: Literal['present', 'skip']
+
+
 class RegisterResource(Boundary):
     request_id: str = Field(min_length=1, max_length=200)
     path: str = Field(min_length=1, max_length=4096)
@@ -118,9 +128,11 @@ class Acceptance(Boundary):
 
 
 class Failure(Exception):
-    def __init__(self, code: str, message: str, status: int = 400, retryable: bool = False):
+    def __init__(self, code: str, message: str, status: int = 400, retryable: bool = False,
+                 *, condition: dict | None = None):
         super().__init__(message)
         self.code, self.message, self.status, self.retryable = code, message, status, retryable
+        self.condition = condition  # Backend-observed input/method state, never model-authored hypotheses.
 
 
 class MemoryContent(Boundary):

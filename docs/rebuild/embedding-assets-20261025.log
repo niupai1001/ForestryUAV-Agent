@@ -1,0 +1,7 @@
+{"downloaded": "onnx/model_qint8_avx512_vnni.onnx", "bytes": 118346824}
+{"downloaded": "onnx/tokenizer.json", "bytes": 17082730}
+{"downloaded": "onnx/tokenizer_config.json", "bytes": 443}
+{"downloaded": "onnx/special_tokens_map.json", "bytes": 167}
+{"downloaded": "onnx/config.json", "bytes": 653}
+{"downloaded": "config.json", "bytes": 655}
+{"status": "ready", "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3", "files": 6}

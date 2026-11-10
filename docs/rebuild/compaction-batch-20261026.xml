@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="5" time="1.374" timestamp="2026-10-25T23:00:10.737882-04:00" hostname="DESKTOP-T530JCT"><testcase classname="tests.test_compaction_batch_pairs" name="test_native_compaction_retains_large_batch_pairs_and_drops_only_settled_prefix[False-False]" time="0.003" /><testcase classname="tests.test_compaction_batch_pairs" name="test_native_compaction_retains_large_batch_pairs_and_drops_only_settled_prefix[True-False]" time="0.002" /><testcase classname="tests.test_compaction_batch_pairs" name="test_native_compaction_retains_large_batch_pairs_and_drops_only_settled_prefix[False-True]" time="0.003"><failure message="AssertionError: assert 18 &lt; 18&#10; +  where 18 = len([ModelRequest(parts=[UserPromptPart(content='保留这个完整目标', timestamp=datetime.datetime(2026, 10, 26, 3, 0, 10, 816085, tz...ol_call_id='call-1', timestamp=datetime.datetime(2026, 10, 26, 3, 0, 10, 816085, tzinfo=datetime.timezone.utc))]), ...])&#10; +  and   18 = len([ModelRequest(parts=[UserPromptPart(content='保留这个完整目标', timestamp=datetime.datetime(2026, 10, 26, 3, 0, 10, 816085, tz...ol_call_id='call-1', timestamp=datetime.datetime(2026, 10, 26, 3, 0, 10, 816085, tzinfo=datetime.timezone.utc))]), ...])">retry = False, reused = True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('retry,reused', [(False, False), (True, False), (False, True)])
+    async def test_native_compaction_retains_large_batch_pairs_and_drops_only_settled_prefix(retry, reused):
+        history = batch_history(retry=retry, reused=reused)
+        compact = UsageAwareSlidingWindow(max_messages=4, keep_messages=3)
+        result = await compact.compact(history, None)
+        # Prove the compactor actually trimmed the old settled pair, not a vacuous invariant.
+        if reused:
+&gt;           assert len(result) &lt; len(history)
+E           AssertionError: assert 18 &lt; 18
+E            +  where 18 = len([ModelRequest(parts=[UserPromptPart(content='保留这个完整目标', timestamp=datetime.datetime(2026, 10, 26, 3, 0, 10, 816085, tz...ol_call_id='call-1', timestamp=datetime.datetime(2026, 10, 26, 3, 0, 10, 816085, tzinfo=datetime.timezone.utc))]), ...])
+E            +  and   18 = len([ModelRequest(parts=[UserPromptPart(content='保留这个完整目标', timestamp=datetime.datetime(2026, 10, 26, 3, 0, 10, 816085, tz...ol_call_id='call-1', timestamp=datetime.datetime(2026, 10, 26, 3, 0, 10, 816085, tzinfo=datetime.timezone.utc))]), ...])
+
+tests\test_compaction_batch_pairs.py:31: AssertionError</failure></testcase><testcase classname="tests.test_compaction_batch_pairs" name="test_compaction_still_removes_whole_completed_batch_when_it_is_outside_tail" time="0.002" /><testcase classname="tests.test_context" name="test_compaction_preserves_tool_pairing_authoritative_facts_and_private_manifest" time="0.643" /></testsuite></testsuites>

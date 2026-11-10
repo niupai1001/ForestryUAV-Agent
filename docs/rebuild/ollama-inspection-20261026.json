@@ -1,0 +1,184 @@
+{
+  "observed_at": "2026-10-26T02:33:17.034108+00:00",
+  "version": {
+    "version": "0.40.7"
+  },
+  "resident": {
+    "models": []
+  },
+  "tags": {
+    "models": [
+      {
+        "name": "qwen3.5:4b-cpu",
+        "model": "qwen3.5:4b-cpu",
+        "modified_at": "2026-10-05T03:34:41.7287338-04:00",
+        "size": 3324173946,
+        "digest": "2ed9e6a2d93289bfdcb54a10d526aed8f043dafe24b8cc432cfba92315f9140f",
+        "details": {
+          "parent_model": "qwen3.5:4b",
+          "format": "gguf",
+          "family": "qwen35",
+          "families": [
+            "qwen35"
+          ],
+          "parameter_size": "4.2B",
+          "quantization_level": "Q4_K_M",
+          "context_length": 262144,
+          "embedding_length": 2560,
+          "runner": "ggml"
+        },
+        "capabilities": [
+          "completion",
+          "vision",
+          "tools",
+          "thinking"
+        ]
+      },
+      {
+        "name": "qwen3.5:4b",
+        "model": "qwen3.5:4b",
+        "modified_at": "2026-10-05T03:34:41.6679316-04:00",
+        "size": 3324173934,
+        "digest": "d8b0f5e9760cd1682034f292d7ef72ec46f432149be0df7574bf2d6e92e38c04",
+        "details": {
+          "parent_model": "model.gguf",
+          "format": "gguf",
+          "family": "qwen35",
+          "families": [
+            "qwen35"
+          ],
+          "parameter_size": "4.2B",
+          "quantization_level": "Q4_K_M",
+          "context_length": 262144,
+          "embedding_length": 2560,
+          "runner": "llamacpp"
+        },
+        "capabilities": [
+          "completion",
+          "vision",
+          "tools",
+          "thinking"
+        ]
+      },
+      {
+        "name": "qwen3.8:latest",
+        "model": "qwen3.8:latest",
+        "modified_at": "2026-10-04T12:46:58.3697526-04:00",
+        "size": 17741872154,
+        "digest": "aaee06c39dcf2437cde036998d960e1fc1494b8191be7cc9657d01e509097813",
+        "details": {
+          "parent_model": "qwen3.8:27b-q4_K_M",
+          "format": "gguf",
+          "family": "qwen35",
+          "families": [
+            "qwen35"
+          ],
+          "parameter_size": "27.3B",
+          "quantization_level": "Q4_K_M",
+          "context_length": 262144,
+          "embedding_length": 5120,
+          "runner": "llamacpp"
+        },
+        "capabilities": [
+          "completion",
+          "vision",
+          "tools",
+          "thinking"
+        ]
+      }
+    ]
+  },
+  "models": {
+    "qwen3.5:4b-cpu": {
+      "parameters": "num_gpu                        0\npresence_penalty               1.5\ntemperature                    1\ntop_k                          20\ntop_p                          0.95",
+      "capabilities": [
+        "completion",
+        "vision",
+        "tools",
+        "thinking"
+      ],
+      "details": {
+        "parent_model": "qwen3.5:4b",
+        "format": "gguf",
+        "family": "qwen35",
+        "families": [
+          "qwen35"
+        ],
+        "parameter_size": "4.2B",
+        "quantization_level": "Q4_K_M"
+      },
+      "thinking": {
+        "values": [
+          false,
+          true
+        ],
+        "default": true
+      },
+      "declared_context_fields": {
+        "qwen35.context_length": 262144
+      }
+    },
+    "qwen3.5:4b": {
+      "parameters": "presence_penalty               1.5\ntemperature                    1\ntop_k                          20\ntop_p                          0.95",
+      "capabilities": [
+        "completion",
+        "vision",
+        "tools",
+        "thinking"
+      ],
+      "details": {
+        "parent_model": "model.gguf",
+        "format": "gguf",
+        "family": "qwen35",
+        "families": [
+          "qwen35"
+        ],
+        "parameter_size": "4.2B",
+        "quantization_level": "Q4_K_M",
+        "runner": "llamacpp"
+      },
+      "thinking": {
+        "values": [
+          false,
+          true
+        ],
+        "default": true
+      },
+      "declared_context_fields": {
+        "qwen35.context_length": 262144
+      }
+    },
+    "qwen3.8:latest": {
+      "parameters": "draft_num_predict              4\nmin_p                          0\npresence_penalty               0\nrepeat_penalty                 1\ntemperature                    1\ntop_k                          20\ntop_p                          0.95",
+      "capabilities": [
+        "completion",
+        "vision",
+        "tools",
+        "thinking"
+      ],
+      "details": {
+        "parent_model": "qwen3.8:27b-q4_K_M",
+        "format": "gguf",
+        "family": "qwen35",
+        "families": [
+          "qwen35"
+        ],
+        "parameter_size": "27.3B",
+        "quantization_level": "Q4_K_M",
+        "runner": "llamacpp"
+      },
+      "thinking": {
+        "values": [
+          false,
+          "low",
+          "medium",
+          "xhigh"
+        ],
+        "default": "medium"
+      },
+      "declared_context_fields": {
+        "qwen35.context_length": 262144
+      }
+    }
+  }
+}

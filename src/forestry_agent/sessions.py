@@ -122,7 +122,7 @@ class Sessions:
         db.execute('DELETE FROM agent_runs WHERE turn_id IN (SELECT id FROM turns WHERE task_id=?)',(task_id,))
         if db.execute("SELECT 1 FROM sqlite_master WHERE name='native_plan_items'").fetchone():
             db.execute('DELETE FROM native_plan_items WHERE json_extract(session,\'$[0]\')=?',(task_id,))
-        for table in ('progress_observations','approvals','contexts','deliveries','assignments',
+        for table in ('turn_continuations','job_deliveries','progress_observations','approvals','contexts','deliveries','assignments',
                       'jobs','artifacts','actions','events','specs','turns'):
             db.execute(f'DELETE FROM {table} WHERE task_id=?',(task_id,))
         db.execute('DELETE FROM tasks WHERE id=?',(task_id,))

@@ -1,0 +1,100 @@
+.........FFF.                                                            [100%]
+================================== FAILURES ===================================
+_________ test_inversion_import_requires_original_lut_identity[same] __________
+
+catalog_case = (<starlette.testclient.TestClient object at 0x000001A9F0EA1160>, <fastapi.applications.FastAPI object at 0x000001A9F10...estry-uav-agent-v1/workspace/rebuild-science-identity-invert-20261025/test_inversion_import_requires0/orthophoto.tif'))
+lut_state = 'same'
+
+    @pytest.mark.parametrize('lut_state', ['same','changed','missing'])
+    def test_inversion_import_requires_original_lut_identity(catalog_case, lut_state):
+        client,app,_,_,source,product = catalog_case
+        declaration = {'reflectance':'calibrated_fraction_0_1', 'calibration_source':'camera metadata',
+            'band_mapping_source':'sensor metadata', 'band_names':['Red','NIR'], 'raster_bands':[1,2]}
+        lut = source.parent/'lut.npz'
+        lut.write_bytes(b'original priors and geometry fixture')
+        declared = source.parent/'invert-declaration.json'
+        declared.write_text(json.dumps(declaration))
+        catalog = {'entries':[{'operation':'invert','image':IMAGE,
+            'input_identity':input_identity(product), 'declaration':declaration,
+            'science_run_identity':science_run_identity('invert',
+                {'raster':input_identity(product),'lut':input_identity(lut)},
+                validate_declaration('invert',declaration),IMAGE),
+            'products':[{'name':product.name,'path':str(product),'sha256':file_hash(product)}],
+            'summary':{'fixture':True},'provenance':{'job_id':'original'},'limitations':['fixture only']} ]}
+        app.state.engine.config.imagery_result_catalog.write_text(json.dumps(catalog))
+        if lut_state == 'changed':
+            lut.write_bytes(b'changed LUT priors or solar geometry')
+        refs = {}
+        for role,path in {'raster':product,'lut':lut,'declaration':declared}.items():
+>           refs[role] = client.post('/resources/register',json={'request_id':role,
+                'path':str(path),'read_only':True}).json()['resource_id']
+E           KeyError: 'resource_id'
+
+tests\test_imagery_catalog.py:113: KeyError
+________ test_inversion_import_requires_original_lut_identity[changed] ________
+
+catalog_case = (<starlette.testclient.TestClient object at 0x000001A9F0ED5850>, <fastapi.applications.FastAPI object at 0x000001A9F11...estry-uav-agent-v1/workspace/rebuild-science-identity-invert-20261025/test_inversion_import_requires1/orthophoto.tif'))
+lut_state = 'changed'
+
+    @pytest.mark.parametrize('lut_state', ['same','changed','missing'])
+    def test_inversion_import_requires_original_lut_identity(catalog_case, lut_state):
+        client,app,_,_,source,product = catalog_case
+        declaration = {'reflectance':'calibrated_fraction_0_1', 'calibration_source':'camera metadata',
+            'band_mapping_source':'sensor metadata', 'band_names':['Red','NIR'], 'raster_bands':[1,2]}
+        lut = source.parent/'lut.npz'
+        lut.write_bytes(b'original priors and geometry fixture')
+        declared = source.parent/'invert-declaration.json'
+        declared.write_text(json.dumps(declaration))
+        catalog = {'entries':[{'operation':'invert','image':IMAGE,
+            'input_identity':input_identity(product), 'declaration':declaration,
+            'science_run_identity':science_run_identity('invert',
+                {'raster':input_identity(product),'lut':input_identity(lut)},
+                validate_declaration('invert',declaration),IMAGE),
+            'products':[{'name':product.name,'path':str(product),'sha256':file_hash(product)}],
+            'summary':{'fixture':True},'provenance':{'job_id':'original'},'limitations':['fixture only']} ]}
+        app.state.engine.config.imagery_result_catalog.write_text(json.dumps(catalog))
+        if lut_state == 'changed':
+            lut.write_bytes(b'changed LUT priors or solar geometry')
+        refs = {}
+        for role,path in {'raster':product,'lut':lut,'declaration':declared}.items():
+>           refs[role] = client.post('/resources/register',json={'request_id':role,
+                'path':str(path),'read_only':True}).json()['resource_id']
+E           KeyError: 'resource_id'
+
+tests\test_imagery_catalog.py:113: KeyError
+________ test_inversion_import_requires_original_lut_identity[missing] ________
+
+catalog_case = (<starlette.testclient.TestClient object at 0x000001A9F1313560>, <fastapi.applications.FastAPI object at 0x000001A9F13...estry-uav-agent-v1/workspace/rebuild-science-identity-invert-20261025/test_inversion_import_requires2/orthophoto.tif'))
+lut_state = 'missing'
+
+    @pytest.mark.parametrize('lut_state', ['same','changed','missing'])
+    def test_inversion_import_requires_original_lut_identity(catalog_case, lut_state):
+        client,app,_,_,source,product = catalog_case
+        declaration = {'reflectance':'calibrated_fraction_0_1', 'calibration_source':'camera metadata',
+            'band_mapping_source':'sensor metadata', 'band_names':['Red','NIR'], 'raster_bands':[1,2]}
+        lut = source.parent/'lut.npz'
+        lut.write_bytes(b'original priors and geometry fixture')
+        declared = source.parent/'invert-declaration.json'
+        declared.write_text(json.dumps(declaration))
+        catalog = {'entries':[{'operation':'invert','image':IMAGE,
+            'input_identity':input_identity(product), 'declaration':declaration,
+            'science_run_identity':science_run_identity('invert',
+                {'raster':input_identity(product),'lut':input_identity(lut)},
+                validate_declaration('invert',declaration),IMAGE),
+            'products':[{'name':product.name,'path':str(product),'sha256':file_hash(product)}],
+            'summary':{'fixture':True},'provenance':{'job_id':'original'},'limitations':['fixture only']} ]}
+        app.state.engine.config.imagery_result_catalog.write_text(json.dumps(catalog))
+        if lut_state == 'changed':
+            lut.write_bytes(b'changed LUT priors or solar geometry')
+        refs = {}
+        for role,path in {'raster':product,'lut':lut,'declaration':declared}.items():
+>           refs[role] = client.post('/resources/register',json={'request_id':role,
+                'path':str(path),'read_only':True}).json()['resource_id']
+E           KeyError: 'resource_id'
+
+tests\test_imagery_catalog.py:113: KeyError
+=========================== short test summary info ===========================
+FAILED tests/test_imagery_catalog.py::test_inversion_import_requires_original_lut_identity[same]
+FAILED tests/test_imagery_catalog.py::test_inversion_import_requires_original_lut_identity[changed]
+FAILED tests/test_imagery_catalog.py::test_inversion_import_requires_original_lut_identity[missing]
+3 failed, 10 passed, 7 deselected in 3.26s

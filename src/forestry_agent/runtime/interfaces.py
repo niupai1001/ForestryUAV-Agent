@@ -100,6 +100,36 @@ class ToolSpec:
     func: Callable[..., Any]
     component: str
     mode: str = "serial"
+    summary_en: str = ''
+    accepts: tuple[str, ...] = ()
+    produces: tuple[str, ...] = ()
+    modalities: tuple[str, ...] = ()
+    permission_tier: str = 'runtime_guarded'
+    version: str = '1'
+
+
+@dataclass(frozen=True)
+class ToolDescriptor:
+    name: str
+    summary_zh: str
+    summary_en: str
+    capability: str
+    domain: str
+    schema_ref: str
+    accepts: tuple[str, ...] = ()
+    produces: tuple[str, ...] = ()
+    modalities: tuple[str, ...] = ()
+    permission_tier: str = 'runtime_guarded'
+    load_mode: str = 'discoverable'
+    version: str = '1'
+
+
+@dataclass(frozen=True)
+class ToolSetSnapshot:
+    names: tuple[str, ...]
+    schema_hash: str
+    request_id: str
+    revision: int
 
 
 @dataclass(frozen=True)
@@ -126,7 +156,7 @@ class ModelAdapter(Protocol):
     第二套工具循环——已安装的驱动提供循环，额外再写一份会重复恢复与配对话义。
     """
 
-    def open(self, profile, run: RunScope | None = None) -> ModelChannel: ...
+    def open(self, profile, run: RunScope | None = None, *, model_identity=None) -> ModelChannel: ...
 
     def request_guard(self, channel: ModelChannel | None = None, *, budget_seconds: float) -> Callable[..., Awaitable[Any]]: ...
 
@@ -141,7 +171,7 @@ class ToolRegistry(Protocol):
 
     def names(self) -> tuple[str, ...]: ...
 
-    def install(self, agent) -> None: ...
+    def install(self, agent, *, deferred=False) -> None: ...
 
 
 @runtime_checkable

@@ -306,10 +306,10 @@ async def test_native_turn_request_limit_survives_resume_and_allows_explicit_cor
     assert response.status_code == 422 and response.json()['error']['code'] == 'MODEL_TURN_BUDGET_EXHAUSTED'
     response = await asyncio.to_thread(client.post, f"/tasks/{state['task_id']}/messages", json={
         'request_id': 'budget-correction', 'expected_spec_revision': 1, 'text': '只引用已完成文件，不重复写入'})
-    assert response.status_code == 200 and response.json()['status'] == 'paused'
-    response = await asyncio.to_thread(client.post, f"/tasks/{state['task_id']}/resume", json={
-        'request_id': 'resume-budget-correction', 'expected_state_version': response.json()['state_version']})
-    assert response.status_code == 200
+    # A new explicit correction is ready to run; ordinary messages do not
+    # require a separate resume click. The exhausted old turn stays stopped.
+    assert response.status_code == 200 and response.json()['status'] == 'created'
+    assert requests == engine.store.task(state['task_id'])['model_requests'] == 2
     with engine.store.transaction() as db:
         assert db.execute("SELECT status FROM turns WHERE id='bounded-turn'").fetchone()[0] == 'stopped'
         next_turn = db.execute("SELECT turn_id FROM turn_requests WHERE request_id='budget-correction'").fetchone()[0]

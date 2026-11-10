@@ -1,0 +1,79 @@
+...F......                                                               [100%]
+================================== FAILURES ===================================
+_______________ test_shared_runtime_contract[job_completion-B] ________________
+
+client = <starlette.testclient.TestClient object at 0x0000027582952930>
+app = <fastapi.applications.FastAPI object at 0x00000275828D5B50>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000027582951DC0>
+driver = 'B', scenario = 'job_completion'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('driver', ['A','B'])
+    @pytest.mark.parametrize('scenario', ['multisession','job_completion','cancel_resume','discovery'])
+    async def test_shared_runtime_contract(client,app,monkeypatch,driver,scenario):
+        from test_native_driver_contract import test_route_a_native_discovery_shared_runtime_contract
+        if driver == 'B':
+            monkeypatch.setattr(app.state.engine,'make_agent',driver_b_factory(app.state.engine))
+>       await test_route_a_native_discovery_shared_runtime_contract(client,app,monkeypatch,scenario)
+
+tests\test_driver_b_contract.py:23: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_native_driver_contract.py:17: in test_route_a_native_discovery_shared_runtime_contract
+    await test_completion_resumes_once_and_keeps_original_activity_budget(client, app, monkeypatch, False)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+client = <starlette.testclient.TestClient object at 0x0000027582952930>
+app = <fastapi.applications.FastAPI object at 0x00000275828D5B50>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000027582951DC0>
+budget_exhausted = False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('budget_exhausted', [False, True])
+    async def test_completion_resumes_once_and_keeps_original_activity_budget(client, app, monkeypatch, budget_exhausted):
+        state, manager, job = terminal(client, app)
+        engine = app.state.engine
+        manager.configure_completion(job['job_id'], state['task_id'], '\u89e3\u91ca\u5df2\u6709\u7ed3\u679c\uff0c\u4e0d\u91cd\u7b97')
+        if budget_exhausted:
+            with manager.store.transaction() as db:
+                current = manager.store.read_task(db, state['task_id'])
+                current['config_snapshot'].setdefault('generation', {})['max_model_requests_per_turn'] = 1
+                manager.store.save_task(db, current, current['state_version'])
+                manager.store.event(db, state['task_id'], 'model.request_started', {
+                    'turn_id': job['request_turn_id'], 'assignment_id': None})
+        requests = []
+    
+        def model(messages, info):
+            text = '\n'.join(p.content for m in messages if isinstance(m, ModelRequest)
+                for p in m.parts if isinstance(p, UserPromptPart) and isinstance(p.content, str))
+            assert '\u89e3\u91ca\u5df2\u6709\u7ed3\u679c\uff0c\u4e0d\u91cd\u7b97' in text and job['job_id'] in text
+            requests.append(text)
+            return ModelResponse(parts=[TextPart('\u5df2\u6309\u771f\u5b9e\u4f5c\u4e1a\u7ed3\u679c\u8bf4\u660e\uff1b\u672a\u91cd\u65b0\u8ba1\u7b97\u3002')])
+    
+        fixture = FixtureFunctionModel(model, stream_function=public_stream_adapter(model))
+        original = engine.make_agent
+    
+        def make_agent(*args, **kwargs):
+            agent, channel = original(*args, **kwargs)
+            agent.model = fixture
+            return agent, channel
+    
+        monkeypatch.setattr(engine, 'make_agent', make_agent)
+        engine.process_job_completions()
+        run = engine.queue[state['task_id']]
+        await run
+        await asyncio.sleep(0)
+        engine.process_job_completions()
+        assert engine.queue[state['task_id']] is run
+        current = manager.store.task(state['task_id'])
+        if budget_exhausted:
+            assert not requests
+            assert current['blockers'][0]['code'] == 'MODEL_TURN_BUDGET_EXHAUSTED'
+        else:
+>           assert len(requests) == 1 and not current['blockers']
+E           assert (0 == 1)
+E            +  where 0 = len([])
+
+tests\test_job_continuation.py:93: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_driver_b_contract.py::test_shared_runtime_contract[job_completion-B]
+1 failed, 9 passed in 8.95s

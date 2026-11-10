@@ -35,11 +35,12 @@ class Verdict:
     repeated_request: bool = False
     obstacle_repeats: int = 0
     recovery: dict = field(default_factory=dict)
+    stop_required: bool = True
 
     def payload(self) -> dict:
         return {"new_observation": self.new, "stalled": self.stalled, "limit": self.limit,
                 "changed_dimensions": list(self.changed), "replayed_call": self.replay,
-                "repeated_request": self.repeated_request,
+                "repeated_request": self.repeated_request, "stop_required": self.stop_required,
                 **({"obstacle_repeats": self.obstacle_repeats} if self.obstacle_repeats > 1 else {}),
                 **(self.evidence.payload() if self.evidence else {}),
                 **({'context_recovered': True, **self.recovery} if self.recovery else {})}
@@ -55,13 +56,39 @@ class Progress:
     def scope(deps):
         return deps.assignment_id or "root"
 
+    @staticmethod
+    def activity_turns(db, deps):
+        if deps.assignment_id:
+            return (deps.turn_id,)
+        row = db.execute('SELECT root_turn_id FROM turn_continuations WHERE task_id=? AND turn_id=?',
+                         (deps.task_id, deps.turn_id)).fetchone()
+        root = row['root_turn_id'] if row else deps.turn_id
+        turns = db.execute('SELECT turn_id FROM turn_continuations WHERE task_id=? AND root_turn_id=?',
+                           (deps.task_id, root)).fetchall()
+        return tuple(dict.fromkeys([root, *(row['turn_id'] for row in turns)]))
+
     def latest(self, db, deps):
-        return db.execute("SELECT * FROM progress_observations WHERE task_id=? AND revision=? AND scope=? AND turn_id=? ORDER BY rowid DESC LIMIT 1",
-            (deps.task_id, deps.revision, self.scope(deps), deps.turn_id)).fetchone()
+        turns = self.activity_turns(db, deps)
+        marks = ','.join('?' for _ in turns)
+        return db.execute(f"SELECT * FROM progress_observations WHERE task_id=? AND revision=? AND scope=? AND turn_id IN ({marks}) ORDER BY rowid DESC LIMIT 1",
+            (deps.task_id, deps.revision, self.scope(deps), *turns)).fetchone()
+
+    def observe_job_input(self, deps, item):
+        """A newly delivered terminal fact can justify work, never its redelivery."""
+        call_id = 'job-terminal-' + item['event_id']
+        with self.store.snapshot() as db:
+            turns = self.activity_turns(db, deps)
+            marks = ','.join('?' for _ in turns)
+            seen = db.execute(f'SELECT 1 FROM progress_observations WHERE task_id=? AND revision=? '
+                f'AND scope=? AND turn_id IN ({marks}) AND call_id=? LIMIT 1',
+                (deps.task_id, deps.revision, self.scope(deps), *turns, call_id)).fetchone()
+        if not seen:
+            self.record(deps, call_id, 'job.observe', {}, {'job': {
+                key:item[key] for key in ('job_id','status','artifact_ids','blocker')}})
 
     @staticmethod
     def stopped(stalled, limit, verdict: Verdict | None = None):
-        if stalled >= limit:
+        if stalled >= limit and (verdict is None or verdict.stop_required):
             detail = ""
             if verdict is not None and verdict.obstacle_repeats > 1:
                 detail = ("；同一阻碍已重复出现 %d 次（失败类别 %s），换工具或换说法都不算新事实，"
@@ -73,8 +100,21 @@ class Progress:
 
     def check(self, db, deps):
         row = self.latest(db, deps)
-        if row:
+        if row and self.stop_required(db, deps):
             self.stopped(row["stalled"], row["limit_value"])
+
+    def stop_required(self, db, deps, call_id=None, request_id=None):
+        turns = (deps.turn_id,) if call_id is not None else self.activity_turns(db, deps)
+        marks = ','.join('?' for _ in turns)
+        row = db.execute("SELECT payload FROM events WHERE task_id=? AND kind='progress.observed' "
+            f"AND json_extract(payload,'$.turn_id') IN ({marks}) AND json_extract(payload,'$.assignment_id') IS ? "
+            "AND (json_extract(payload,'$.spec_revision') IS NULL OR json_extract(payload,'$.spec_revision')=?) "
+            "AND (? IS NULL OR json_extract(payload,'$.call_id')=?) "
+            "AND (? IS NULL OR json_extract(payload,'$.context_manifest_id') IS ?) ORDER BY seq DESC LIMIT 1",
+            (deps.task_id, *turns, deps.assignment_id, deps.revision, call_id, call_id,
+             request_id, request_id or None)).fetchone()
+        # Old records retain their original stop semantics, never reset on upgrade.
+        return json.loads(row['payload']).get('stop_required', True) if row else True
 
     def recovery(self, db, deps, tool, fingerprint):
         """Restore one lost read per native context loss, without claiming new facts.
@@ -138,59 +178,74 @@ class Progress:
 
     def _obstacles(self, db, deps, obstacle: str, limit: int) -> int:
         """同一未改变障碍在本活动里已被观察多少次（含本次之外的既有记录）。"""
+        turns = self.activity_turns(db, deps)
+        marks = ','.join('?' for _ in turns)
         row = db.execute("SELECT COUNT(*) FROM (SELECT 1 FROM events WHERE task_id=? AND kind='progress.observed' "
-            "AND json_extract(payload,'$.turn_id')=? AND json_extract(payload,'$.assignment_id') IS ? "
+            f"AND json_extract(payload,'$.turn_id') IN ({marks}) AND json_extract(payload,'$.assignment_id') IS ? "
+            "AND (json_extract(payload,'$.spec_revision') IS NULL OR json_extract(payload,'$.spec_revision')=?) "
             "AND json_extract(payload,'$.obstacle')=? ORDER BY seq DESC LIMIT ?)",
-            (deps.task_id, deps.turn_id, deps.assignment_id, obstacle, max(1, limit * 4))).fetchone()
+            (deps.task_id, *turns, deps.assignment_id, deps.revision, obstacle, max(1, limit * 4))).fetchone()
         return row[0]
 
     def record(self, deps, call_id, tool, args, result) -> Verdict:
         value = observation(tool, result)
         evidence = facts(tool, result)
         fingerprint = observation_fingerprint(tool, value)
-        decision = hashlib.sha256(encode({"tool": tool, "args": args}).encode()).hexdigest()
+        decision_state = {'tool': tool, 'args': args}
+        if evidence.condition:
+            decision_state['condition_sha256'] = evidence.condition
+        decision = hashlib.sha256(encode(decision_state).encode()).hexdigest()
         scope = self.scope(deps)
         request_id = deps.context_manifest_id or ""
         with self.store.transaction() as db:
             state = self.store.read_task(db, deps.task_id)
             if state["spec_revision"] != deps.revision or state["pause_requested"] or state["cancellation_requested"]:
                 raise Failure("EXECUTION_STOPPED", "控制或修订状态阻止继续观察", 409)
+            turns = self.activity_turns(db, deps)
+            marks = ','.join('?' for _ in turns)
             # A repeated call ID in a new model response is another decision, while
             # restoring a pending native call without a new request is a replay.
             prior = db.execute("SELECT * FROM progress_observations WHERE task_id=? AND revision=? AND scope=? AND turn_id=? AND call_id=? AND (?='' OR request_id=?) ORDER BY rowid DESC LIMIT 1",
                 (deps.task_id, deps.revision, scope, deps.turn_id, call_id, request_id, request_id)).fetchone()
             previous = None if prior else db.execute(
                 "SELECT payload FROM events WHERE task_id=? AND kind='progress.observed' "
-                "AND json_extract(payload,'$.turn_id')=? AND json_extract(payload,'$.assignment_id') IS ? "
+                f"AND json_extract(payload,'$.turn_id') IN ({marks}) AND json_extract(payload,'$.assignment_id') IS ? "
+                "AND (json_extract(payload,'$.spec_revision') IS NULL OR json_extract(payload,'$.spec_revision')=?) "
                 "ORDER BY seq DESC LIMIT 1",
-                (deps.task_id, deps.turn_id, deps.assignment_id)).fetchone()
+                (deps.task_id, *turns, deps.assignment_id, deps.revision)).fetchone()
             if prior:
                 if prior["decision_sha256"] != decision:
                     raise Failure("VERSION_CONFLICT", "重放的工具观察载荷变化", 409)
                 stalled, limit = prior["stalled"], prior["limit_value"]
                 verdict = Verdict(tool=tool, new=False, stalled=stalled, limit=limit,
-                                  changed=evidence.changed_from(_restore(previous)), evidence=evidence, replay=True)
+                                  changed=evidence.changed_from(_restore(previous)), evidence=evidence, replay=True,
+                                  stop_required=self.stop_required(db, deps, call_id, request_id))
                 self.stopped(stalled, limit, verdict)
                 return verdict
             latest = self.latest(db, deps)
             limit = latest["limit_value"] if latest else state["config_snapshot"].get("generation", {}).get("max_unchanged_decisions", self.config.max_unchanged_decisions)
-            seen = fingerprint is not None and db.execute("SELECT 1 FROM progress_observations WHERE task_id=? AND revision=? AND scope=? AND turn_id=? AND fingerprint=? LIMIT 1",
-                (deps.task_id, deps.revision, scope, deps.turn_id, fingerprint)).fetchone()
+            seen = fingerprint is not None and db.execute(f"SELECT 1 FROM progress_observations WHERE task_id=? AND revision=? AND scope=? AND turn_id IN ({marks}) AND fingerprint=? LIMIT 1",
+                (deps.task_id, deps.revision, scope, *turns, fingerprint)).fetchone()
             progressed = fingerprint is not None and not seen
             recovery = self.recovery(db, deps, tool, fingerprint) if seen else None
             stalled = 0 if progressed else (latest["stalled"] if latest else 0) + (0 if recovery else 1)
             repeated = bool(not progressed and db.execute(
-                "SELECT 1 FROM progress_observations WHERE task_id=? AND revision=? AND scope=? AND turn_id=? AND decision_sha256=? LIMIT 1",
-                (deps.task_id, deps.revision, scope, deps.turn_id, decision)).fetchone())
+                f"SELECT 1 FROM progress_observations WHERE task_id=? AND revision=? AND scope=? AND turn_id IN ({marks}) AND decision_sha256=? LIMIT 1",
+                (deps.task_id, deps.revision, scope, *turns, decision)).fetchone())
             repeats = self._obstacles(db, deps, evidence.obstacle, limit) + 1 if evidence.obstacle else 0
+            # A distinct failed check is not new evidence, but is not yet proof of
+            # a loop. Repeated requests/obstacles and unproductive bookkeeping stop.
+            stop_required = repeated or repeats > 1 or evidence.failure is None
             verdict = Verdict(tool=tool, new=progressed, stalled=stalled, limit=limit,
                               changed=evidence.changed_from(_restore(previous)) if progressed else (),
                               evidence=evidence, repeated_request=repeated,
-                              obstacle_repeats=0 if progressed else repeats, recovery=recovery or {})
+                              obstacle_repeats=0 if progressed else repeats, recovery=recovery or {},
+                              stop_required=stop_required)
             db.execute("INSERT INTO progress_observations VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
                 (deps.task_id, deps.revision, scope, deps.turn_id, call_id, request_id, tool, decision, fingerprint, stalled, limit, now()))
             self.store.event(db, deps.task_id, "progress.observed", {"turn_id": deps.turn_id,
-                "assignment_id": deps.assignment_id, "context_manifest_id": request_id or None,
+                'activity_turn_id': turns[0], 'spec_revision': deps.revision,
+                "assignment_id": deps.assignment_id, "context_manifest_id": request_id or None, 'call_id': call_id,
                 "tool": tool, "observation_sha256": fingerprint, **verdict.payload()})
         # Commit the observation before stopping, including successful effects.
         self.stopped(stalled, limit, verdict)
@@ -208,7 +263,7 @@ def _restore(row) -> Evidence | None:
     facets = tuple((name, payload.get("facets", {}).get(name, "")) for name in payload.get("dimensions", ())
                    if name in DIMENSIONS)
     return Evidence(tool=payload.get("tool", ""), facets=facets, failure=payload.get("failure_code"),
-                    obstacle=payload.get("obstacle"))
+                    obstacle=payload.get("obstacle"), condition=payload.get('condition_sha256'))
 
 
 def ordinary_path(path):

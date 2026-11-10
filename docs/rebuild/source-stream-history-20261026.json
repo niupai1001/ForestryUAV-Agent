@@ -1,0 +1,46 @@
+{
+  "repository": "deepseek-ai/deepseek-harness",
+  "commit": "22ddee3792402c3e70ec5f86a63c3e3e895a2f60",
+  "license": "MIT; preserved LICENSE in same reference directory",
+  "files": {
+    "assistant-stream.ts": {
+      "sha256": "b16a5ab6a5a16bcdbae3898d41c3571d79efd0a13d740e689e7641773892d465",
+      "bytes": 4264
+    },
+    "agent.ts": {
+      "sha256": "0600e62a787d1e8d97950a8e1da26d8015ba796fe0131cf1a19e8e84aebcc732",
+      "bytes": 30851
+    },
+    "tool-history.ts": {
+      "sha256": "48c91211b820e377bac0de95f3c5207c7877434232bbbee5739798c3643650c4",
+      "bytes": 3763
+    },
+    "tool-history.spec.ts": {
+      "sha256": "2b929c71bb745c6a8b3d41a910c17349b0c91f171c36ff977845f1cc84b9063a",
+      "bytes": 8120
+    },
+    "request-error.spec.ts": {
+      "sha256": "f818a5f990ca59821f0710a5a25a3fd4a39b1ec8999e6ab3366047d482b2c9bc",
+      "bytes": 5791
+    },
+    "contract-regressions.spec.ts": {
+      "sha256": "b7e8b0955ecbdeb6f52779e129dae24dd808d6d22856a95c92efce91b9815f3e",
+      "bytes": 64612
+    },
+    "LICENSE": {
+      "sha256": "ebb4f09972aee8608be255debaf78451a68e95c290f55c240dec2ecfa16ea6be",
+      "bytes": 1065
+    }
+  },
+  "reviewed": {
+    "assistant-stream.ts": "whole class",
+    "agent.ts": "request stream lifecycle, lines 451-604 only",
+    "tool-history.ts": "whole class",
+    "tool-history.spec.ts": "whole file",
+    "request-error.spec.ts": "whole file",
+    "contract-regressions.spec.ts": "finish error/aborted, publication order, turn/start and step/start pre-commit rejection, cancellation/disposal during assembly only"
+  },
+  "external_tests_executed": false,
+  "production_code_copied": false,
+  "failed_fetch": "recursive git tree transport closed; used targeted fixed-ref contents listings, not a source absence claim"
+}

@@ -1,0 +1,13 @@
+{
+  "catalog_sha256": "b968e97c73d0a1871b870e3fd44a654febcab1edf1deb7fc68efd0ba69666e60",
+  "queries_sha256": "3f408d718aa419acf8ce1e4ea3244dce95c32884acfc481bd6a90cabb524ad04",
+  "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+  "model_sha256": "dd476dd0c2514e9b9be83aeb3853fac0763e0bdf4a71645407587d77c48a2d88",
+  "source_sha256": "be4a2d5903e0a5280f05ed3981471692cdfb7ebac5bc34b957fb2975dd0ff320",
+  "texts": 35,
+  "limits": {
+    "seconds": 300,
+    "cpu_threads": 2,
+    "batch_size": 8
+  }
+}

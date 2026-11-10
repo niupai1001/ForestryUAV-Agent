@@ -1,0 +1,15 @@
+..F.                                                                     [100%]
+================================== FAILURES ===================================
+______________ test_delete_removes_delivery_before_job_and_event ______________
+
+client = <starlette.testclient.TestClient object at 0x000002727FC847A0>
+app = <fastapi.applications.FastAPI object at 0x000002727FC54740>
+
+    def test_delete_removes_delivery_before_job_and_event(client, app):
+>       from test_session_deletion import delete
+E       ImportError: cannot import name 'delete' from 'test_session_deletion' (C:\Users\yzh\WorkBuddy\Agent\forestry-uav-agent-v1\tests\test_session_deletion.py)
+
+tests\test_job_delivery.py:140: ImportError
+=========================== short test summary info ===========================
+FAILED tests/test_job_delivery.py::test_delete_removes_delivery_before_job_and_event
+1 failed, 3 passed in 3.05s

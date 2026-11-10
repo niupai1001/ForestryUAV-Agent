@@ -1,0 +1,463 @@
+...FFF..                                                                 [100%]
+================================== FAILURES ===================================
+__ test_saved_markdown_checks_internal_links_before_creating_output[unknown] __
+
+client = <starlette.testclient.TestClient object at 0x000001D2E81B1DC0>
+app = <fastapi.applications.FastAPI object at 0x000001D2E81B3230>
+kind = 'unknown'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('kind', ['unknown', 'foreign', 'tampered', 'valid'])
+    async def test_saved_markdown_checks_internal_links_before_creating_output(client, app, kind):
+        state, _ = task(client, constraints={'allowed_capabilities': ['fs.write_workspace']})
+        engine = app.state.engine
+        other, _ = task(client, request_id='other-source')
+        saved = engine.resources.write(other['task_id'] if kind == 'foreign' else state['task_id'],
+                                       'fixture', 'source.md', '# source')
+        if kind == 'tampered':
+            Path(saved['locator']).write_text('changed', encoding='utf-8')
+        ref = 'verification_report_001' if kind == 'unknown' else saved['artifact_id']
+        text = f'# report\\n\u4e0b\u8f7d\u94fe\u63a5\uff1a/artifacts/{ref}/content'
+        calls = []
+        def model(messages, info):
+            calls.append(messages)
+            if len(calls) == 1:
+                return ModelResponse(parts=[ToolCallPart('write_file',
+                    {'relative_path': 'blocked.md', 'content': text}, 'body-reference')])
+            returned = [p for msg in messages if isinstance(msg, ModelRequest)
+                        for p in msg.parts if isinstance(p, ToolReturnPart)][-1].content
+            assert returned['kind'] == ('completed' if kind == 'valid' else 'error')
+            if kind != 'valid':
+                assert 'VERIFICATION_FAILED' in str(returned)
+                assert not (engine.resources.task_root(state['task_id']) / 'blocked.md').exists()
+                return ModelResponse(parts=[TextPart('\u672a\u4fdd\u5b58\u5305\u542b\u65e0\u6548\u94fe\u63a5\u7684\u62a5\u544a\u3002')])
+            return ModelResponse(parts=[TextPart(f"[\u62a5\u544a](/artifacts/{returned['artifact_id']}/content)")])
+        agent, channel = engine.make_agent('small', 'body-reference', state['config_snapshot'], state['task_id'])
+        try:
+            with agent.override(model=FixtureFunctionModel(model, stream_function=stream_adapter(model))):
+>               await agent.run('\u4fdd\u5b58\u62a5\u544a', deps=Deps(engine, state['task_id'], 'body-reference', 1))
+
+tests\test_report_delivery.py:63: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv\Lib\site-packages\pydantic_ai\agent\abstract.py:671: in run
+    node = await agent_run.next(node)  # pyright: ignore[reportArgumentType]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:599: in next
+    return await self._run_node_with_hooks(node, self._stream_and_advance)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:514: in _run_node_with_hooks
+    result = await lifecycle(node)
+             ^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:494: in lifecycle
+    result = await step_fn(lifecycle_node)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:613: in _stream_and_advance
+    return await self._advance_graph(node)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:409: in _advance_graph
+    task = await self._graph_run.next(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:584: in next
+    return await anext(self)
+           ^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:561: in __anext__
+    raise self._next.error
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:862: in _run_tracked_task
+    result = await self._run_task(t_)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:920: in _run_task
+    output = await node.call(step_context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\step.py:253: in _call_node
+    return await node.run(GraphRunContext(state=ctx.state, deps=ctx.deps))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1345: in run
+    return await self._make_request(ctx)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1655: in _make_request
+    model_response = await root_capability.wrap_model_request(
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:688: in wrap_model_request
+    return await chain(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:1012: in wrapped
+    return await cap.wrap_model_request(
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:1102: in wrap_model_request
+    return await chain(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:1398: in wrapper
+    return await _call_entry(entry, hook_name, ctx, handler=inner_handler, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:273: in _call_entry
+    return await _call_func(func, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:279: in _call_func
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\runtime\model_adapter.py:142: in guard
+    return await request(ctx, request_context=request_context, handler=handler)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\runtime\model_adapter.py:126: in request
+    return await handler(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1644: in model_handler
+    response = await self._recover_model_request_error(ctx, run_context, req_ctx, e)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:2026: in _recover_model_request_error
+    return await root_capability.on_model_request_error(run_context, request_context=request_context, error=error)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:707: in on_model_request_error
+    raise error
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:704: in on_model_request_error
+    return await capability.on_model_request_error(cap_ctx, request_context=request_context, error=error)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai_harness\step_persistence\_capability.py:609: in on_model_request_error
+    raise error
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1630: in model_handler
+    response = await model_request(
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1181: in model_request
+    new_response = await model.request(
+.venv\Lib\site-packages\pydantic_ai\models\function.py:170: in request
+    result = await _utils.run_in_executor(self.function, messages, agent_info)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_utils.py:203: in run_in_executor
+    return await run_sync(call_with_sync_agent_guard, abandon_on_cancel=_abandon_on_cancel.get())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\anyio\to_thread.py:65: in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+.venv\Lib\site-packages\anyio\_backends\_asyncio.py:2706: in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+.venv\Lib\site-packages\anyio\_backends\_asyncio.py:1100: in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_utils.py:190: in call_with_sync_agent_guard
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+messages = [ModelRequest(parts=[UserPromptPart(content='\u4fdd\u5b58\u62a5\u544a', timestamp=datetime.datetime(2026, 10, 26, 9, 10, 43, 744391, tzinf...tatic\u4ee3\u66ff\u7f3a\u5931\u7684\u524d\u7aef\u3002', run_id='01a17779-f4f6-70c4-b974-87d5432d4756', conversation_id='01a17779-f4f6-70c4-b974-87d6f86f3858')]
+info = AgentInfo(function_tools=[ToolDefinition(name='write_file', parameters_json_schema={'additionalProperties': False, 'pr...ements\u6765\u81ea\u5df2\u89c2\u5bdf\u6210\u529f\u4e14\u5f53\u524d\u5b57\u8282/\u6e90\u7801\u5339\u914d\u7684\u68c0\u67e5\u56de\u6267\u3002static\u540e\u987b\u540c\u65f6\u8865\u9f50requirements\u548cfrontend_requirements\u7684wheel\uff0c\u518ddynamic\u5e76wait_job\uff1b\u4e0d\u91cd\u590dstatic\u4ee3\u66ff\u7f3a\u5931\u7684\u524d\u7aef\u3002')
+
+    def model(messages, info):
+        calls.append(messages)
+        if len(calls) == 1:
+            return ModelResponse(parts=[ToolCallPart('write_file',
+                {'relative_path': 'blocked.md', 'content': text}, 'body-reference')])
+        returned = [p for msg in messages if isinstance(msg, ModelRequest)
+                    for p in msg.parts if isinstance(p, ToolReturnPart)][-1].content
+>       assert returned['kind'] == ('completed' if kind == 'valid' else 'error')
+E       AssertionError: assert 'failed' == 'error'
+E         
+E         - error
+E         + failed
+
+tests\test_report_delivery.py:54: AssertionError
+__ test_saved_markdown_checks_internal_links_before_creating_output[foreign] __
+
+client = <starlette.testclient.TestClient object at 0x000001D2E822A150>
+app = <fastapi.applications.FastAPI object at 0x000001D2E8152AB0>
+kind = 'foreign'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('kind', ['unknown', 'foreign', 'tampered', 'valid'])
+    async def test_saved_markdown_checks_internal_links_before_creating_output(client, app, kind):
+        state, _ = task(client, constraints={'allowed_capabilities': ['fs.write_workspace']})
+        engine = app.state.engine
+        other, _ = task(client, request_id='other-source')
+        saved = engine.resources.write(other['task_id'] if kind == 'foreign' else state['task_id'],
+                                       'fixture', 'source.md', '# source')
+        if kind == 'tampered':
+            Path(saved['locator']).write_text('changed', encoding='utf-8')
+        ref = 'verification_report_001' if kind == 'unknown' else saved['artifact_id']
+        text = f'# report\\n\u4e0b\u8f7d\u94fe\u63a5\uff1a/artifacts/{ref}/content'
+        calls = []
+        def model(messages, info):
+            calls.append(messages)
+            if len(calls) == 1:
+                return ModelResponse(parts=[ToolCallPart('write_file',
+                    {'relative_path': 'blocked.md', 'content': text}, 'body-reference')])
+            returned = [p for msg in messages if isinstance(msg, ModelRequest)
+                        for p in msg.parts if isinstance(p, ToolReturnPart)][-1].content
+            assert returned['kind'] == ('completed' if kind == 'valid' else 'error')
+            if kind != 'valid':
+                assert 'VERIFICATION_FAILED' in str(returned)
+                assert not (engine.resources.task_root(state['task_id']) / 'blocked.md').exists()
+                return ModelResponse(parts=[TextPart('\u672a\u4fdd\u5b58\u5305\u542b\u65e0\u6548\u94fe\u63a5\u7684\u62a5\u544a\u3002')])
+            return ModelResponse(parts=[TextPart(f"[\u62a5\u544a](/artifacts/{returned['artifact_id']}/content)")])
+        agent, channel = engine.make_agent('small', 'body-reference', state['config_snapshot'], state['task_id'])
+        try:
+            with agent.override(model=FixtureFunctionModel(model, stream_function=stream_adapter(model))):
+>               await agent.run('\u4fdd\u5b58\u62a5\u544a', deps=Deps(engine, state['task_id'], 'body-reference', 1))
+
+tests\test_report_delivery.py:63: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv\Lib\site-packages\pydantic_ai\agent\abstract.py:671: in run
+    node = await agent_run.next(node)  # pyright: ignore[reportArgumentType]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:599: in next
+    return await self._run_node_with_hooks(node, self._stream_and_advance)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:514: in _run_node_with_hooks
+    result = await lifecycle(node)
+             ^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:494: in lifecycle
+    result = await step_fn(lifecycle_node)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:613: in _stream_and_advance
+    return await self._advance_graph(node)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:409: in _advance_graph
+    task = await self._graph_run.next(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:584: in next
+    return await anext(self)
+           ^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:561: in __anext__
+    raise self._next.error
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:862: in _run_tracked_task
+    result = await self._run_task(t_)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:920: in _run_task
+    output = await node.call(step_context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\step.py:253: in _call_node
+    return await node.run(GraphRunContext(state=ctx.state, deps=ctx.deps))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1345: in run
+    return await self._make_request(ctx)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1655: in _make_request
+    model_response = await root_capability.wrap_model_request(
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:688: in wrap_model_request
+    return await chain(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:1012: in wrapped
+    return await cap.wrap_model_request(
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:1102: in wrap_model_request
+    return await chain(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:1398: in wrapper
+    return await _call_entry(entry, hook_name, ctx, handler=inner_handler, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:273: in _call_entry
+    return await _call_func(func, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:279: in _call_func
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\runtime\model_adapter.py:142: in guard
+    return await request(ctx, request_context=request_context, handler=handler)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\runtime\model_adapter.py:126: in request
+    return await handler(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1644: in model_handler
+    response = await self._recover_model_request_error(ctx, run_context, req_ctx, e)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:2026: in _recover_model_request_error
+    return await root_capability.on_model_request_error(run_context, request_context=request_context, error=error)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:707: in on_model_request_error
+    raise error
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:704: in on_model_request_error
+    return await capability.on_model_request_error(cap_ctx, request_context=request_context, error=error)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai_harness\step_persistence\_capability.py:609: in on_model_request_error
+    raise error
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1630: in model_handler
+    response = await model_request(
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1181: in model_request
+    new_response = await model.request(
+.venv\Lib\site-packages\pydantic_ai\models\function.py:170: in request
+    result = await _utils.run_in_executor(self.function, messages, agent_info)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_utils.py:203: in run_in_executor
+    return await run_sync(call_with_sync_agent_guard, abandon_on_cancel=_abandon_on_cancel.get())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\anyio\to_thread.py:65: in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+.venv\Lib\site-packages\anyio\_backends\_asyncio.py:2706: in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+.venv\Lib\site-packages\anyio\_backends\_asyncio.py:1100: in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_utils.py:190: in call_with_sync_agent_guard
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+messages = [ModelRequest(parts=[UserPromptPart(content='\u4fdd\u5b58\u62a5\u544a', timestamp=datetime.datetime(2026, 10, 26, 9, 10, 45, 663814, tzinf...tatic\u4ee3\u66ff\u7f3a\u5931\u7684\u524d\u7aef\u3002', run_id='01a17779-fc81-77fd-812b-92759b5e441e', conversation_id='01a17779-fc81-77fd-812b-9276afd3c369')]
+info = AgentInfo(function_tools=[ToolDefinition(name='write_file', parameters_json_schema={'additionalProperties': False, 'pr...ements\u6765\u81ea\u5df2\u89c2\u5bdf\u6210\u529f\u4e14\u5f53\u524d\u5b57\u8282/\u6e90\u7801\u5339\u914d\u7684\u68c0\u67e5\u56de\u6267\u3002static\u540e\u987b\u540c\u65f6\u8865\u9f50requirements\u548cfrontend_requirements\u7684wheel\uff0c\u518ddynamic\u5e76wait_job\uff1b\u4e0d\u91cd\u590dstatic\u4ee3\u66ff\u7f3a\u5931\u7684\u524d\u7aef\u3002')
+
+    def model(messages, info):
+        calls.append(messages)
+        if len(calls) == 1:
+            return ModelResponse(parts=[ToolCallPart('write_file',
+                {'relative_path': 'blocked.md', 'content': text}, 'body-reference')])
+        returned = [p for msg in messages if isinstance(msg, ModelRequest)
+                    for p in msg.parts if isinstance(p, ToolReturnPart)][-1].content
+>       assert returned['kind'] == ('completed' if kind == 'valid' else 'error')
+E       AssertionError: assert 'failed' == 'error'
+E         
+E         - error
+E         + failed
+
+tests\test_report_delivery.py:54: AssertionError
+_ test_saved_markdown_checks_internal_links_before_creating_output[tampered] __
+
+client = <starlette.testclient.TestClient object at 0x000001D2E80C0DA0>
+app = <fastapi.applications.FastAPI object at 0x000001D2E8084980>
+kind = 'tampered'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('kind', ['unknown', 'foreign', 'tampered', 'valid'])
+    async def test_saved_markdown_checks_internal_links_before_creating_output(client, app, kind):
+        state, _ = task(client, constraints={'allowed_capabilities': ['fs.write_workspace']})
+        engine = app.state.engine
+        other, _ = task(client, request_id='other-source')
+        saved = engine.resources.write(other['task_id'] if kind == 'foreign' else state['task_id'],
+                                       'fixture', 'source.md', '# source')
+        if kind == 'tampered':
+            Path(saved['locator']).write_text('changed', encoding='utf-8')
+        ref = 'verification_report_001' if kind == 'unknown' else saved['artifact_id']
+        text = f'# report\\n\u4e0b\u8f7d\u94fe\u63a5\uff1a/artifacts/{ref}/content'
+        calls = []
+        def model(messages, info):
+            calls.append(messages)
+            if len(calls) == 1:
+                return ModelResponse(parts=[ToolCallPart('write_file',
+                    {'relative_path': 'blocked.md', 'content': text}, 'body-reference')])
+            returned = [p for msg in messages if isinstance(msg, ModelRequest)
+                        for p in msg.parts if isinstance(p, ToolReturnPart)][-1].content
+            assert returned['kind'] == ('completed' if kind == 'valid' else 'error')
+            if kind != 'valid':
+                assert 'VERIFICATION_FAILED' in str(returned)
+                assert not (engine.resources.task_root(state['task_id']) / 'blocked.md').exists()
+                return ModelResponse(parts=[TextPart('\u672a\u4fdd\u5b58\u5305\u542b\u65e0\u6548\u94fe\u63a5\u7684\u62a5\u544a\u3002')])
+            return ModelResponse(parts=[TextPart(f"[\u62a5\u544a](/artifacts/{returned['artifact_id']}/content)")])
+        agent, channel = engine.make_agent('small', 'body-reference', state['config_snapshot'], state['task_id'])
+        try:
+            with agent.override(model=FixtureFunctionModel(model, stream_function=stream_adapter(model))):
+>               await agent.run('\u4fdd\u5b58\u62a5\u544a', deps=Deps(engine, state['task_id'], 'body-reference', 1))
+
+tests\test_report_delivery.py:63: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv\Lib\site-packages\pydantic_ai\agent\abstract.py:671: in run
+    node = await agent_run.next(node)  # pyright: ignore[reportArgumentType]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:599: in next
+    return await self._run_node_with_hooks(node, self._stream_and_advance)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:514: in _run_node_with_hooks
+    result = await lifecycle(node)
+             ^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:494: in lifecycle
+    result = await step_fn(lifecycle_node)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:613: in _stream_and_advance
+    return await self._advance_graph(node)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\run.py:409: in _advance_graph
+    task = await self._graph_run.next(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:584: in next
+    return await anext(self)
+           ^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:561: in __anext__
+    raise self._next.error
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:862: in _run_tracked_task
+    result = await self._run_task(t_)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\graph_builder.py:920: in _run_task
+    output = await node.call(step_context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_graph\step.py:253: in _call_node
+    return await node.run(GraphRunContext(state=ctx.state, deps=ctx.deps))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1345: in run
+    return await self._make_request(ctx)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1655: in _make_request
+    model_response = await root_capability.wrap_model_request(
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:688: in wrap_model_request
+    return await chain(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:1012: in wrapped
+    return await cap.wrap_model_request(
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:1102: in wrap_model_request
+    return await chain(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:1398: in wrapper
+    return await _call_entry(entry, hook_name, ctx, handler=inner_handler, **kw)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:273: in _call_entry
+    return await _call_func(func, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\hooks.py:279: in _call_func
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\runtime\model_adapter.py:142: in guard
+    return await request(ctx, request_context=request_context, handler=handler)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\runtime\model_adapter.py:126: in request
+    return await handler(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1644: in model_handler
+    response = await self._recover_model_request_error(ctx, run_context, req_ctx, e)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:2026: in _recover_model_request_error
+    return await root_capability.on_model_request_error(run_context, request_context=request_context, error=error)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:707: in on_model_request_error
+    raise error
+.venv\Lib\site-packages\pydantic_ai\capabilities\combined.py:704: in on_model_request_error
+    return await capability.on_model_request_error(cap_ctx, request_context=request_context, error=error)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai_harness\step_persistence\_capability.py:609: in on_model_request_error
+    raise error
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1630: in model_handler
+    response = await model_request(
+.venv\Lib\site-packages\pydantic_ai\_agent_graph.py:1181: in model_request
+    new_response = await model.request(
+.venv\Lib\site-packages\pydantic_ai\models\function.py:170: in request
+    result = await _utils.run_in_executor(self.function, messages, agent_info)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_utils.py:203: in run_in_executor
+    return await run_sync(call_with_sync_agent_guard, abandon_on_cancel=_abandon_on_cancel.get())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\anyio\to_thread.py:65: in run_sync
+    return await get_async_backend().run_sync_in_worker_thread(
+.venv\Lib\site-packages\anyio\_backends\_asyncio.py:2706: in run_sync_in_worker_thread
+    return await future
+           ^^^^^^^^^^^^
+.venv\Lib\site-packages\anyio\_backends\_asyncio.py:1100: in run
+    result = context.run(func, *args)
+             ^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\pydantic_ai\_utils.py:190: in call_with_sync_agent_guard
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+messages = [ModelRequest(parts=[UserPromptPart(content='\u4fdd\u5b58\u62a5\u544a', timestamp=datetime.datetime(2026, 10, 26, 9, 10, 46, 640425, tzinf...tatic\u4ee3\u66ff\u7f3a\u5931\u7684\u524d\u7aef\u3002', run_id='01a1777a-0047-77ea-80c5-8f85c52abbaa', conversation_id='01a1777a-0047-77ea-80c5-8f869b052d30')]
+info = AgentInfo(function_tools=[ToolDefinition(name='write_file', parameters_json_schema={'additionalProperties': False, 'pr...ements\u6765\u81ea\u5df2\u89c2\u5bdf\u6210\u529f\u4e14\u5f53\u524d\u5b57\u8282/\u6e90\u7801\u5339\u914d\u7684\u68c0\u67e5\u56de\u6267\u3002static\u540e\u987b\u540c\u65f6\u8865\u9f50requirements\u548cfrontend_requirements\u7684wheel\uff0c\u518ddynamic\u5e76wait_job\uff1b\u4e0d\u91cd\u590dstatic\u4ee3\u66ff\u7f3a\u5931\u7684\u524d\u7aef\u3002')
+
+    def model(messages, info):
+        calls.append(messages)
+        if len(calls) == 1:
+            return ModelResponse(parts=[ToolCallPart('write_file',
+                {'relative_path': 'blocked.md', 'content': text}, 'body-reference')])
+        returned = [p for msg in messages if isinstance(msg, ModelRequest)
+                    for p in msg.parts if isinstance(p, ToolReturnPart)][-1].content
+>       assert returned['kind'] == ('completed' if kind == 'valid' else 'error')
+E       AssertionError: assert 'failed' == 'error'
+E         
+E         - error
+E         + failed
+
+tests\test_report_delivery.py:54: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_report_delivery.py::test_saved_markdown_checks_internal_links_before_creating_output[unknown]
+FAILED tests/test_report_delivery.py::test_saved_markdown_checks_internal_links_before_creating_output[foreign]
+FAILED tests/test_report_delivery.py::test_saved_markdown_checks_internal_links_before_creating_output[tampered]
+3 failed, 5 passed in 7.38s

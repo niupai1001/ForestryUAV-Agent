@@ -83,6 +83,7 @@ class PreparedInput:
     available: int = 0
     anchored: bool = False
     estimator: str = ESTIMATOR
+    tokenizer_identity: str = 'utf8-byte-upper-bound'
 
     @property
     def upper_bound(self) -> int:
@@ -109,6 +110,7 @@ class PreparedInput:
     def as_manifest(self) -> dict:
         """写进 `contexts` 记录的稳定形状；用于后续解释和重算。"""
         return {"estimator_id": self.estimator, "estimated_tokens_upper_bound": self.upper_bound,
+                "text_tokenizer_identity": self.tokenizer_identity, "template_measurement": "estimated",
                 "available_input_tokens": self.available, "uses_provider_usage_anchor": self.anchored,
                 "token_components": self.breakdown()}
 
@@ -171,12 +173,14 @@ def measure(messages: Sequence, params, tools: Sequence[dict], *, available: int
             measured_tools_sha256: str | None = None, measured_tools: Sequence[dict] | None = None,
             measured_instructions: Sequence[str] | None = None,
             measured_usage_baseline: tuple[int, int] | None = None,
-            settings: Mapping[str, Any] | None = None) -> PreparedInput:
+            settings: Mapping[str, Any] | None = None, tokenizer=None,
+            tokenizer_identity: str = 'utf8-byte-upper-bound') -> PreparedInput:
     """Count a prepared request using native measured usage plus conservative deltas.
 
     `tools` 必须就是本轮发送的定义（从同一份能力定义派生），不是重新描述的副本。
     """
     from dataclasses import replace
+    count_text = tokenizer or byte_bound
 
     counted = list(messages)
     instructions = "\n".join(part.content for part in params.instruction_parts)
@@ -195,11 +199,11 @@ def measure(messages: Sequence, params, tools: Sequence[dict], *, available: int
         # Keep that entire cost (including removed/changed parts), then pay the
         # full UTF-8 bound for every new or changed occurrence. Do not subtract
         # heuristic compaction reclaim from measured provider usage.
-        instruction_delta = sum(byte_bound(value['text']) for value in unpaid_components(
+        instruction_delta = sum(count_text(value['text']) for value in unpaid_components(
             instruction_components([part.content for part in params.instruction_parts]),
             instruction_components(measured_instructions)))
         counted = [replace(message, instructions=None) if isinstance(message, ModelRequest) else message for message in counted]
-    text_bound = estimate_context_tokens(counted, byte_bound, model_request_parameters=params) if anchored else estimate_token_count(counted, byte_bound)
+    text_bound = estimate_context_tokens(counted, count_text, model_request_parameters=params) if anchored else estimate_token_count(counted, count_text)
     baseline_tokens = 0
     if not anchored and measured_usage_baseline is not None:
         # Native compaction may remove every response. A verified earlier request
@@ -213,11 +217,13 @@ def measure(messages: Sequence, params, tools: Sequence[dict], *, available: int
     schema = _encode(tools)
     known_schema = measured and measured_tools_sha256 == hashlib.sha256(schema.encode()).hexdigest()
     unpaid_tools = unpaid_components(tools, measured_tools) if measured and measured_tools is not None else list(tools)
-    schema_cost = 0 if known_schema or not unpaid_tools else byte_bound(_encode(unpaid_tools))
+    schema_cost = 0 if known_schema or not unpaid_tools else count_text(_encode(unpaid_tools))
     framing = 256 + 16 * len(messages) + 32 * len(tools)
+    if tokenizer is not None:
+        framing *= 2  # tokenizer does not render the provider chat template
     vision = visual_measure(messages)
     components.append(Component(TEXT, text_bound,
-        ESTIMATED, "按原生历史逐条估算" if anchored else "无实测锚点，按全部历史估算"))
+        ESTIMATED, ("按原生历史逐条估算" if anchored else "无实测锚点，按全部历史估算") + '; ' + tokenizer_identity))
     if baseline_tokens:
         components.append(Component(USAGE_BASELINE, baseline_tokens, ACTUAL, "已验证的上一请求实测用量"))
     components.append(Component(VISION, vision["tokens"], vision["status"], vision["detail"]))
@@ -229,4 +235,4 @@ def measure(messages: Sequence, params, tools: Sequence[dict], *, available: int
         components.append(Component(INSTRUCTION_DELTA, instruction_delta, ESTIMATED, "本轮新增或变更的指令"))
     return PreparedInput(messages=tuple(messages), tools=tuple(tools),
         settings=dict(settings or {}), instructions=tuple(p.content for p in params.instruction_parts),
-        components=tuple(components), available=available, anchored=anchored)
+        components=tuple(components), available=available, anchored=anchored, tokenizer_identity=tokenizer_identity)

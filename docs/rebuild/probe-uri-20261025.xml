@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="0" skipped="0" tests="1" time="0.048" timestamp="2026-10-25T15:50:32.334778-04:00" hostname="DESKTOP-T530JCT"><testcase classname="tests.test_sqlite_probe" name="test_probe_uses_escaped_immutable_uri_and_never_creates_files" time="0.014" /></testsuite></testsuites>

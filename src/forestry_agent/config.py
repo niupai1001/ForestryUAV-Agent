@@ -27,6 +27,8 @@ class Config(BaseModel):
     models: dict[str, ModelProfile]
     default_model: str = "small"
     search_enabled: bool = False
+    tool_discovery_mode: Literal['static', 'bm25', 'native_bm25'] = 'static'
+    tokenizer_models_root: Path | None = None
     experimental_roi_enabled: bool = False
     search_base_url: str | None = None
     search_provider: Literal["baidu_html", "bing_rss", "searxng"] = "baidu_html"

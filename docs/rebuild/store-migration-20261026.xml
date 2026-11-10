@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="5" time="9.058" timestamp="2026-10-26T04:49:45.023795-04:00" hostname="DESKTOP-T530JCT"><testcase classname="tests.test_store_migration" name="test_schema_and_data_migrations_rollback_together_and_reenter[False]" time="0.035" /><testcase classname="tests.test_store_migration" name="test_schema_and_data_migrations_rollback_together_and_reenter[True]" time="0.047" /><testcase classname="tests.test_store_migration" name="test_newer_schema_refused_without_downgrade_or_bytes_changed" time="0.033" /><testcase classname="tests.test_store_migration" name="test_rollback_preserves_post_release_messages_and_products_without_overwriting_live_data" time="0.444"><failure message="PermissionError: [WinError 5] 拒绝访问。: 'C:\\Users\\yzh\\WorkBuddy\\Agent\\forestry-uav-agent-v1\\workspace\\store-migration-20261026-tmp\\test_rollback_preserves_post_r0\\pre-release'">tmp_path = WindowsPath('C:/Users/yzh/WorkBuddy/Agent/forestry-uav-agent-v1/workspace/store-migration-20261026-tmp/test_rollback_preserves_post_r0')
+
+    def test_rollback_preserves_post_release_messages_and_products_without_overwriting_live_data(tmp_path):
+        config, store, _, steps = fixture(tmp_path)
+        steps.close()
+        baseline = tmp_path / 'pre-release'
+&gt;       create_backup(config, baseline)
+
+tests\test_store_migration.py:67: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src\forestry_agent\backup.py:143: in create_backup
+    return inspect_backup(destination)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\backup.py:147: in inspect_backup
+    source = Path(source).resolve(strict=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\..\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\pathlib.py:1240: in resolve
+    s = self._flavour.realpath(self, strict=strict)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+path = 'C:\\Users\\yzh\\WorkBuddy\\Agent\\forestry-uav-agent-v1\\workspace\\store-migration-20261026-tmp\\test_rollback_preserves_post_r0\\pre-release'
+strict = True
+
+&gt;   ???
+E   PermissionError: [WinError 5] 拒绝访问。: 'C:\\Users\\yzh\\WorkBuddy\\Agent\\forestry-uav-agent-v1\\workspace\\store-migration-20261026-tmp\\test_rollback_preserves_post_r0\\pre-release'
+
+&lt;frozen ntpath&gt;:695: PermissionError</failure></testcase><testcase classname="tests.test_backup" name="test_roundtrip_preserves_wal_state_checkpoint_history_artifact_and_session" time="0.505"><failure message="PermissionError: [WinError 5] 拒绝访问。: 'C:\\Users\\yzh\\WorkBuddy\\Agent\\forestry-uav-agent-v1\\workspace\\store-migration-20261026-tmp\\test_roundtrip_preserves_wal_s0\\备份'">tmp_path = WindowsPath('C:/Users/yzh/WorkBuddy/Agent/forestry-uav-agent-v1/workspace/store-migration-20261026-tmp/test_roundtrip_preserves_wal_s0')
+
+    def test_roundtrip_preserves_wal_state_checkpoint_history_artifact_and_session(tmp_path):
+        config, store, artifact, steps = fixture(tmp_path)
+        try:
+            with store.transaction() as db:
+                before = {table: db.execute(f'SELECT * FROM {table}').fetchall()
+                          for table in ['tasks', 'specs', 'events', 'user_events', 'artifacts', 'requests']}
+            before = {k: [tuple(row) for row in rows] for k, rows in before.items()}
+            backup = tmp_path / '备份'
+&gt;           report = create_backup(config, backup)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_backup.py:48: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src\forestry_agent\backup.py:143: in create_backup
+    return inspect_backup(destination)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\backup.py:147: in inspect_backup
+    source = Path(source).resolve(strict=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\..\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\pathlib.py:1240: in resolve
+    s = self._flavour.realpath(self, strict=strict)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+path = 'C:\\Users\\yzh\\WorkBuddy\\Agent\\forestry-uav-agent-v1\\workspace\\store-migration-20261026-tmp\\test_roundtrip_preserves_wal_s0\\备份'
+strict = True
+
+&gt;   ???
+E   PermissionError: [WinError 5] 拒绝访问。: 'C:\\Users\\yzh\\WorkBuddy\\Agent\\forestry-uav-agent-v1\\workspace\\store-migration-20261026-tmp\\test_roundtrip_preserves_wal_s0\\备份'
+
+&lt;frozen ntpath&gt;:695: PermissionError</failure></testcase></testsuite></testsuites>

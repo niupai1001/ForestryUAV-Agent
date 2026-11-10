@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="2" time="0.605" timestamp="2026-10-25T15:50:05.505729-04:00" hostname="DESKTOP-T530JCT"><testcase classname="tests.test_sqlite_probe" name="test_probe_uses_escaped_immutable_uri_and_never_creates_files" time="0.014"><failure message="AssertionError: model-steps.sqlite: stat failed FileNotFoundError(2, '系统找不到指定的文件。')&#10;  state.sqlite: exists=1 size=8192 mtime=1792957805&#10;    -wal: absent&#10;    -shm: absent&#10;    -journal: absent&#10;    dir_write_hint=True（权限提示，未验证写入）&#10;    db_write=unknown（不尝试写入）&#10;    read=FAILED TypeError: test_probe_uses_escaped_immutable_uri_and_never_creates_files.&lt;locals&gt;.readonly() got multiple values for argument 'uri'&#10;  &#10;assert (0 == 1)&#10; +  where 0 = len([])">tmp_path = WindowsPath('C:/Users/yzh/WorkBuddy/Agent/forestry-uav-agent-v1/workspace/probe-fix-20261025/test_probe_uses_escaped_immuta0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x0000025EFE62AB40&gt;
+
+    def test_probe_uses_escaped_immutable_uri_and_never_creates_files(tmp_path, monkeypatch):
+        root = tmp_path/'diagnostics # snapshot'
+        folder = root/'.forestry'
+        folder.mkdir(parents=True)
+        path = folder/'state.sqlite'
+        with sqlite3.connect(path) as db:
+            db.execute('CREATE TABLE evidence(value TEXT)')
+        before = snapshot(folder)
+        original = sqlite3.connect
+        uris = []
+    
+        def readonly(uri, **kwargs):
+            assert 'mode=ro&amp;immutable=1' in uri and '%23' in uri and kwargs['uri']
+            uris.append(uri)
+            return original(uri, **kwargs)
+    
+        def no_temp_write(*args, **kwargs):
+            raise AssertionError('Diagnostic attempted a write probe')
+    
+        monkeypatch.setattr(sqlite3,'connect',readonly)
+        monkeypatch.setattr(tempfile,'NamedTemporaryFile',no_temp_write)
+        result = sqlite_probe(root)
+&gt;       assert len(uris) == 1 and 'tables=1' in result, result
+E       AssertionError: model-steps.sqlite: stat failed FileNotFoundError(2, '系统找不到指定的文件。')
+E         state.sqlite: exists=1 size=8192 mtime=1792957805
+E           -wal: absent
+E           -shm: absent
+E           -journal: absent
+E           dir_write_hint=True（权限提示，未验证写入）
+E           db_write=unknown（不尝试写入）
+E           read=FAILED TypeError: test_probe_uses_escaped_immutable_uri_and_never_creates_files.&lt;locals&gt;.readonly() got multiple values for argument 'uri'
+E         
+E       assert (0 == 1)
+E        +  where 0 = len([])
+
+tests\test_sqlite_probe.py:34: AssertionError</failure></testcase><testcase classname="tests.test_progress_exploration" name="test_distinct_failed_checks_can_continue_without_claiming_evidence_or_resetting_budget" time="0.205" /></testsuite></testsuites>

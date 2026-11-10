@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="4" time="1.033" timestamp="2026-10-25T14:22:58.744274-04:00" hostname="DESKTOP-T530JCT"><testcase classname="tests.test_request_envelope" name="test_exact_provider_bytes_and_distinct_attempts_are_saved_without_credentials" time="0.168" /><testcase classname="tests.test_request_envelope" name="test_unbound_request_is_rejected_before_transport" time="0.090" /><testcase classname="tests.test_request_envelope" name="test_wire_record_is_bound_to_manifest_and_control_before_send[False]" time="0.127"><failure message="FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\yzh\\WorkBuddy\\Agent\\forestry-uav-agent-v1\\workspace\\rebuild-envelope-20261025\\test_wire_record_is_bound_to_m0\\workspace\\.forestry\\model-inputs\\f8405a6b-e102-4261-aec5-efdbf11e8a09\\coordinator\\prepared-real.bed517d5-2789-4584-98a9-fad2d21d1cd9.request.staging'">client = &lt;starlette.testclient.TestClient object at 0x00000160B6514830&gt;
+app = &lt;fastapi.applications.FastAPI object at 0x00000160B65B00E0&gt;
+paused = False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('paused', [False, True])
+    async def test_wire_record_is_bound_to_manifest_and_control_before_send(client, app, paused):
+        state, _ = task(client)
+        engine = app.state.engine
+        manifest = {'prepared_input_sha256': 'application-hash', 'tool_schema_sha256': 'schema-hash'}
+        with engine.store.transaction() as db:
+            db.execute('INSERT INTO contexts VALUES(?,?,?,?)', ('prepared-real', state['task_id'], 'wire-turn', encode(manifest)))
+            if paused:
+                current = engine.store.read_task(db, state['task_id'])
+                current['pause_requested'] = True
+                engine.store.save_task(db, current, current['state_version'])
+        channel = engine.model_adapter.open(engine.config.models['small'], model_identity=state['config_snapshot']['model_identity'])
+        sent = []
+        channel.client._transport = httpx2.MockTransport(lambda req: sent.append(req) or httpx2.Response(200))
+        ctx = SimpleNamespace(deps=SimpleNamespace(scope=RunScope(state['task_id'], 'wire-turn', 1),
+            context_manifest_id='prepared-real'))
+    
+        async def handler(request_context):
+            await channel.client.post('http://127.0.0.1/v1/chat/completions', json={'model': 'qwen3.5:4b'})
+    
+        try:
+            guard = engine.model_adapter.request_guard(channel, budget_seconds=5)
+            if paused:
+                with pytest.raises(Failure, match='发送前'):
+                    await guard(ctx, request_context=None, handler=handler)
+                assert not sent
+            else:
+&gt;               await guard(ctx, request_context=None, handler=handler)
+
+tests\test_request_envelope.py:94: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src\forestry_agent\runtime\model_adapter.py:136: in guard
+    return await request(ctx, request_context=request_context, handler=handler)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\runtime\model_adapter.py:120: in request
+    return await handler(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_request_envelope.py:85: in handler
+    await channel.client.post('http://127.0.0.1/v1/chat/completions', json={'model': 'qwen3.5:4b'})
+.venv\Lib\site-packages\httpx2\_client.py:2042: in post
+    return await self.request(
+.venv\Lib\site-packages\httpx2\_client.py:1635: in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\httpx2\_client.py:1818: in send
+    response = await self._send_handling_auth(
+.venv\Lib\site-packages\httpx2\_client.py:1846: in _send_handling_auth
+    response = await self._send_handling_redirects(
+.venv\Lib\site-packages\httpx2\_client.py:1879: in _send_handling_redirects
+    await hook(request)
+src\forestry_agent\runtime\model_adapter.py:63: in note_request
+    staging.write_bytes(body)
+..\..\..\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\pathlib.py:1036: in write_bytes
+    with self.open(mode='wb') as f:
+         ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('C:/Users/yzh/WorkBuddy/Agent/forestry-uav-agent-v1/workspace/rebuild-envelope-20261025/test_wire_record_i...s/f8405a6b-e102-4261-aec5-efdbf11e8a09/coordinator/prepared-real.bed517d5-2789-4584-98a9-fad2d21d1cd9.request.staging')
+mode = 'wb', buffering = -1, encoding = None, errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+&gt;       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\yzh\\WorkBuddy\\Agent\\forestry-uav-agent-v1\\workspace\\rebuild-envelope-20261025\\test_wire_record_is_bound_to_m0\\workspace\\.forestry\\model-inputs\\f8405a6b-e102-4261-aec5-efdbf11e8a09\\coordinator\\prepared-real.bed517d5-2789-4584-98a9-fad2d21d1cd9.request.staging'
+
+..\..\..\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\pathlib.py:1013: FileNotFoundError</failure></testcase><testcase classname="tests.test_request_envelope" name="test_wire_record_is_bound_to_manifest_and_control_before_send[True]" time="0.144"><failure message="FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\yzh\\WorkBuddy\\Agent\\forestry-uav-agent-v1\\workspace\\rebuild-envelope-20261025\\test_wire_record_is_bound_to_m1\\workspace\\.forestry\\model-inputs\\ecc17f6e-ecea-489c-bbfe-fd36d1eca9ab\\coordinator\\prepared-real.c938207e-2a19-47a6-9a84-9bd11b54c850.request.staging'">client = &lt;starlette.testclient.TestClient object at 0x00000160B6745610&gt;
+app = &lt;fastapi.applications.FastAPI object at 0x00000160B6659C70&gt;, paused = True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('paused', [False, True])
+    async def test_wire_record_is_bound_to_manifest_and_control_before_send(client, app, paused):
+        state, _ = task(client)
+        engine = app.state.engine
+        manifest = {'prepared_input_sha256': 'application-hash', 'tool_schema_sha256': 'schema-hash'}
+        with engine.store.transaction() as db:
+            db.execute('INSERT INTO contexts VALUES(?,?,?,?)', ('prepared-real', state['task_id'], 'wire-turn', encode(manifest)))
+            if paused:
+                current = engine.store.read_task(db, state['task_id'])
+                current['pause_requested'] = True
+                engine.store.save_task(db, current, current['state_version'])
+        channel = engine.model_adapter.open(engine.config.models['small'], model_identity=state['config_snapshot']['model_identity'])
+        sent = []
+        channel.client._transport = httpx2.MockTransport(lambda req: sent.append(req) or httpx2.Response(200))
+        ctx = SimpleNamespace(deps=SimpleNamespace(scope=RunScope(state['task_id'], 'wire-turn', 1),
+            context_manifest_id='prepared-real'))
+    
+        async def handler(request_context):
+            await channel.client.post('http://127.0.0.1/v1/chat/completions', json={'model': 'qwen3.5:4b'})
+    
+        try:
+            guard = engine.model_adapter.request_guard(channel, budget_seconds=5)
+            if paused:
+                with pytest.raises(Failure, match='发送前'):
+&gt;                   await guard(ctx, request_context=None, handler=handler)
+
+tests\test_request_envelope.py:91: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+src\forestry_agent\runtime\model_adapter.py:136: in guard
+    return await request(ctx, request_context=request_context, handler=handler)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src\forestry_agent\runtime\model_adapter.py:120: in request
+    return await handler(request_context)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_request_envelope.py:85: in handler
+    await channel.client.post('http://127.0.0.1/v1/chat/completions', json={'model': 'qwen3.5:4b'})
+.venv\Lib\site-packages\httpx2\_client.py:2042: in post
+    return await self.request(
+.venv\Lib\site-packages\httpx2\_client.py:1635: in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\httpx2\_client.py:1818: in send
+    response = await self._send_handling_auth(
+.venv\Lib\site-packages\httpx2\_client.py:1846: in _send_handling_auth
+    response = await self._send_handling_redirects(
+.venv\Lib\site-packages\httpx2\_client.py:1879: in _send_handling_redirects
+    await hook(request)
+src\forestry_agent\runtime\model_adapter.py:63: in note_request
+    staging.write_bytes(body)
+..\..\..\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\pathlib.py:1036: in write_bytes
+    with self.open(mode='wb') as f:
+         ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('C:/Users/yzh/WorkBuddy/Agent/forestry-uav-agent-v1/workspace/rebuild-envelope-20261025/test_wire_record_i...s/ecc17f6e-ecea-489c-bbfe-fd36d1eca9ab/coordinator/prepared-real.c938207e-2a19-47a6-9a84-9bd11b54c850.request.staging')
+mode = 'wb', buffering = -1, encoding = None, errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+&gt;       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\yzh\\WorkBuddy\\Agent\\forestry-uav-agent-v1\\workspace\\rebuild-envelope-20261025\\test_wire_record_is_bound_to_m1\\workspace\\.forestry\\model-inputs\\ecc17f6e-ecea-489c-bbfe-fd36d1eca9ab\\coordinator\\prepared-real.c938207e-2a19-47a6-9a84-9bd11b54c850.request.staging'
+
+..\..\..\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\pathlib.py:1013: FileNotFoundError</failure></testcase></testsuite></testsuites>

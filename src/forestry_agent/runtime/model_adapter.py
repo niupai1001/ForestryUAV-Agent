@@ -8,10 +8,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+import os
 import time
 from collections.abc import AsyncIterator, Callable
 from contextvars import ContextVar
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx2
 from pydantic_ai.models.openai import OpenAIChatModel
@@ -20,22 +24,71 @@ from pydantic_ai.providers.openai import OpenAIProvider
 
 from ..config import Config, ModelProfile
 from ..contracts import Failure
+from ..resources import native_path
+from ..store import encode, uid
 from .interfaces import ModelChannel, RequestTrace, RunScope, ThinkingSink
 from .streams import AssistantStreamAccumulator
+from .tokenization import local_tokenizer
 
 
 class LocalModelAdapter:
     """为 Qwen/Ollama 等本地 OpenAI 兼容服务提供请求通道。"""
 
-    def __init__(self, config: Config, publish: Callable[[str, str, dict], None]) -> None:
+    def __init__(self, config: Config, publish: Callable[[str, str, dict], None],
+                 *, model_slot: asyncio.Semaphore | None = None, record_request=None) -> None:
         self.config, self._publish = config, publish
+        self._model_slot = model_slot if model_slot is not None else asyncio.Semaphore(1)
+        self._record_request = record_request
         # 响应头回调没有请求对象可用，只能通过上下文取当前请求；作用域覆盖整个
         # 异步流消费，因此不同回合/委派并发时不会互相覆盖阶段数据。
         self._trace: ContextVar[RequestTrace | None] = ContextVar("forestry_model_trace", default=None)
 
-    def open(self, profile: ModelProfile, run: RunScope | None = None) -> ModelChannel:
+    def open(self, profile: ModelProfile, run: RunScope | None = None, *, model_identity=None) -> ModelChannel:
         client = httpx2.AsyncClient(timeout=httpx2.Timeout(300, connect=10), trust_env=False)
         slot: dict = {}
+
+        async def note_request(request) -> None:
+            trace, scope = slot.get('current'), slot.get('scope')
+            if trace is None or scope is None:
+                raise Failure('MODEL_REQUEST_UNBOUND', '模型请求缺少会话与输入身份，未发送', 409)
+            body = await request.aread()
+            # The adapter sends JSON; storing raw bytes preserves the exact provider
+            # transformation, including image references and tool/schema framing.
+            payload = json.loads(body)
+            if not isinstance(payload, dict) or not isinstance(payload.get('model'), str):
+                raise Failure('MODEL_REQUEST_INVALID', '模型请求缺少实际model字段，未发送', 422)
+            attempt_id = uid()
+            directory = self.config.workspace_root / '.forestry' / 'model-inputs' / scope.task_id / (scope.assignment_id or 'coordinator')
+            native_path(directory).mkdir(parents=True, exist_ok=True)
+            path = directory / f'{trace.request_id}.{attempt_id}.request.json'
+            staging = path.with_suffix('.staging')
+            native_path(staging).write_bytes(body)
+            os.replace(native_path(staging), native_path(path))
+            url = urlsplit(str(request.url))
+            # Credentials and query strings are not part of the stored endpoint.
+            host = url.hostname or ''
+            if ':' in host:
+                host = '[' + host + ']'
+            if url.port is not None:
+                host += ':' + str(url.port)
+            envelope = {'schema_version': 1, 'request_id': trace.request_id,
+                'attempt_id': attempt_id, 'turn_id': scope.turn_id, 'revision': scope.revision,
+                'assignment_id': scope.assignment_id, 'model_identity': dict(model_identity or {}),
+                'served_model': payload['model'],
+                'method': request.method, 'endpoint': urlunsplit((url.scheme, host, url.path, '', '')),
+                'body_sha256': hashlib.sha256(body).hexdigest(), 'body_bytes': len(body), 'body_ref': str(path)}
+            tokenizer, source = local_tokenizer(profile, model_identity or {}, self.config.tokenizer_models_root)
+            envelope['template_measurement'] = (tokenizer.measure_wire(payload) if tokenizer else
+                {'status': 'unknown', 'total_tokens': None, 'reason': source})
+            metadata = path.with_suffix('.envelope.json')
+            staging = metadata.with_suffix('.staging')
+            native_path(staging).write_text(encode(envelope), encoding='utf-8')
+            os.replace(native_path(staging), native_path(metadata))
+            if self._record_request is not None:
+                self._record_request(scope, envelope)
+            else:
+                self._publish(scope.task_id, 'model.wire_prepared', {k: v for k, v in envelope.items()
+                    if k not in {'body_ref', 'endpoint'}})
 
         async def note_headers(response) -> None:
             # 只有服务端接受请求后才会产生响应对象；没有记录就说明未观测到响应头。
@@ -46,6 +99,7 @@ class LocalModelAdapter:
                 trace.headers_at = time.monotonic()
 
         client.event_hooks["response"].append(note_headers)
+        client.event_hooks['request'].append(note_request)
         model = OpenAIChatModel(profile.served_name, provider=OpenAIProvider(
             base_url=self.config.model_base_url, api_key="local-only", http_client=client),
             profile=OpenAIModelProfile(openai_chat_send_back_thinking_parts=False))
@@ -58,13 +112,14 @@ class LocalModelAdapter:
         请求共用可变字典。身份取自当次 ``ctx.deps``，组件不持有整个 Deps。
         """
 
-        async def guard(ctx, *, request_context, handler):
+        async def request(ctx, *, request_context, handler):
             scope = ctx.deps.scope
             trace = RequestTrace(request_id=ctx.deps.context_manifest_id or "stream",
                                  started_at=time.monotonic(), budget_seconds=budget_seconds)
             ctx.deps.request_trace = trace
             if channel is not None:
                 channel.trace_slot["current"] = trace
+                channel.trace_slot['scope'] = scope
             token = self._trace.set(trace)
             try:
                 async with asyncio.timeout_at(trace.deadline):
@@ -78,6 +133,13 @@ class LocalModelAdapter:
                 self._trace.reset(token)
                 if channel is not None:
                     channel.trace_slot.pop("current", None)
+                    channel.trace_slot.pop('scope', None)
+
+        async def guard(ctx, *, request_context, handler):
+            # The native handler returns only after the response stream is closed.
+            # Queue time does not consume the model request wall-clock budget.
+            async with self._model_slot:
+                return await request(ctx, request_context=request_context, handler=handler)
 
         return guard
 

@@ -4,10 +4,12 @@ import hashlib
 import json
 import mimetypes
 import os
+import re
 import shutil
 from contextlib import nullcontext
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid5
+from urllib.parse import unquote
 
 from .contracts import Failure
 from .store import Store, encode, now, uid
@@ -194,6 +196,7 @@ class Resources:
         if not path.is_file():
             raise Failure("PRECONDITION_MISSING", "目标不是可读文件", 422)
         before = version(path)
+        condition = {'resource_id': resource_id, 'relative_path': relative, 'version': before}
         with path.open("rb") as stream:
             stream.seek(offset)
             content = stream.read(limit + (4 if align_utf8 else 1))
@@ -210,14 +213,22 @@ class Resources:
             text = content[start:end].decode("utf-8-sig" if not align_utf8 or offset == 0 else "utf-8")
         except UnicodeDecodeError:
             if align_utf8:
-                raise Failure("PRECONDITION_MISSING", "文档不是有效UTF-8文本，需要对应编码读取器", 422) from None
+                raise Failure("PRECONDITION_MISSING", "文档不是有效UTF-8文本，需要对应编码读取器", 422,
+                              condition=condition) from None
             # The last UTF-8 character can straddle a byte window; preserve the cursor.
             text = content[:limit].decode("utf-8-sig", errors="replace")
         if "\x00" in text:
-            raise Failure("PRECONDITION_MISSING", "二进制文件需要对应文档/格式读取器", 422)
+            raise Failure("PRECONDITION_MISSING", "二进制文件需要对应文档/格式读取器", 422, condition=condition)
+        window_hash = hashlib.sha256(content[start:end]).hexdigest()
+        complete = offset == 0 and start == 0 and end == len(content)
+        citation = {"resource_id": resource_id, "relative_path": relative, "source_version": before,
+                    "unit": f"bytes:{offset + start}:{offset + end}", "window_sha256": window_hash,
+                    "hash_scope": "complete_file" if complete else "byte_window",
+                    "source_sha256": window_hash if complete else None,
+                    "reader_version": "bounded-utf8-bytes-v1"}
         return {"resource_id": resource_id, "relative_path": relative, "version": before,
                 "offset": offset + start, "next": offset + end,
-                "has_more": len(content) > end, "text": text}
+                "has_more": len(content) > end, "text": text, "citation": citation}
 
     def write(self, task_id: str, action_id: str, relative: str, text: str):
         if len(text.encode()) > 2 * 1024 * 1024:
@@ -251,6 +262,17 @@ class Resources:
             self.store.event(db, task_id, "artifact.created", {"artifact_id": artifact_id, "name": path.name})
         return {**artifact, "preview_url": f"/artifacts/{artifact_id}/content",
                 "download_url": f"/artifacts/{artifact_id}/content?download=true"}
+
+    def validate_artifact_links(self, task_id: str, text: str):
+        """References in a reply or report must name real, intact task outputs."""
+        refs = re.findall(r'''/artifacts/([^/\s<>"'?#)]+)''', text)
+        for ref in set(refs):
+            try:
+                self.artifact(unquote(ref), task_id)
+            except (Failure, OSError) as error:
+                raise Failure('VERIFICATION_FAILED',
+                    '产物链接无法核验：' + ref + '。只引用本任务已封存产物的真实回执；'
+                    '当前文件自身的下载链接须等写入成功后从回执取得，不在文件正文中预造。', 422) from error
 
     def artifact(self, artifact_id: str, task_id: str | None = None):
         import json

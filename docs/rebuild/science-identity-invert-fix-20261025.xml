@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="3" time="1.717" timestamp="2026-10-25T15:36:27.521874-04:00" hostname="DESKTOP-T530JCT"><testcase classname="tests.test_imagery_catalog" name="test_inversion_import_requires_original_lut_identity[same]" time="0.351"><failure message="FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\yzh\\WorkBuddy\\Agent\\forestry-uav-agent-v1\\workspace\\rebuild-science-identity-invert-fix-20261025\\test_inversion_import_requires0\\runtime\\tasks\\f7cb14fb-c3cb-4b9a-a9a3-222f1b9aee3e\\artifacts\\237674d6-1877-4c94-925d-60d5ee64fa0c\\invert-reuse-provenance.json'">catalog_case = (&lt;starlette.testclient.TestClient object at 0x0000020E7EC671D0&gt;, &lt;fastapi.applications.FastAPI object at 0x0000020E7EC...y-uav-agent-v1/workspace/rebuild-science-identity-invert-fix-20261025/test_inversion_import_requires0/orthophoto.tif'))
+lut_state = 'same'
+
+    @pytest.mark.parametrize('lut_state', ['same','changed','missing'])
+    def test_inversion_import_requires_original_lut_identity(catalog_case, lut_state):
+        client,app,_,_,source,product = catalog_case
+        declaration = {'reflectance':'calibrated_fraction_0_1', 'calibration_source':'camera metadata',
+            'band_mapping_source':'sensor metadata', 'band_names':['Red','NIR'], 'raster_bands':[1,2]}
+        lut = source.parent/'lut.npz'
+        lut.write_bytes(b'original priors and geometry fixture')
+        declared = source.parent/'invert-declaration.json'
+        declared.write_text(json.dumps(declaration))
+        catalog = {'entries':[{'operation':'invert','image':IMAGE,
+            'input_identity':input_identity(product), 'declaration':declaration,
+            'science_run_identity':science_run_identity('invert',
+                {'raster':input_identity(product),'lut':input_identity(lut)},
+                validate_declaration('invert',declaration),IMAGE),
+            'products':[{'name':product.name,'path':str(product),'sha256':file_hash(product)}],
+            'summary':{'fixture':True},'provenance':{'job_id':'original'},'limitations':['fixture only']} ]}
+        app.state.engine.config.imagery_result_catalog.write_text(json.dumps(catalog))
+        if lut_state == 'changed':
+            lut.write_bytes(b'changed LUT priors or solar geometry')
+        refs = {}
+        for role,path in {'raster':product,'lut':lut,'declaration':declared}.items():
+            refs[role] = client.post('/resources/register',json={'request_id':'invert-'+role,
+                'path':str(path),'read_only':True}).json()['resource_id']
+        task = client.post('/tasks',json={'request_id':'invert-task','objective':'reuse inversion',
+            'input_refs':list(refs.values())}).json()['task_id']
+        inputs = {'raster':refs['raster']}
+        if lut_state != 'missing':
+            inputs['lut'] = refs['lut']
+        response = client.post(f'/tasks/{task}/imagery',json={'request_id':'invert',
+            'expected_spec_revision':1,'operation':'invert','input_refs':inputs,
+            'declaration_ref':refs['declaration']}).json()
+        assert app.state.engine.jobs.list(task)['jobs'] == []
+        if lut_state == 'same':
+            assert response['reused'] and len(response['artifact_ids']) == 2
+            provenance = app.state.engine.resources.artifact(response['provenance_artifact_id'],task)
+&gt;           record = json.loads(Path(provenance['locator']).read_text(encoding='utf-8'))
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_imagery_catalog.py:127: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+..\..\..\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = WindowsPath('C:/Users/yzh/WorkBuddy/Agent/forestry-uav-agent-v1/workspace/rebuild-science-identity-invert-fix-20261025...asks/f7cb14fb-c3cb-4b9a-a9a3-222f1b9aee3e/artifacts/237674d6-1877-4c94-925d-60d5ee64fa0c/invert-reuse-provenance.json')
+mode = 'r', buffering = -1, encoding = 'utf-8', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+&gt;       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\yzh\\WorkBuddy\\Agent\\forestry-uav-agent-v1\\workspace\\rebuild-science-identity-invert-fix-20261025\\test_inversion_import_requires0\\runtime\\tasks\\f7cb14fb-c3cb-4b9a-a9a3-222f1b9aee3e\\artifacts\\237674d6-1877-4c94-925d-60d5ee64fa0c\\invert-reuse-provenance.json'
+
+..\..\..\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\Lib\pathlib.py:1013: FileNotFoundError</failure></testcase><testcase classname="tests.test_imagery_catalog" name="test_inversion_import_requires_original_lut_identity[changed]" time="0.302" /><testcase classname="tests.test_imagery_catalog" name="test_inversion_import_requires_original_lut_identity[missing]" time="0.310" /></testsuite></testsuites>

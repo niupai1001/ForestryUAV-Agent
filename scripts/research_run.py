@@ -7,8 +7,8 @@ recorded as a result and is never retried under the same identity.
 
     python scripts/research_run.py list
     python scripts/research_run.py run --task 03
-    python scripts/research_run.py send --task 06            # next queued follow-up
-    python scripts/research_run.py record --task 03          # re-check a finished task
+    python scripts/research_run.py send --task 06 --output follow-up-observation.json
+    python scripts/research_run.py record --task 03 --output new-observation.json
 """
 
 from __future__ import annotations
@@ -80,8 +80,38 @@ def load_record(task_id: str) -> dict | None:
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
 
 
-def save_record(record: dict) -> None:
-    record_path(record["task"]).write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8")
+def save_record(record: dict, output: Path | None = None) -> None:
+    target = output if output is not None else record_path(record['task'])
+    if output is not None and target.resolve() == record_path(record['task']).resolve():
+        raise Failure('VERSION_CONFLICT', '观察/重评分须另存，不得覆盖冻结原记录', 409)
+    with target.open('x', encoding='utf-8') as stream:
+        json.dump(record, stream, ensure_ascii=False, indent=1)
+
+
+def screening_score(spec: dict, record: dict) -> dict:
+    """Classify saved software checks; never infer semantics or scientific validity."""
+    checks = record.get('checks') or []
+    complete = bool(spec.get('checks')) and [c.get('check') for c in checks] == spec['checks']
+    automatic = complete and all(c.get('passed') is True for c in checks)
+    jobs = record.get('jobs') or []
+    job_statuses = [j.get('status', 'unknown') for j in jobs]
+    execution = ('no_jobs' if not jobs else 'terminal_succeeded' if all(s == 'succeeded' for s in job_statuses)
+                 else 'incomplete' if any(s in {'queued','running','created'} for s in job_statuses)
+                 else 'failed_or_unknown')
+    layers = {'CONTEXT_EXHAUSTED':'context', 'MODEL_REQUEST_TIMED_OUT':'model_request_timeout_unresolved',
+              'MODEL_PROTOCOL_ERROR':'runtime_protocol_or_persistence_unresolved',
+              'JOBS_PENDING':'job_lifecycle', 'EXECUTOR_UNAVAILABLE':'executor',
+              'RESOURCE_EXHAUSTED':'resource', 'NO_PROGRESS':'progress_control'}
+    answered = record.get('status') in {'waiting_user','completed'} and not record.get('blockers')
+    return {'automatic_checks_passed': automatic, 'checks_match_contract': complete,
+        'report_semantics': 'not_reviewed' if spec.get('manual') else 'not_required_by_contract',
+        'manual_criteria': spec.get('manual', []),
+        'full_task_passed': bool(automatic and answered and not spec.get('manual')),
+        'job_execution': execution, 'job_statuses': job_statuses,
+        'observed_failure_layers': [{'code':b.get('code'), 'layer':layers.get(b.get('code'),'unresolved')}
+                                   for b in record.get('blockers') or []],
+        'scientific_evidence': {'computation_validity':'not_assessed',
+            'method_claims':'not_reviewed', 'field_accuracy':'not_assessed'}}
 
 
 def input_paths(spec: dict) -> list[Path]:
@@ -113,7 +143,6 @@ def wait_task(client: LocalClient, task_id: str, budget: dict, followups: list[s
     started = time.monotonic()
     stop_reason = None
     cursor = 0
-    seen = 0
     all_events: list[dict] = []
     while True:
         state = client.request("GET", f"/tasks/{task_id}")
@@ -296,7 +325,7 @@ def job_list(client: LocalClient, task_id: str) -> list[dict]:
 
 
 def build_record(spec: dict, task_id: str, model: str, harness: str, before_inputs: dict,
-                 baseline: dict, started: str) -> dict:
+                 baseline: dict, started: str, *, output: Path | None = None, note: str | None = None) -> dict:
     client = LocalClient(load_config(ROOT / "config" / "app.research.yaml"))
     try:
         state = client.request("GET", f"/tasks/{task_id}")
@@ -309,9 +338,9 @@ def build_record(spec: dict, task_id: str, model: str, harness: str, before_inpu
     checks = run_checks(spec, state, events, artifacts, jobs, baseline, before_inputs,
                         load_config(ROOT / "config" / "app.research.yaml").workspace_root)
     usage = state.get("last_usage") or {}
-    all_passed = all(c["passed"] for c in checks)
+    all_passed = bool(checks) and all(c["passed"] for c in checks)
     answered = state["status"] in {"completed", "waiting_user"} and not state.get("blockers")
-    if answered and all_passed:
+    if answered and all_passed and not spec.get('manual'):
         verdict = "completed"
     elif answered:
         verdict = "partial"
@@ -336,7 +365,7 @@ def build_record(spec: dict, task_id: str, model: str, harness: str, before_inpu
             "tool_actions": len(summary["actions"]),
             "tools": summary["tools"],
             "last_usage": usage,
-            "wall_seconds": baseline.get("elapsed"),
+            "wall_seconds": baseline.get("elapsed", baseline.get('wall_seconds')),
             "stop_reason": baseline.get("stop_reason"),
         },
         "stages": summary["stages"],
@@ -348,7 +377,10 @@ def build_record(spec: dict, task_id: str, model: str, harness: str, before_inpu
         "manual": spec.get("manual", []),
         "inputs": before_inputs,
     }
-    save_record(record)
+    record['score'] = screening_score(spec, record)
+    if note:
+        record['note'] = note
+    save_record(record, output)
     return record
 
 
@@ -382,8 +414,10 @@ def main() -> None:
     send = commands.add_parser("send")
     send.add_argument("--task", required=True)
     send.add_argument("--text", default=None)
+    send.add_argument('--output', type=Path, required=True, help='后续观察另存，不覆盖原记录')
     record = commands.add_parser("record")
     record.add_argument("--task", required=True)
+    record.add_argument('--output', type=Path, required=True, help='另存观察/重评分，保留原记录')
     adopt = commands.add_parser("adopt")
     adopt.add_argument("--task", required=True)
     adopt.add_argument("--task-id", required=True)
@@ -398,6 +432,11 @@ def main() -> None:
         return
 
     config_path = ROOT / args.config
+    if args.command in {'run', 'adopt'} and load_record(args.task):
+        raise SystemExit('原试次记录已存在；不得重建或覆盖。请只读核对原记录；不同配置须独立冻结试次。')
+    if args.command in {'record', 'send'}:
+        if args.output.exists() or args.output.resolve() == record_path(args.task).resolve():
+            raise SystemExit('输出须为不存在的新文件，不能覆盖原记录或先前观察。')
     if args.command == "adopt":
         spec = task_spec(args.task)
         client = LocalClient(load_config(config_path))
@@ -415,9 +454,8 @@ def main() -> None:
                 last = datetime.fromisoformat(events[-1]["at"])
                 elapsed = (last - first).total_seconds()
             fresh = build_record(spec, args.task_id, spec["frozen"]["model"], spec["frozen"]["harness"],
-                                 before_inputs, {"elapsed": elapsed, "stop_reason": None}, times[0] if times else now())
-            fresh["note"] = args.note
-            save_record(fresh)
+                                 before_inputs, {"elapsed": elapsed, "stop_reason": None},
+                                 times[0] if times else now(), note=args.note)
             print_record(fresh)
         finally:
             client.close()
@@ -429,7 +467,7 @@ def main() -> None:
         if not existing:
             raise SystemExit("no record yet")
         fresh = build_record(spec, existing["task_id"], existing["frozen"]["model"], existing["frozen"]["harness"],
-                             existing["inputs"], existing["metrics"], existing["started"])
+                             existing["inputs"], existing["metrics"], existing["started"], output=args.output)
         print_record(fresh)
         return
 
@@ -480,7 +518,8 @@ def main() -> None:
             outcome = wait_task(client, task_id, spec["frozen"]["budget"], [])
             record = build_record(spec, task_id, existing["frozen"]["model"], existing["frozen"]["harness"],
                                   existing.get("inputs", {}), {"elapsed": outcome["elapsed"],
-                                  "stop_reason": outcome["stop_reason"]}, existing.get("started", now()))
+                                  "stop_reason": outcome["stop_reason"]}, existing.get("started", now()),
+                                  output=args.output)
             print_record(record)
     finally:
         client.close()

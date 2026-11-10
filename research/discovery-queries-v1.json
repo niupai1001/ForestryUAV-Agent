@@ -1,0 +1,26 @@
+{
+  "version": "discovery-queries-v1",
+  "scope": "Development recall screen, not held-out evaluation or scientific accuracy",
+  "cases": [
+    {"id":"q01","query":"把整架次航拍拼成带坐标的底图","category":"compute","required":["process_imagery"]},
+    {"id":"q02","query":"按照太阳和相机角度生成冠层光谱样本库","category":"compute","required":["process_imagery"]},
+    {"id":"q03","query":"利用四个波段估算叶面积指数","category":"compute","required":["process_imagery"]},
+    {"id":"q04","query":"这份LAZ里先分出裸地，再算离地高度","category":"compute","required":["process_lidar_terrain"]},
+    {"id":"q05","query":"从已有冠层高度找树顶并标出每棵树","category":"compute","required":["process_lidar_canopy"]},
+    {"id":"q06","query":"把表格里的空白值处理掉并统一长度单位","category":"compute","required":["code_execute"]},
+    {"id":"q07","query":"请运行这一小段Python并把输出保存下来","category":"compute","required":["code_execute"]},
+    {"id":"q08","query":"从PDF的第三页摘出样地描述","category":"files","required":["read_document"]},
+    {"id":"q09","query":"照片里两种颜色的标记各有多少个","category":"files","required":["view_image"]},
+    {"id":"q10","query":"把已读资料放进本会话可搜索的索引","category":"knowledge","required":["index_document"]},
+    {"id":"q11","query":"在授权文档中找与树种冲突有关的依据","category":"knowledge","required":["search_knowledge"]},
+    {"id":"q12","query":"找出我之前保存的工作笔记","category":"knowledge","required":["read_user_memory"]},
+    {"id":"q13","query":"看看这台机器有没有合适的计算环境","category":"environment","required":["inspect_environment"]},
+    {"id":"q14","query":"准备一个断网可重复使用的Python依赖环境","category":"environment","required":["prepare_environment"]},
+    {"id":"q15","query":"检查GeoTIFF的坐标系与各波段顺序","category":"compute","required":["process_imagery"]},
+    {"id":"q16","query":"把Python缺失模块所需的版本关系解析清楚","category":"environment","required":["resolve_dependencies"]},
+    {"id":"q17","query":"Read the third page of the PDF report","category":"files","required":["read_document"]},
+    {"id":"q18","query":"Recover my saved personal notes about earlier assumptions","category":"knowledge","required":["read_user_memory"]},
+    {"id":"q19","query":"按SHA核对公开依赖包并准备离线文件","category":"environment","required":["acquire_dependencies"]},
+    {"id":"q20","query":"从已确认的软件包构建可复用运行环境","category":"environment","required":["prepare_environment"]}
+  ]
+}

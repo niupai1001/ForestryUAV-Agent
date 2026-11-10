@@ -1,0 +1,1229 @@
+{
+  "schema_version": 1,
+  "scope": "all registered private capabilities, web/experimental ROI excluded",
+  "limitations": "Descriptor-only fake image identities; no worker/model or task starts. Native/search tools excluded.",
+  "descriptors": [
+    {
+      "name": "list_inputs",
+      "summary_zh": "分页列出当前任务获授权的输入ID/文件名，offset从0开始，每页1–20项；不授予新权限。",
+      "summary_en": "list inputs",
+      "capability": "fs.inputs",
+      "domain": "file_tools",
+      "schema_ref": "list_inputs",
+      "accepts": [
+        "limit",
+        "offset"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "select_input_files",
+      "summary_zh": "选择已发送文件夹内要用于代码/科学作业的文件，返回只读ID。继承原文件夹权限，无需用户再登记。",
+      "summary_en": "select input files",
+      "capability": "fs.inputs",
+      "domain": "file_tools",
+      "schema_ref": "select_input_files",
+      "accepts": [
+        "relative_paths",
+        "resource_id"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "list_files",
+      "summary_zh": "分页列出授权输入目录。relative_path 必须是根目录下的相对路径。",
+      "summary_en": "list files",
+      "capability": "fs.list",
+      "domain": "file_tools",
+      "schema_ref": "list_files",
+      "accepts": [
+        "offset",
+        "relative_path",
+        "resource_id"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "read_file",
+      "summary_zh": "读取授权 UTF-8 文本/CSV 的有界字节窗口，结果包含版本和分页游标。",
+      "summary_en": "read file",
+      "capability": "fs.read",
+      "domain": "file_tools",
+      "schema_ref": "read_file",
+      "accepts": [
+        "offset",
+        "relative_path",
+        "resource_id"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "inspect_artifact",
+      "summary_zh": "检查本任务已生成产物的校验和、可读性和真实版本；不证明业务语义正确。",
+      "summary_en": "inspect artifact",
+      "capability": "artifact.inspect",
+      "domain": "file_tools",
+      "schema_ref": "inspect_artifact",
+      "accepts": [
+        "artifact_id"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "read_artifact",
+      "summary_zh": "按最多4000字节窗口读回本任务封存的UTF-8产物，含SHA256。仅has_more=true时以offset=next继续；正文足以完成任务时可停止读取。",
+      "summary_en": "read artifact",
+      "capability": "artifact.read",
+      "domain": "file_tools",
+      "schema_ref": "read_artifact",
+      "accepts": [
+        "artifact_id",
+        "offset"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "view_image",
+      "summary_zh": "实际查看会话图片或目录内图片，也可看本会话图片产物。图像以视觉内容传入，保留原文件；不把文件名当图像。",
+      "summary_en": "view image",
+      "capability": "document.read",
+      "domain": "document_tools",
+      "schema_ref": "view_image",
+      "accepts": [
+        "artifact_id",
+        "relative_path",
+        "resource_id"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "read_document",
+      "summary_zh": "读取授权 PDF、DOCX 或文本，返回文本和来源引用。PDF 页码从 0 开始，不提供 OCR。",
+      "summary_en": "read document",
+      "capability": "document.read",
+      "domain": "document_tools",
+      "schema_ref": "read_document",
+      "accepts": [
+        "page",
+        "relative_path",
+        "resource_id"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "index_document",
+      "summary_zh": "缓存本任务授权文档的一页/窗口供检索，不构成用户知识导入。保留来源版本，按 next_page 继续。",
+      "summary_en": "index document",
+      "capability": "knowledge.index",
+      "domain": "document_tools",
+      "schema_ref": "index_document",
+      "accepts": [
+        "page",
+        "relative_path",
+        "resource_id"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "search_knowledge",
+      "summary_zh": "检索本任务授权来源的当前版本，保留明确导入的来源分类、适用条件、局限及冲突。\n\n检查 source_notices，不能使用过期来源或把专家断言当测量验证。无匹配不代表读过来源。",
+      "summary_en": "search knowledge",
+      "capability": "knowledge.search",
+      "domain": "document_tools",
+      "schema_ref": "search_knowledge",
+      "accepts": [
+        "query"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "write_file",
+      "summary_zh": "写UTF-8并封存；citation_actions={字段名:来源action_id}只附返回顶层citation的真实引用。JSON合字段，Markdown/文本附来源区；产物/记忆回执无citation，标识与SHA/版本写正文。不证明正文正确。",
+      "summary_en": "write file",
+      "capability": "fs.write_workspace",
+      "domain": "workspace_tools",
+      "schema_ref": "write_file",
+      "accepts": [
+        "citation_actions",
+        "content",
+        "relative_path"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "inspect_action",
+      "summary_zh": "读回本任务当前修订的已确认动作；view=citation只返回来源引用，不重读正文。默认result保留完整结果，可能外置。不能授予权限或重做动作。",
+      "summary_en": "inspect action",
+      "capability": "action.inspect",
+      "domain": "workspace_tools",
+      "schema_ref": "inspect_action",
+      "accepts": [
+        "action_id",
+        "view"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "read_user_memory",
+      "summary_zh": "读取当前有效且匹配任务范围的用户笔记。使用前核对声明的来源、条件和局限。\n\n笔记不能授予权限；模型不能更正或写入记忆。",
+      "summary_en": "read user memory",
+      "capability": "memory.read",
+      "domain": "memory_tools",
+      "schema_ref": "read_user_memory",
+      "accepts": [
+        "offset"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "inspect_environment",
+      "summary_zh": "实际检查本机软件/硬件/执行器就绪状态，返回有时间戳的清单。只读诊断，不安装依赖。",
+      "summary_en": "inspect environment",
+      "capability": "environment.inspect",
+      "domain": "environment_tools",
+      "schema_ref": "inspect_environment",
+      "accepts": [],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "resolve_dependencies",
+      "summary_zh": "PEP508解析wheel闭包或源码候选；无target先断网无输入探测(需code.execute)，wait_job后传目标ID。\nbuilt_wheel_artifact_ids复用源码元数据；同请求复用核验快照，refresh=true重新联网须审批。下载IDs合并安装。",
+      "summary_en": "resolve dependencies",
+      "capability": "environment.acquire",
+      "domain": "environment_tools",
+      "schema_ref": "resolve_dependencies",
+      "accepts": [
+        "approval_id",
+        "built_wheel_artifact_ids",
+        "refresh",
+        "requirements",
+        "target_artifact_id"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "acquire_dependencies",
+      "summary_zh": "精确name/version/filename下载1–32文件/128MiB，核对PyPI大小/SHA；不执行包。\nwheels只收.whl；source_packages收.tar.gz/.zip。私密任务审批后带approval_id重调。\n解析锁按用途绑定wheels或源码候选；下载的*_artifact_ids交prepare_environment。\n默认核验复用相同请求的已下载文件；refresh=true才重新获取并走原审批。",
+      "summary_en": "acquire dependencies",
+      "capability": "environment.acquire",
+      "domain": "environment_tools",
+      "schema_ref": "acquire_dependencies",
+      "accepts": [
+        "approval_id",
+        "refresh",
+        "resolution_lock_artifact_id",
+        "source",
+        "source_packages",
+        "wheels"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "prepare_environment",
+      "summary_zh": "*_refs用本地resource_id；下载用wheel_artifact_ids/source_artifact_ids。\n源码需code.execute；static取需求补wheel再dynamic。inspect_build与build_only互斥，后者产wheel；默认装环境，提交后wait_job。",
+      "summary_en": "prepare environment",
+      "capability": "environment.prepare",
+      "domain": "environment_tools",
+      "schema_ref": "prepare_environment",
+      "accepts": [
+        "build_only",
+        "inspect_build",
+        "seconds",
+        "source_artifact_ids",
+        "source_refs",
+        "wheel_artifact_ids",
+        "wheel_refs"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "code_execute",
+      "summary_zh": "断网Python作业，输入只读到/inputs/<resource_id>，输出/output。\n默认标准库；environment_artifact_id复用确认environment.zip，绑定镜像/SHA。返回持久job_id，用wait_job观察，不重复提交。",
+      "summary_en": "code execute",
+      "capability": "code.execute",
+      "domain": "job_tools",
+      "schema_ref": "code_execute",
+      "accepts": [
+        "code",
+        "environment_artifact_id",
+        "input_refs",
+        "seconds"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "process_imagery",
+      "summary_zh": "科学影像按文件引用处理，不把整批像素注入模型。\ninspect:raster；build_lut:空输入+参数声明JSON；invert:raster/lut+定标/波段声明JSON；\northomosaic:flight→已发送文件夹ID，或逐航片角色→资源ID；另需ODM声明JSON。\n文件夹由后端展开（当前≤200张顶层航片），不将影像清单/像素塞进上下文。\ninput_refs省略时使用唯一已授权航次目录/已生成正射。先调用本工具，不要逐张文本读取TIFF或抽取单个拍",
+      "summary_en": "process imagery",
+      "capability": "code.execute",
+      "domain": "job_tools",
+      "schema_ref": "process_imagery",
+      "accepts": [
+        "adoption_note",
+        "declaration_ref",
+        "input_refs",
+        "operation",
+        "resume_job_id",
+        "reuse_candidate_id",
+        "seconds"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "process_lidar_terrain",
+      "summary_zh": "原始米制高程LAS+授权声明JSON，经固定SMRF/IDW生成地形、支持和HAG。\n只用任务冻结科学镜像/已有code.execute授权和Jobs；返回job_id后wait_job。\n部分科学交付，不含单木/独立精度。已归一化、未知垂直/单位或不可行指定方法拒绝，不替换。",
+      "summary_en": "process lidar terrain",
+      "capability": "code.execute",
+      "domain": "job_tools",
+      "schema_ref": "process_lidar_terrain",
+      "accepts": [
+        "cloud_ref",
+        "declaration_ref",
+        "resume_job_id",
+        "resume_refs",
+        "seconds"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "process_lidar_canopy",
+      "summary_zh": "固定lidR配方的chm/seeds/instances独立阶段；文件角色及授权须完整。\nchm:working/terrain_quality/terrain_support；seeds:chm/chm_record；\ninstances:working/original/hag/chm/chm_record/seeds/seed_record。\n返回job_id后wait_job；复用已完成阶段，不重新归一化或做现场准确性推断。\ninput_refs可使用同会话产物ID，",
+      "summary_en": "process lidar canopy",
+      "capability": "code.execute",
+      "domain": "job_tools",
+      "schema_ref": "process_lidar_canopy",
+      "accepts": [
+        "input_refs",
+        "seconds",
+        "stage"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "wait_job",
+      "summary_zh": "查询当前任务作业，默认立即返回；显式等待最多seconds秒（0–120），到期如实返回仍在运行，可用同一job_id再查或继续其他交流；应用轮询不调用模型。终态含有界日志末尾/截断标记。失败产物可按artifact_ids读回，先检查并复用正确结果，不能把文件存在当通过或盲目重算。",
+      "summary_en": "wait job",
+      "capability": "job.observe",
+      "domain": "job_tools",
+      "schema_ref": "wait_job",
+      "accepts": [
+        "job_id",
+        "seconds"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    },
+    {
+      "name": "set_job_follow_up",
+      "summary_zh": "登记后台作业完成后尚欠的分析/报告，自动接回原任务；只需要文件时传null仅通知。\n提交长作业后，若用户目标仍欠分析或报告，登记具体剩余工作，不靠反复wait_job轮询。\n不改变权限、科学参数、执行预算或原任务目标；已经观察/消费的终态不能重复唤醒。",
+      "summary_en": "set job follow up",
+      "capability": "job.observe",
+      "domain": "job_tools",
+      "schema_ref": "set_job_follow_up",
+      "accepts": [
+        "instruction",
+        "job_id"
+      ],
+      "produces": [],
+      "modalities": [],
+      "permission_tier": "runtime_guarded",
+      "load_mode": "discoverable",
+      "version": "1"
+    }
+  ],
+  "schemas": {
+    "list_inputs": {
+      "name": "list_inputs",
+      "description": "分页列出当前任务获授权的输入ID/文件名，offset从0开始，每页1–20项；不授予新权限。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "offset": {
+            "default": 0,
+            "type": "integer"
+          },
+          "limit": {
+            "default": 20,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "select_input_files": {
+      "name": "select_input_files",
+      "description": "选择已发送文件夹内要用于代码/科学作业的文件，返回只读ID。继承原文件夹权限，无需用户再登记。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "resource_id": {
+            "type": "string"
+          },
+          "relative_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "resource_id",
+          "relative_paths"
+        ],
+        "type": "object"
+      }
+    },
+    "list_files": {
+      "name": "list_files",
+      "description": "分页列出授权输入目录。relative_path 必须是根目录下的相对路径。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "resource_id": {
+            "type": "string"
+          },
+          "relative_path": {
+            "default": "",
+            "type": "string"
+          },
+          "offset": {
+            "default": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "resource_id"
+        ],
+        "type": "object"
+      }
+    },
+    "read_file": {
+      "name": "read_file",
+      "description": "读取授权 UTF-8 文本/CSV 的有界字节窗口，结果包含版本和分页游标。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "resource_id": {
+            "type": "string"
+          },
+          "relative_path": {
+            "default": "",
+            "type": "string"
+          },
+          "offset": {
+            "default": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "resource_id"
+        ],
+        "type": "object"
+      }
+    },
+    "inspect_artifact": {
+      "name": "inspect_artifact",
+      "description": "检查本任务已生成产物的校验和、可读性和真实版本；不证明业务语义正确。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_id"
+        ],
+        "type": "object"
+      }
+    },
+    "read_artifact": {
+      "name": "read_artifact",
+      "description": "按最多4000字节窗口读回本任务封存的UTF-8产物，含SHA256。仅has_more=true时以offset=next继续；正文足以完成任务时可停止读取。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "offset": {
+            "default": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "artifact_id"
+        ],
+        "type": "object"
+      }
+    },
+    "view_image": {
+      "name": "view_image",
+      "description": "实际查看会话图片或目录内图片，也可看本会话图片产物。图像以视觉内容传入，保留原文件；不把文件名当图像。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "resource_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "relative_path": {
+            "default": "",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "read_document": {
+      "name": "read_document",
+      "description": "读取授权 PDF、DOCX 或文本，返回文本和来源引用。PDF 页码从 0 开始，不提供 OCR。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "resource_id": {
+            "type": "string"
+          },
+          "relative_path": {
+            "default": "",
+            "type": "string"
+          },
+          "page": {
+            "default": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "resource_id"
+        ],
+        "type": "object"
+      }
+    },
+    "index_document": {
+      "name": "index_document",
+      "description": "缓存本任务授权文档的一页/窗口供检索，不构成用户知识导入。保留来源版本，按 next_page 继续。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "resource_id": {
+            "type": "string"
+          },
+          "relative_path": {
+            "default": "",
+            "type": "string"
+          },
+          "page": {
+            "default": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "resource_id"
+        ],
+        "type": "object"
+      }
+    },
+    "search_knowledge": {
+      "name": "search_knowledge",
+      "description": "检索本任务授权来源的当前版本，保留明确导入的来源分类、适用条件、局限及冲突。\n\n检查 source_notices，不能使用过期来源或把专家断言当测量验证。无匹配不代表读过来源。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      }
+    },
+    "write_file": {
+      "name": "write_file",
+      "description": "写UTF-8并封存；citation_actions={字段名:来源action_id}只附返回顶层citation的真实引用。JSON合字段，Markdown/文本附来源区；产物/记忆回执无citation，标识与SHA/版本写正文。不证明正文正确。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "relative_path": {
+            "type": "string"
+          },
+          "content": {
+            "type": "string"
+          },
+          "citation_actions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "relative_path",
+          "content"
+        ],
+        "type": "object"
+      }
+    },
+    "inspect_action": {
+      "name": "inspect_action",
+      "description": "读回本任务当前修订的已确认动作；view=citation只返回来源引用，不重读正文。默认result保留完整结果，可能外置。不能授予权限或重做动作。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "view": {
+            "default": "result",
+            "enum": [
+              "result",
+              "citation"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "action_id"
+        ],
+        "type": "object"
+      }
+    },
+    "read_user_memory": {
+      "name": "read_user_memory",
+      "description": "读取当前有效且匹配任务范围的用户笔记。使用前核对声明的来源、条件和局限。\n\n笔记不能授予权限；模型不能更正或写入记忆。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "offset": {
+            "default": 0,
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "inspect_environment": {
+      "name": "inspect_environment",
+      "description": "实际检查本机软件/硬件/执行器就绪状态，返回有时间戳的清单。只读诊断，不安装依赖。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      }
+    },
+    "resolve_dependencies": {
+      "name": "resolve_dependencies",
+      "description": "PEP508解析wheel闭包或源码候选；无target先断网无输入探测(需code.execute)，wait_job后传目标ID。\nbuilt_wheel_artifact_ids复用源码元数据；同请求复用核验快照，refresh=true重新联网须审批。下载IDs合并安装。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "requirements": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "target_artifact_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "approval_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "built_wheel_artifact_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "refresh": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "requirements"
+        ],
+        "type": "object"
+      }
+    },
+    "acquire_dependencies": {
+      "name": "acquire_dependencies",
+      "description": "精确name/version/filename下载1–32文件/128MiB，核对PyPI大小/SHA；不执行包。\nwheels只收.whl；source_packages收.tar.gz/.zip。私密任务审批后带approval_id重调。\n解析锁按用途绑定wheels或源码候选；下载的*_artifact_ids交prepare_environment。\n默认核验复用相同请求的已下载文件；refresh=true才重新获取并走原审批。",
+      "schema": {
+        "$defs": {
+          "PackageRequest": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$",
+                "type": "string"
+              },
+              "version": {
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9.!+_-]{0,99}$",
+                "type": "string"
+              },
+              "filename": {
+                "maxLength": 244,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "version",
+              "filename"
+            ],
+            "title": "PackageRequest",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "wheels": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/PackageRequest"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "source": {
+            "default": "pypi",
+            "enum": [
+              "pypi",
+              "tuna"
+            ],
+            "type": "string"
+          },
+          "approval_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "resolution_lock_artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "source_packages": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/$defs/PackageRequest"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "refresh": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "prepare_environment": {
+      "name": "prepare_environment",
+      "description": "*_refs用本地resource_id；下载用wheel_artifact_ids/source_artifact_ids。\n源码需code.execute；static取需求补wheel再dynamic。inspect_build与build_only互斥，后者产wheel；默认装环境，提交后wait_job。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "wheel_refs": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "seconds": {
+            "default": 300,
+            "type": "integer"
+          },
+          "wheel_artifact_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "source_refs": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "source_artifact_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "build_only": {
+            "default": false,
+            "type": "boolean"
+          },
+          "inspect_build": {
+            "anyOf": [
+              {
+                "enum": [
+                  "static",
+                  "dynamic"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "type": "object"
+      }
+    },
+    "code_execute": {
+      "name": "code_execute",
+      "description": "断网Python作业，输入只读到/inputs/<resource_id>，输出/output。\n默认标准库；environment_artifact_id复用确认environment.zip，绑定镜像/SHA。返回持久job_id，用wait_job观察，不重复提交。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "input_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "seconds": {
+            "default": 300,
+            "type": "integer"
+          },
+          "environment_artifact_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "code",
+          "input_refs"
+        ],
+        "type": "object"
+      }
+    },
+    "process_imagery": {
+      "name": "process_imagery",
+      "description": "科学影像按文件引用处理，不把整批像素注入模型。\ninspect:raster；build_lut:空输入+参数声明JSON；invert:raster/lut+定标/波段声明JSON；\northomosaic:flight→已发送文件夹ID，或逐航片角色→资源ID；另需ODM声明JSON。\n文件夹由后端展开（当前≤200张顶层航片），不将影像清单/像素塞进上下文。\ninput_refs省略时使用唯一已授权航次目录/已生成正射。先调用本工具，不要逐张文本读取TIFF或抽取单个拍摄组。\n无声明时仅返回匹配数据的旧成果候选及原参数，不导入、不宣称完成；核对本次要求并提供声明后才校验复用。\n输入/声明/算法/预处理/镜像身份完整匹配才封存；反演复用须提供原LUT。旧成果缺血缘仅给候选，不猜测补录。\n旧候选无完整身份但适合当前目标，可传reuse_candidate_id和adoption_note明确采用其旧参数/限制，仍须声明；\n保存采用依据与未知项，不宣称当前算法等价。已知身份不符不能绕过，失效候选不会启动计算。\n返回reused及真实产物后直接交付，不再wait_job。\n沿用Jobs/只读输入/同会话产物/取消和恢复；返回job_id后wait_job，正确LUT/结果直接复用。\n不猜反射率、波段或模型参数，不把光谱残差当现场LAI精度。\n缺少声明时返回所需JSON Schema，不启动作业。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "enum": [
+              "inspect",
+              "build_lut",
+              "invert",
+              "orthomosaic"
+            ],
+            "type": "string"
+          },
+          "input_refs": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "declaration_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "seconds": {
+            "default": 900,
+            "type": "integer"
+          },
+          "resume_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "reuse_candidate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "adoption_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "operation"
+        ],
+        "type": "object"
+      }
+    },
+    "process_lidar_terrain": {
+      "name": "process_lidar_terrain",
+      "description": "原始米制高程LAS+授权声明JSON，经固定SMRF/IDW生成地形、支持和HAG。\n只用任务冻结科学镜像/已有code.execute授权和Jobs；返回job_id后wait_job。\n部分科学交付，不含单木/独立精度。已归一化、未知垂直/单位或不可行指定方法拒绝，不替换。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "cloud_ref": {
+            "type": "string"
+          },
+          "declaration_ref": {
+            "type": "string"
+          },
+          "seconds": {
+            "default": 900,
+            "type": "integer"
+          },
+          "resume_job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "resume_refs": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "cloud_ref",
+          "declaration_ref"
+        ],
+        "type": "object"
+      }
+    },
+    "process_lidar_canopy": {
+      "name": "process_lidar_canopy",
+      "description": "固定lidR配方的chm/seeds/instances独立阶段；文件角色及授权须完整。\nchm:working/terrain_quality/terrain_support；seeds:chm/chm_record；\ninstances:working/original/hag/chm/chm_record/seeds/seed_record。\n返回job_id后wait_job；复用已完成阶段，不重新归一化或做现场准确性推断。\ninput_refs可使用同会话产物ID，无须重新登记；省略时按完整产品批次自动衔接已有阶段。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "stage": {
+            "type": "string"
+          },
+          "input_refs": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
+          "seconds": {
+            "default": 900,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stage"
+        ],
+        "type": "object"
+      }
+    },
+    "wait_job": {
+      "name": "wait_job",
+      "description": "查询当前任务作业，默认立即返回；显式等待最多seconds秒（0–120），到期如实返回仍在运行，可用同一job_id再查或继续其他交流；应用轮询不调用模型。终态含有界日志末尾/截断标记。失败产物可按artifact_ids读回，先检查并复用正确结果，不能把文件存在当通过或盲目重算。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "seconds": {
+            "default": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "type": "object"
+      }
+    },
+    "set_job_follow_up": {
+      "name": "set_job_follow_up",
+      "description": "登记后台作业完成后尚欠的分析/报告，自动接回原任务；只需要文件时传null仅通知。\n提交长作业后，若用户目标仍欠分析或报告，登记具体剩余工作，不靠反复wait_job轮询。\n不改变权限、科学参数、执行预算或原任务目标；已经观察/消费的终态不能重复唤醒。",
+      "schema": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "type": "string"
+          },
+          "instruction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "type": "object"
+      }
+    }
+  }
+}

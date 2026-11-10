@@ -296,7 +296,9 @@ def main(request, output=Path("/output")):
         except importlib.metadata.PackageNotFoundError:
             pass
     write_json(output / "result.json", {"operation": operation, "method_id": request["method_id"],
-        "image": request["image"], "versions": versions, "result": result})
+        "image": request["image"], "versions": versions, "result": result,
+        "science_run_identity": request.get("science_run_identity"),
+        "identity_status": "recorded" if request.get("science_run_identity") else "unknown_legacy_or_resume"})
     print(json.dumps({"status": "completed", "result": "result.json"}))
 
 

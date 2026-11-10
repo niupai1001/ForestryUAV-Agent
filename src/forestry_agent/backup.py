@@ -7,11 +7,12 @@ import os
 import shutil
 import socket
 import sqlite3
-from contextlib import ExitStack, closing
+from contextlib import ExitStack, closing, contextmanager
 from pathlib import Path, PurePosixPath
 
 from .contracts import Failure
 from .resources import native_path, version
+from .runtime.ownership import workspace_writer
 from .store import encode, now, uid
 
 DATABASES = {'.forestry/state.sqlite', '.forestry/model-steps.sqlite'}
@@ -25,6 +26,7 @@ def _hash(path):
     return value.hexdigest()
 
 
+@contextmanager
 def _offline(config):
     # Reserve the actual listen address for the duration of the operation.
     # A connect timeout is not proof that Windows has no listening service.
@@ -33,10 +35,14 @@ def _offline(config):
         if os.name == 'nt':
             guard.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         guard.bind((config.host, config.port))
-        return guard
     except OSError:
         guard.close()
         raise Failure('PRECONDITION_MISSING', '请先停止此配置的本地服务；无法独占其监听地址，备份/恢复只支持离线操作', 409) from None
+    try:
+        with workspace_writer(config.workspace_root):
+            yield
+    finally:
+        guard.close()
 
 
 def _quiescent(db):
@@ -90,7 +96,7 @@ def create_backup(config, destination):
     state = root / '.forestry/state.sqlite'
     if not state.is_file():
         raise Failure('PRECONDITION_MISSING', '没有可备份的应用数据库', 422)
-    with closing(_offline(config)), ExitStack() as stack:
+    with _offline(config), ExitStack() as stack:
         # Hold the state writer lock before observing quiescence and copying files.
         state_db = stack.enter_context(closing(sqlite3.connect(native_path(state), timeout=1)))
         state_db.execute('BEGIN IMMEDIATE')
@@ -182,13 +188,13 @@ def inspect_backup(source):
 
 
 def restore_backup(config, source):
-    with closing(_offline(config)):
-        report = inspect_backup(source)
-        root, source = config.workspace_root.resolve(), Path(source).resolve()
-        if Path(report['workspace_root']).resolve() != root:
-            raise Failure('VERSION_CONFLICT', '恢复必须使用原工作区位置；绝对路径及授权记录不会改写', 409)
-        if source.is_relative_to(root) or root.is_relative_to(source):
-            raise Failure('PERMISSION_DENIED', '恢复源须与运行工作区分开', 403)
+    report = inspect_backup(source)
+    root, source = config.workspace_root.resolve(), Path(source).resolve()
+    if Path(report['workspace_root']).resolve() != root:
+        raise Failure('VERSION_CONFLICT', '恢复必须使用原工作区位置；绝对路径及授权记录不会改写', 409)
+    if source.is_relative_to(root) or root.is_relative_to(source):
+        raise Failure('PERMISSION_DENIED', '恢复源须与运行工作区分开', 403)
+    with _offline(config):
         if any(native_path(root / managed).exists() for managed in ['.forestry', 'tasks']):
             raise Failure('VERSION_CONFLICT', '运行数据已存在；先停服并将原.forestry和tasks移至独立保留位置，不覆盖历史', 409)
         stage = root / ('.restore-' + uid())

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="8" time="3.309" timestamp="2026-10-25T15:31:05.972100-04:00" hostname="DESKTOP-T530JCT"><testcase classname="tests.test_imagery_catalog" name="test_missing_declaration_returns_candidates_without_import_or_job" time="0.272" /><testcase classname="tests.test_imagery_catalog" name="test_changed_method_declaration_never_reuses[radiometric_calibration-camera+sun]" time="0.269" /><testcase classname="tests.test_imagery_catalog" name="test_changed_method_declaration_never_reuses[orthophoto_resolution_cm-10]" time="0.218" /><testcase classname="tests.test_imagery_catalog" name="test_changed_method_declaration_never_reuses[processing_mode-rgb]" time="0.232" /><testcase classname="tests.test_imagery_catalog" name="test_reuse_is_session_owned_and_not_a_fake_job" time="0.430" /><testcase classname="tests.test_imagery_catalog" name="test_changed_input_or_product_never_returns_a_cached_success[bytes]" time="0.358"><failure message="AssertionError: assert [{'action_id'...0e7463', ...}] == []&#10;  &#10;  Left contains one more item: {'action_id': '3093c954-3ac1-40e8-992e-e2412a0885ea', 'artifact_ids': [], 'assignment_id': None, 'attempt_id': '9fe653f2-507c-477b-b022-29c1d80e7463', ...}&#10;  Use -v to get more diff">catalog_case = (&lt;starlette.testclient.TestClient object at 0x0000023CBEBD9CA0&gt;, &lt;fastapi.applications.FastAPI object at 0x0000023CBEB...t/forestry-uav-agent-v1/workspace/rebuild-science-candidates-20261025/test_changed_input_or_product_0/orthophoto.tif'))
+change = 'bytes'
+
+    @pytest.mark.parametrize('change',['bytes','additional_file','damaged_product'])
+    def test_changed_input_or_product_never_returns_a_cached_success(catalog_case,change):
+        _,app,task,_,source,product = catalog_case
+        if change == 'bytes':
+            (source/'0.tif').write_bytes(b'changed')
+        elif change == 'additional_file':
+            (source/'extra.tif').write_bytes(b'new flight capture')
+        else:
+            product.write_bytes(b'corrupt')
+        response = submit(catalog_case)
+        assert not response.get('reused')
+        assert app.state.engine.store.task(task)['artifact_ids'] == []
+&gt;       assert app.state.engine.jobs.list(task)['jobs'] == []
+E       AssertionError: assert [{'action_id'...0e7463', ...}] == []
+E         
+E         Left contains one more item: {'action_id': '3093c954-3ac1-40e8-992e-e2412a0885ea', 'artifact_ids': [], 'assignment_id': None, 'attempt_id': '9fe653f2-507c-477b-b022-29c1d80e7463', ...}
+E         Use -v to get more diff
+
+tests\test_imagery_catalog.py:117: AssertionError</failure></testcase><testcase classname="tests.test_imagery_catalog" name="test_changed_input_or_product_never_returns_a_cached_success[additional_file]" time="0.465"><failure message="AssertionError: assert [{'action_id'...19a8c6', ...}] == []&#10;  &#10;  Left contains one more item: {'action_id': '6bf39064-3068-4081-af53-95127b7a25ae', 'artifact_ids': [], 'assignment_id': None, 'attempt_id': '7fbda71d-febd-4cae-b205-95c71419a8c6', ...}&#10;  Use -v to get more diff">catalog_case = (&lt;starlette.testclient.TestClient object at 0x0000023CBED4E810&gt;, &lt;fastapi.applications.FastAPI object at 0x0000023CBED...t/forestry-uav-agent-v1/workspace/rebuild-science-candidates-20261025/test_changed_input_or_product_1/orthophoto.tif'))
+change = 'additional_file'
+
+    @pytest.mark.parametrize('change',['bytes','additional_file','damaged_product'])
+    def test_changed_input_or_product_never_returns_a_cached_success(catalog_case,change):
+        _,app,task,_,source,product = catalog_case
+        if change == 'bytes':
+            (source/'0.tif').write_bytes(b'changed')
+        elif change == 'additional_file':
+            (source/'extra.tif').write_bytes(b'new flight capture')
+        else:
+            product.write_bytes(b'corrupt')
+        response = submit(catalog_case)
+        assert not response.get('reused')
+        assert app.state.engine.store.task(task)['artifact_ids'] == []
+&gt;       assert app.state.engine.jobs.list(task)['jobs'] == []
+E       AssertionError: assert [{'action_id'...19a8c6', ...}] == []
+E         
+E         Left contains one more item: {'action_id': '6bf39064-3068-4081-af53-95127b7a25ae', 'artifact_ids': [], 'assignment_id': None, 'attempt_id': '7fbda71d-febd-4cae-b205-95c71419a8c6', ...}
+E         Use -v to get more diff
+
+tests\test_imagery_catalog.py:117: AssertionError</failure></testcase><testcase classname="tests.test_imagery_catalog" name="test_changed_input_or_product_never_returns_a_cached_success[damaged_product]" time="0.280" /></testsuite></testsuites>
